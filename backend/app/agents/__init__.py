@@ -1,0 +1,62 @@
+# AI员工模块
+from app.agents.base import BaseAgent, AgentRegistry
+from app.agents.coordinator import coordinator, CoordinatorAgent
+from app.agents.sales_agent import sales_agent, SalesAgent
+from app.agents.analyst import analyst_agent, AnalystAgent
+from app.agents.copywriter import copywriter_agent, CopywriterAgent
+from app.agents.video_creator import video_creator_agent, VideoCreatorAgent
+from app.agents.follow_agent import follow_agent, FollowAgent
+
+__all__ = [
+    # 基类
+    "BaseAgent",
+    "AgentRegistry",
+    # Agent类
+    "CoordinatorAgent",
+    "SalesAgent",
+    "AnalystAgent",
+    "CopywriterAgent",
+    "VideoCreatorAgent",
+    "FollowAgent",
+    # 单例实例
+    "coordinator",
+    "sales_agent",
+    "analyst_agent",
+    "copywriter_agent",
+    "video_creator_agent",
+    "follow_agent",
+]
+
+# AI员工团队介绍
+AI_TEAM = {
+    "coordinator": {
+        "name": "小调",
+        "role": "AI调度主管",
+        "description": "负责任务分配、流程协调、异常处理",
+    },
+    "video_creator": {
+        "name": "小视",
+        "role": "视频创作员",
+        "description": "生成物流广告视频、产品展示视频",
+    },
+    "copywriter": {
+        "name": "小文",
+        "role": "文案策划",
+        "description": "广告文案、朋友圈文案、视频脚本",
+    },
+    "sales": {
+        "name": "小销",
+        "role": "销售客服",
+        "description": "首次接待、解答咨询、收集需求",
+    },
+    "follow": {
+        "name": "小跟",
+        "role": "跟进专员",
+        "description": "老客户维护、意向客户跟进、促成转化",
+    },
+    "analyst": {
+        "name": "小析",
+        "role": "客户分析师",
+        "description": "意向评分、客户画像、数据报表",
+    },
+}

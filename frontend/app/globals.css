@@ -1,0 +1,142 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 赛博朋克高科技风格全局样式 */
+:root {
+  --deep-space: #0a0a0f;
+  --dark-purple: #1a1a2e;
+  --cyber-blue: #00d4ff;
+  --neon-purple: #a855f7;
+  --cyber-green: #00ff88;
+  --energy-orange: #ff6b35;
+  --alert-red: #ff3366;
+}
+
+/* 背景网格效果 */
+body {
+  background-color: var(--deep-space);
+  background-image: 
+    linear-gradient(rgba(0, 212, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 212, 255, 0.03) 1px, transparent 1px);
+  background-size: 50px 50px;
+  min-height: 100vh;
+}
+
+/* 毛玻璃卡片 */
+@layer components {
+  .glass-card {
+    @apply bg-dark-purple/40 backdrop-blur-xl border border-cyber-blue/20 rounded-xl;
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
+  }
+  
+  .glass-card-hover {
+    @apply glass-card transition-all duration-300;
+  }
+  
+  .glass-card-hover:hover {
+    @apply border-cyber-blue/40;
+    box-shadow: 0 0 30px rgba(0, 212, 255, 0.2);
+    transform: translateY(-2px);
+  }
+  
+  /* 霓虹发光按钮 */
+  .btn-cyber {
+    @apply px-6 py-3 rounded-lg font-medium transition-all duration-300;
+    @apply bg-gradient-to-r from-cyber-blue to-neon-purple;
+    @apply hover:shadow-cyber-lg;
+  }
+  
+  .btn-cyber:hover {
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.5), 0 0 40px rgba(168, 85, 247, 0.3);
+  }
+  
+  /* 发光边框 */
+  .glow-border {
+    @apply border border-cyber-blue/30;
+    box-shadow: 
+      inset 0 0 20px rgba(0, 212, 255, 0.1),
+      0 0 20px rgba(0, 212, 255, 0.1);
+  }
+  
+  /* 状态徽章 */
+  .badge-online {
+    @apply px-2 py-1 rounded-full text-xs font-medium;
+    @apply bg-cyber-green/20 text-cyber-green border border-cyber-green/30;
+  }
+  
+  .badge-busy {
+    @apply px-2 py-1 rounded-full text-xs font-medium;
+    @apply bg-energy-orange/20 text-energy-orange border border-energy-orange/30;
+  }
+  
+  .badge-offline {
+    @apply px-2 py-1 rounded-full text-xs font-medium;
+    @apply bg-gray-500/20 text-gray-400 border border-gray-500/30;
+  }
+  
+  /* 意向等级徽章 */
+  .intent-s {
+    @apply px-3 py-1 rounded-full text-sm font-bold;
+    @apply bg-gradient-to-r from-yellow-500 to-amber-400 text-black;
+    box-shadow: 0 0 15px rgba(245, 158, 11, 0.5);
+  }
+  
+  .intent-a {
+    @apply px-3 py-1 rounded-full text-sm font-medium;
+    @apply bg-cyber-green/20 text-cyber-green border border-cyber-green/50;
+  }
+  
+  .intent-b {
+    @apply px-3 py-1 rounded-full text-sm font-medium;
+    @apply bg-cyber-blue/20 text-cyber-blue border border-cyber-blue/50;
+  }
+  
+  .intent-c {
+    @apply px-3 py-1 rounded-full text-sm font-medium;
+    @apply bg-gray-500/20 text-gray-400 border border-gray-500/50;
+  }
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--deep-space);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--cyber-blue);
+  border-radius: 4px;
+  opacity: 0.5;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--neon-purple);
+}
+
+/* 数字字体 */
+.font-number {
+  font-family: 'Space Mono', 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 流光动画 */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(0, 212, 255, 0.3),
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
