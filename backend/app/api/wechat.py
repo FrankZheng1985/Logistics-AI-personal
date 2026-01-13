@@ -6,6 +6,7 @@ from fastapi.responses import PlainTextResponse
 from loguru import logger
 
 from app.services.wechat import wechat_service
+from app.services.conversation_service import conversation_service
 from app.agents.sales_agent import SalesAgent
 
 router = APIRouter(prefix="/wechat", tags=["企业微信"])
@@ -70,7 +71,23 @@ async def receive_message(
             
             logger.info(f"收到用户 {user_id} 的消息: {content}")
             
-            # 使用AI销售客服回复
+            # 1. 获取或创建客户记录
+            customer = await conversation_service.get_or_create_customer(user_id)
+            customer_id = customer.get("id")
+            
+            # 2. 保存用户消息到数据库
+            if customer_id:
+                await conversation_service.save_message(
+                    customer_id=customer_id,
+                    agent_type="sales",
+                    message_type="inbound",
+                    content=content,
+                    intent_delta=5  # 每次咨询+5分
+                )
+                # 更新客户意向分数
+                await conversation_service.update_customer_intent(customer_id, 5)
+            
+            # 3. 使用AI销售客服回复
             try:
                 sales_agent = SalesAgent()
                 
@@ -83,18 +100,35 @@ async def receive_message(
                 
                 reply_content = response.get("reply", "感谢您的咨询，我们会尽快回复您！")
                 
-                # 发送回复
+                # 4. 保存AI回复到数据库
+                if customer_id:
+                    await conversation_service.save_message(
+                        customer_id=customer_id,
+                        agent_type="sales",
+                        message_type="outbound",
+                        content=reply_content
+                    )
+                
+                # 5. 发送回复给用户
                 await wechat_service.send_text_message([user_id], reply_content)
+                
+                # 6. 记录AI员工任务完成
+                await conversation_service.record_agent_task("sales", success=True)
                 
                 logger.info(f"已回复用户 {user_id}: {reply_content[:50]}...")
                 
             except Exception as e:
                 logger.error(f"AI回复失败: {e}")
                 # 发送默认回复
-                await wechat_service.send_text_message(
-                    [user_id], 
-                    "感谢您的咨询！我是物流AI客服，正在为您查询，请稍候..."
-                )
+                default_reply = "感谢您的咨询！我是物流AI客服，正在为您查询，请稍候..."
+                if customer_id:
+                    await conversation_service.save_message(
+                        customer_id=customer_id,
+                        agent_type="sales",
+                        message_type="outbound",
+                        content=default_reply
+                    )
+                await wechat_service.send_text_message([user_id], default_reply)
         
         # 返回success表示消息已接收
         return PlainTextResponse(content="success")

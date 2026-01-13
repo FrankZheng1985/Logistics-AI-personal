@@ -77,15 +77,44 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db)) -> Dict[str, A
 
 @router.get("/team-status")
 async def get_team_status(db: AsyncSession = Depends(get_db)):
-    """获取AI团队状态"""
-    # 返回默认AI团队状态
+    """获取AI团队状态 - 从数据库获取真实数据"""
+    try:
+        # 从数据库获取AI员工数据
+        result = await db.execute(
+            text("""
+                SELECT name, agent_type, status, tasks_completed_today, total_tasks_completed
+                FROM ai_agents 
+                ORDER BY name
+            """)
+        )
+        rows = result.fetchall()
+        
+        if rows:
+            agents = []
+            for row in rows:
+                agents.append({
+                    "name": row[0],
+                    "type": row[1],
+                    "status": row[2] or "online",
+                    "tasks_today": row[3] or 0,
+                    "total_tasks": row[4] or 0,
+                    "success_rate": 100  # 默认100%
+                })
+            return {
+                "agents": agents,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+    except Exception as e:
+        pass
+    
+    # 如果数据库查询失败，返回默认数据
     default_agents = [
-        {"name": "小调", "role": "调度主管", "status": "online", "tasks_today": 0},
-        {"name": "小销", "role": "销售客服", "status": "online", "tasks_today": 0},
-        {"name": "小析", "role": "客户分析", "status": "online", "tasks_today": 0},
-        {"name": "小文", "role": "文案策划", "status": "online", "tasks_today": 0},
-        {"name": "小视", "role": "视频创作", "status": "online", "tasks_today": 0},
-        {"name": "小跟", "role": "跟进专员", "status": "online", "tasks_today": 0},
+        {"name": "小调", "type": "coordinator", "status": "online", "tasks_today": 0, "total_tasks": 0, "success_rate": 100},
+        {"name": "小销", "type": "sales", "status": "online", "tasks_today": 0, "total_tasks": 0, "success_rate": 100},
+        {"name": "小析", "type": "analyst", "status": "online", "tasks_today": 0, "total_tasks": 0, "success_rate": 100},
+        {"name": "小文", "type": "copywriter", "status": "online", "tasks_today": 0, "total_tasks": 0, "success_rate": 100},
+        {"name": "小视", "type": "video_creator", "status": "online", "tasks_today": 0, "total_tasks": 0, "success_rate": 100},
+        {"name": "小跟", "type": "follow", "status": "online", "tasks_today": 0, "total_tasks": 0, "success_rate": 100},
     ]
     
     return {
