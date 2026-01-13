@@ -11,6 +11,7 @@ RUN echo "deb http://mirrors.tencentyun.com/debian/ bookworm main contrib non-fr
 RUN apt-get update && apt-get install -y \
     gcc \
     libpq-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制依赖文件
