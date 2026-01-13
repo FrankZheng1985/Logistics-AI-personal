@@ -29,6 +29,9 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False,
 )
 
+# 别名 - 用于服务层
+async_session_maker = AsyncSessionLocal
+
 
 async def get_db() -> AsyncSession:
     """获取数据库会话的依赖注入函数"""
