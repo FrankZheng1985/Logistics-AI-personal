@@ -27,6 +27,15 @@ class CustomerSource(str, enum.Enum):
     REFERRAL = "referral"
     AD = "ad"
     OTHER = "other"
+    
+    @classmethod
+    def _missing_(cls, value):
+        """处理数据库返回的值"""
+        if isinstance(value, str):
+            for member in cls:
+                if member.value == value.lower():
+                    return member
+        return None
 
 
 class Customer(Base):
@@ -50,7 +59,12 @@ class Customer(Base):
     
     # 来源追踪
     source: Mapped[CustomerSource] = mapped_column(
-        Enum(CustomerSource), 
+        Enum(
+            CustomerSource, 
+            name='customer_source', 
+            create_type=False,
+            values_callable=lambda x: [e.value for e in x]
+        ), 
         default=CustomerSource.OTHER
     )
     source_detail: Mapped[Optional[str]] = mapped_column(String(200))
@@ -58,7 +72,7 @@ class Customer(Base):
     # 意向评估
     intent_score: Mapped[int] = mapped_column(Integer, default=0)
     intent_level: Mapped[IntentLevel] = mapped_column(
-        Enum(IntentLevel), 
+        Enum(IntentLevel, name='intent_level', create_type=False), 
         default=IntentLevel.C
     )
     tags: Mapped[List[str]] = mapped_column(ARRAY(String(50)), default=[])

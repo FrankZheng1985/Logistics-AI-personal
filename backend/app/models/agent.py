@@ -33,13 +33,16 @@ class AIAgent(Base):
     
     # 基本信息
     name: Mapped[str] = mapped_column(String(20), nullable=False)
-    agent_type: Mapped[AgentType] = mapped_column(Enum(AgentType), nullable=False)
+    agent_type: Mapped[AgentType] = mapped_column(
+        Enum(AgentType, name='agent_type', create_type=False, values_callable=lambda x: [e.value for e in x]), 
+        nullable=False
+    )
     description: Mapped[Optional[str]] = mapped_column(Text)
     avatar_url: Mapped[Optional[str]] = mapped_column(String(500))
     
     # 状态
     status: Mapped[AgentStatus] = mapped_column(
-        Enum(AgentStatus), 
+        Enum(AgentStatus, name='agent_status', create_type=False, values_callable=lambda x: [e.value for e in x]), 
         default=AgentStatus.ONLINE
     )
     current_task_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True))

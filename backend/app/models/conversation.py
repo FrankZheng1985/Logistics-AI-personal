@@ -48,8 +48,14 @@ class Conversation(Base):
     
     # 对话信息
     session_id: Mapped[Optional[str]] = mapped_column(String(100))
-    agent_type: Mapped[AgentType] = mapped_column(Enum(AgentType), nullable=False)
-    message_type: Mapped[MessageType] = mapped_column(Enum(MessageType), nullable=False)
+    agent_type: Mapped[AgentType] = mapped_column(
+        Enum(AgentType, name='agent_type', create_type=False, values_callable=lambda x: [e.value for e in x]), 
+        nullable=False
+    )
+    message_type: Mapped[MessageType] = mapped_column(
+        Enum(MessageType, name='message_type', create_type=False, values_callable=lambda x: [e.value for e in x]), 
+        nullable=False
+    )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     
     # 意向分析

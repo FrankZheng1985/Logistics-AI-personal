@@ -35,9 +35,12 @@ class AITask(Base):
     
     # 任务信息
     task_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    agent_type: Mapped[AgentType] = mapped_column(Enum(AgentType), nullable=False)
+    agent_type: Mapped[AgentType] = mapped_column(
+        Enum(AgentType, name='agent_type', create_type=False, values_callable=lambda x: [e.value for e in x]), 
+        nullable=False
+    )
     status: Mapped[TaskStatus] = mapped_column(
-        Enum(TaskStatus), 
+        Enum(TaskStatus, name='task_status', create_type=False, values_callable=lambda x: [e.value for e in x]), 
         default=TaskStatus.PENDING
     )
     priority: Mapped[int] = mapped_column(Integer, default=5)  # 1-10，越小越优先

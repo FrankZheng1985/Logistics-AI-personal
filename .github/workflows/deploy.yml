@@ -20,7 +20,7 @@ on:
 
 env:
   PROJECT_NAME: logistics-ai
-  DEPLOY_PATH: /home/deploy/logistics-ai
+  DEPLOY_PATH: /home/ubuntu/logistics-ai
 
 jobs:
   # ==================== 代码检查 ====================
@@ -154,15 +154,15 @@ jobs:
           EOF
             
             echo "🐳 使用 Docker Compose 部署..."
-            docker compose -f docker-compose.prod.yml down || true
-            docker compose -f docker-compose.prod.yml pull || true
-            docker compose -f docker-compose.prod.yml up -d --build
+            docker-compose -f docker-compose.prod.yml down || true
+            docker-compose -f docker-compose.prod.yml pull || true
+            docker-compose -f docker-compose.prod.yml up -d --build
             
             echo "🧹 清理未使用的镜像..."
             docker image prune -f || true
             
             echo "✅ 部署完成!"
-            docker compose -f docker-compose.prod.yml ps
+            docker-compose -f docker-compose.prod.yml ps
           ENDSSH
 
       - name: 📊 健康检查
@@ -170,7 +170,7 @@ jobs:
           echo "⏳ 等待服务启动..."
           sleep 30
           echo "🔍 检查服务状态..."
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "cd ${{ env.DEPLOY_PATH }} && docker compose -f docker-compose.prod.yml ps"
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "cd ${{ env.DEPLOY_PATH }} && docker-compose -f docker-compose.prod.yml ps"
 
   # ==================== 部署通知 ====================
   notify:

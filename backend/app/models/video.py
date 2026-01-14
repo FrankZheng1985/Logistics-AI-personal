@@ -48,7 +48,7 @@ class Video(Base):
     
     # 状态
     status: Mapped[VideoStatus] = mapped_column(
-        Enum(VideoStatus), 
+        Enum(VideoStatus, name='video_status', create_type=False, values_callable=lambda x: [e.value for e in x]), 
         default=VideoStatus.DRAFT
     )
     
