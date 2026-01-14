@@ -6,6 +6,7 @@ from app.agents.analyst import analyst_agent, AnalystAgent
 from app.agents.copywriter import copywriter_agent, CopywriterAgent
 from app.agents.video_creator import video_creator_agent, VideoCreatorAgent
 from app.agents.follow_agent import follow_agent, FollowAgent
+from app.agents.lead_hunter import lead_hunter_agent, LeadHunterAgent
 
 __all__ = [
     # 基类
@@ -18,6 +19,7 @@ __all__ = [
     "CopywriterAgent",
     "VideoCreatorAgent",
     "FollowAgent",
+    "LeadHunterAgent",
     # 单例实例
     "coordinator",
     "sales_agent",
@@ -25,6 +27,7 @@ __all__ = [
     "copywriter_agent",
     "video_creator_agent",
     "follow_agent",
+    "lead_hunter_agent",
 ]
 
 # AI员工团队介绍
@@ -58,5 +61,10 @@ AI_TEAM = {
         "name": "小析",
         "role": "客户分析师",
         "description": "意向评分、客户画像、数据报表",
+    },
+    "lead_hunter": {
+        "name": "小猎",
+        "role": "线索猎手",
+        "description": "从互联网搜索潜在客户线索、发现商机",
     },
 }
