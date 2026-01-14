@@ -125,6 +125,7 @@ services:
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=/api  # 通过 Nginx 代理
+      - HOSTNAME=0.0.0.0  # 让Next.js监听所有接口
     ports:
       - "127.0.0.1:3000:3000"  # 只允许本地访问
     depends_on:

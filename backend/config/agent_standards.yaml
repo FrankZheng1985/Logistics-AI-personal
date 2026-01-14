@@ -1,0 +1,561 @@
+# ============================================================
+# 物流获客AI - AI员工工作标准配置文件
+# 版本: 1.0.0
+# 最后更新: 2026-01-14
+# ============================================================
+
+version: "1.0.0"
+
+# ============================================================
+# 小影 - 视频创作员 工作标准
+# ============================================================
+video_creator:
+  name: "小影"
+  role: "视频创作员"
+  description: "负责生成电影级广告视频、产品展示视频"
+  
+  quality_standards:
+    video_duration:
+      min_seconds: 90          # 最短1.5分钟
+      max_seconds: 300         # 最长5分钟
+      default_seconds: 120     # 默认2分钟
+    
+    video_quality:
+      resolution: "1080p"      # 最低1080p，推荐4K
+      preferred_resolution: "4K"
+      frame_rate: 24           # 帧率
+      codec: "H.264"
+      bitrate_mbps: 10
+    
+    content_requirements:
+      - "无水印"
+      - "无AI生成痕迹"
+      - "画面稳定流畅"
+      - "色彩专业统一"
+      - "字幕清晰可读"
+      - "配音清晰自然"
+      - "背景音乐匹配"
+    
+    style_requirements:
+      - "电影级镜头语言"
+      - "专业转场效果"
+      - "情感共鸣设计"
+      - "品牌调性一致"
+  
+  efficiency_standards:
+    short_video_generation_time_minutes: 15    # 短视频(<2分钟)
+    long_video_generation_time_minutes: 30     # 长视频(2-5分钟)
+    max_retry_attempts: 3
+    
+  professional_standards:
+    supported_languages:
+      - code: "zh-CN"
+        name: "中文(普通话)"
+      - code: "zh-HK"
+        name: "中文(粤语)"
+      - code: "en-US"
+        name: "英语(美式)"
+      - code: "en-GB"
+        name: "英语(英式)"
+      - code: "de-DE"
+        name: "德语"
+      - code: "fr-FR"
+        name: "法语"
+      - code: "es-ES"
+        name: "西班牙语"
+      - code: "ja-JP"
+        name: "日语"
+      - code: "ko-KR"
+        name: "韩语"
+      - code: "ar-SA"
+        name: "阿拉伯语"
+      - code: "pt-BR"
+        name: "葡萄牙语"
+      - code: "ru-RU"
+        name: "俄语"
+    
+    video_types:
+      - type: "ad"
+        description: "广告宣传片"
+        typical_duration: 60
+      - type: "intro"
+        description: "公司/产品介绍"
+        typical_duration: 180
+      - type: "route"
+        description: "航线介绍"
+        typical_duration: 120
+      - type: "case_study"
+        description: "案例分享"
+        typical_duration: 180
+      - type: "tutorial"
+        description: "教程/操作指南"
+        typical_duration: 240
+
+# ============================================================
+# 小文 - 文案策划 工作标准 (天下第一笔)
+# ============================================================
+copywriter:
+  name: "小文"
+  role: "文案策划"
+  title: "天下第一笔"
+  description: "顶级文案大师，负责广告文案、视频脚本、营销内容"
+  
+  quality_standards:
+    originality_rate: 0.95     # 原创度 >= 95%
+    grammar_error_rate: 0      # 语法错误率 = 0
+    
+    content_requirements:
+      - "原创度高，无抄袭"
+      - "无语法错误"
+      - "符合物流行业专业性"
+      - "情感共鸣强"
+      - "行动号召明确"
+      - "品牌调性一致"
+    
+    style_requirements:
+      - "标题吸睛有力"
+      - "内容简洁精炼"
+      - "卖点突出清晰"
+      - "情感触动人心"
+      - "节奏感强"
+  
+  efficiency_standards:
+    short_copy_time_minutes: 5      # 短文案(<200字)
+    long_copy_time_minutes: 15      # 长文案(>500字)
+    video_script_time_minutes: 20   # 视频脚本
+    
+  professional_standards:
+    writing_models:
+      - name: "AIDA"
+        description: "注意-兴趣-欲望-行动"
+        use_case: "广告文案、销售页面"
+      - name: "PAS"
+        description: "问题-激化-解决方案"
+        use_case: "痛点营销、问题解决"
+      - name: "BAB"
+        description: "之前-之后-桥梁"
+        use_case: "效果展示、案例分享"
+      - name: "4P"
+        description: "承诺-画面-证明-推动"
+        use_case: "高转化文案"
+      - name: "QUEST"
+        description: "资格-理解-教育-刺激-转化"
+        use_case: "教育型营销"
+    
+    copy_types:
+      - type: "video_script"
+        description: "视频脚本"
+        output_format: "分镜+旁白"
+      - type: "ad_copy"
+        description: "广告文案"
+        max_length: 500
+      - type: "moments"
+        description: "朋友圈文案"
+        max_length: 200
+      - type: "email"
+        description: "营销邮件"
+        max_length: 1000
+      - type: "landing_page"
+        description: "落地页文案"
+        max_length: 2000
+    
+    supported_languages:
+      - "中文"
+      - "英文"
+      - "西班牙语"
+      - "德语"
+      - "法语"
+      - "日语"
+      - "韩语"
+      - "阿拉伯语"
+
+# ============================================================
+# 小调 - AI调度主管 工作标准
+# ============================================================
+coordinator:
+  name: "小调"
+  role: "AI调度主管"
+  description: "负责任务分配、流程协调、异常处理、工作报告"
+  
+  quality_standards:
+    report_accuracy_rate: 0.99   # 报告准确率 >= 99%
+    
+    report_requirements:
+      - "数据准确无误"
+      - "分析深入专业"
+      - "建议可执行"
+      - "格式规范统一"
+      - "重点突出"
+    
+    analysis_depth:
+      - "MBA级战略分析"
+      - "数据驱动决策"
+      - "趋势预测能力"
+      - "风险识别预警"
+  
+  efficiency_standards:
+    daily_report_time_minutes: 5     # 日报生成时间
+    weekly_report_time_minutes: 15   # 周报生成时间
+    monthly_report_time_minutes: 30  # 月报生成时间
+    task_dispatch_time_seconds: 3    # 任务分配响应时间
+    
+  professional_standards:
+    report_types:
+      - type: "daily"
+        description: "每日工作报告"
+        sections:
+          - "AI员工工作统计"
+          - "系统健康状态"
+          - "业务指标概览"
+          - "异常与告警"
+          - "明日计划"
+      - type: "weekly"
+        description: "每周工作报告"
+        sections:
+          - "本周工作总结"
+          - "各员工绩效分析"
+          - "系统运行分析"
+          - "业务指标趋势"
+          - "问题与改进建议"
+          - "下周计划"
+      - type: "monthly"
+        description: "每月工作报告"
+        sections:
+          - "本月整体概况"
+          - "员工能力评估"
+          - "系统优化建议"
+          - "业务增长分析"
+          - "竞争分析"
+          - "下月战略规划"
+    
+    monitoring_scope:
+      - "API可用性(可灵AI/通义千问/Serper等)"
+      - "接口响应时间"
+      - "错误率统计"
+      - "SSL证书有效期"
+      - "数据库连接状态"
+      - "Redis缓存状态"
+      - "任务队列健康度"
+
+# ============================================================
+# 小销 - 销售客服 工作标准
+# ============================================================
+sales:
+  name: "小销"
+  role: "销售客服"
+  description: "负责首次接待、解答咨询、收集需求、意向判断"
+  
+  quality_standards:
+    customer_satisfaction_rate: 0.90  # 客户满意度 >= 90%
+    
+    service_requirements:
+      - "专业友好"
+      - "回复准确"
+      - "耐心细致"
+      - "善于引导"
+      - "有效收集信息"
+    
+    communication_style:
+      - "热情但不过分"
+      - "专业但不生硬"
+      - "主动但不强迫"
+      - "细心但不啰嗦"
+  
+  efficiency_standards:
+    first_response_time_seconds: 3    # 首次响应时间
+    avg_response_time_seconds: 10     # 平均响应时间
+    conversation_resolution_rate: 0.85 # 对话解决率
+    
+  professional_standards:
+    knowledge_areas:
+      - "海运(整柜/拼箱/散货)"
+      - "空运(普货/敏感货/危险品)"
+      - "铁路(中欧班列/中亚班列)"
+      - "快递(国际快递/跨境电商)"
+      - "仓储(海外仓/保税仓)"
+      - "清关(各国政策/流程)"
+    
+    info_collection_targets:
+      - "货物品类和属性"
+      - "起运地和目的地"
+      - "货量(重量/体积)"
+      - "时效要求"
+      - "预算范围"
+      - "联系方式"
+    
+    intent_signals:
+      high:
+        - "主动询价"
+        - "提供货物详情"
+        - "询问合作方式"
+        - "留下联系方式"
+      medium:
+        - "询问时效"
+        - "询问航线"
+        - "多次互动"
+      low:
+        - "随便问问"
+        - "暂时不需要"
+
+# ============================================================
+# 小跟 - 跟进专员 工作标准
+# ============================================================
+follow:
+  name: "小跟"
+  role: "跟进专员"
+  description: "负责老客户维护、意向客户跟进、促成转化"
+  
+  quality_standards:
+    follow_up_timeliness_rate: 0.95  # 跟进及时率 >= 95%
+    conversion_rate: 0.15             # 转化率目标
+    
+    follow_requirements:
+      - "及时跟进不遗漏"
+      - "个性化沟通"
+      - "有价值的内容"
+      - "适度不骚扰"
+      - "持续建立信任"
+  
+  efficiency_standards:
+    follow_intervals:
+      S_level_days: 1     # S级客户每天跟进
+      A_level_days: 2     # A级客户每2天跟进
+      B_level_days: 5     # B级客户每5天跟进
+      C_level_days: 15    # C级客户每15天跟进
+    
+    no_response_strategy:
+      after_3_no_response: "降低跟进频率"
+      after_5_no_response: "转入冷藏池"
+      reactivate_after_days: 90
+    
+  professional_standards:
+    follow_methods:
+      - "价值内容分享"
+      - "行业资讯推送"
+      - "节日问候"
+      - "促销活动通知"
+      - "解决方案推荐"
+    
+    touch_points:
+      - "微信消息"
+      - "邮件"
+      - "电话"
+      - "朋友圈互动"
+
+# ============================================================
+# 小析 - 客户分析师 工作标准
+# ============================================================
+analyst:
+  name: "小析"
+  role: "客户分析师"
+  description: "负责意向评分、客户画像、数据洞察"
+  
+  quality_standards:
+    intent_accuracy_rate: 0.85    # 意向判断准确率 >= 85%
+    
+    analysis_requirements:
+      - "评分准确客观"
+      - "画像全面深入"
+      - "洞察有价值"
+      - "建议可落地"
+  
+  efficiency_standards:
+    real_time_analysis: true      # 实时分析
+    profile_generation_minutes: 2  # 画像生成时间
+    
+  professional_standards:
+    scoring_rules:
+      ask_price: 25
+      provide_cargo_info: 20
+      ask_transit_time: 15
+      multiple_interactions: 30
+      leave_contact: 50
+      express_interest: 40
+      just_asking: -10
+    
+    intent_levels:
+      S: 
+        min_score: 80
+        description: "高意向，立即通知老板"
+        action: "重点跟进"
+      A:
+        min_score: 60
+        description: "较高意向"
+        action: "安排小跟重点跟进"
+      B:
+        min_score: 30
+        description: "中等意向"
+        action: "定期跟进"
+      C:
+        min_score: 0
+        description: "低意向"
+        action: "存档备用"
+    
+    profile_dimensions:
+      - "客户类型(个人/企业/货代同行)"
+      - "业务规模(小/中/大)"
+      - "主要需求(货物类型/航线)"
+      - "决策特征(快速/犹豫/价格敏感)"
+      - "行为特征(响应速度/沟通风格)"
+
+# ============================================================
+# 小猎 - 线索猎手 工作标准
+# ============================================================
+lead_hunter:
+  name: "小猎"
+  role: "线索猎手"
+  description: "自动搜索互联网上的潜在客户线索"
+  
+  quality_standards:
+    lead_quality_score_min: 60    # 线索质量评分 >= 60
+    
+    lead_requirements:
+      - "真实有效的需求"
+      - "非广告/竞争对手"
+      - "可追踪联系"
+      - "需求明确"
+  
+  efficiency_standards:
+    daily_analysis_min: 50        # 每日分析数量
+    response_time_seconds: 5      # 分析响应时间
+    
+  professional_standards:
+    search_sources:
+      - name: "weibo"
+        description: "微博搜索"
+        priority: 1
+      - name: "zhihu"
+        description: "知乎搜索"
+        priority: 2
+      - name: "tieba"
+        description: "贴吧搜索"
+        priority: 3
+      - name: "google"
+        description: "Google搜索"
+        priority: 1
+    
+    search_keywords:
+      chinese:
+        - "找货代"
+        - "货代推荐"
+        - "物流报价"
+        - "跨境物流"
+        - "FBA物流"
+        - "海运询价"
+        - "国际快递"
+        - "空运报价"
+        - "找物流公司"
+        - "清关服务"
+      english:
+        - "freight forwarder needed"
+        - "looking for logistics"
+        - "shipping quote"
+        - "FBA shipping"
+        - "sea freight"
+        - "air cargo quote"
+        - "customs clearance"
+    
+    high_intent_signals:
+      - "急"
+      - "马上"
+      - "尽快"
+      - "报价"
+      - "价格"
+      - "urgent"
+      - "asap"
+      - "quote"
+
+# ============================================================
+# 小析2 - 微信群情报员 工作标准
+# ============================================================
+analyst2:
+  name: "小析2"
+  role: "微信群情报员"
+  description: "静默监控微信群，提取有价值信息"
+  
+  quality_standards:
+    intel_accuracy_rate: 0.80     # 情报准确率 >= 80%
+    
+    intel_requirements:
+      - "信息真实有效"
+      - "分类准确"
+      - "及时提取"
+      - "隐私保护"
+  
+  efficiency_standards:
+    real_time_monitoring: true    # 实时监控
+    daily_summary: true           # 每日汇总
+    
+  professional_standards:
+    monitoring_keywords:
+      lead_type:
+        - "找货代"
+        - "找物流"
+        - "询价"
+        - "报价"
+        - "欧洲"
+        - "清关"
+      intel_type:
+        - "运价"
+        - "价格"
+        - "涨价"
+        - "政策"
+        - "新规"
+      knowledge_type:
+        - "经验"
+        - "技巧"
+        - "注意"
+        - "分享"
+    
+    filter_keywords:
+      - "加盟"
+      - "招商"
+      - "代理"
+      - "免费"
+      - "红包"
+    
+    output_categories:
+      - type: "lead"
+        description: "潜在客户线索"
+        action: "通知小销跟进"
+      - type: "intel"
+        description: "行业情报"
+        action: "存入知识库"
+      - type: "knowledge"
+        description: "专业知识"
+        action: "更新知识库"
+      - type: "irrelevant"
+        description: "无关信息"
+        action: "忽略"
+
+# ============================================================
+# 全局配置
+# ============================================================
+global:
+  # 物流行业专业水准要求
+  logistics_expertise_level: "expert"  # 专业物流老人水准
+  
+  # 响应语言
+  default_language: "zh-CN"
+  
+  # 工作时间
+  working_hours:
+    enabled: false  # AI 24小时工作
+    
+  # 免打扰配置
+  do_not_disturb:
+    enabled: true
+    default_start: "22:00"
+    default_end: "08:00"
+    respect_customer_timezone: true
+  
+  # 通知阈值
+  notification_thresholds:
+    high_intent_score: 60
+    urgent_task_priority: 2
+    
+  # 质量监控
+  quality_monitoring:
+    enabled: true
+    sample_rate: 0.1  # 10%抽样检查
+    alert_threshold: 0.8  # 低于80%触发告警

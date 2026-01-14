@@ -1,49 +1,64 @@
 """
-小视 - 视频创作员
-负责生成物流广告视频、产品展示视频
-支持混合方案：AI生成画面 + 后期叠加文字 + TTS配音 + 背景音乐
+小影 - 视频创作员 (升级版)
+支持电影级长视频制作、多语言配音、专业后期处理
+视频时长：1.5分钟 - 5分钟
 """
 from typing import Dict, Any, Optional, List
 import json
 import time
 import os
+import asyncio
 import httpx
 import jwt
 from loguru import logger
+from datetime import datetime
 
 from app.agents.base import BaseAgent, AgentRegistry
 from app.models.conversation import AgentType
 from app.core.config import settings
 from app.core.prompts.video_creator import (
     VIDEO_CREATOR_SYSTEM_PROMPT,
-    VIDEO_PROMPT_GENERATION
+    VIDEO_PROMPT_GENERATION,
+    MOVIE_STYLE_PROMPT,
+    SEGMENT_PROMPT_TEMPLATE
 )
 
 
 class VideoCreatorAgent(BaseAgent):
-    """小视 - 视频创作员（混合方案版本）"""
+    """小影 - 视频创作员（电影级升级版）
     
-    name = "小视"
+    核心能力：
+    1. 生成1.5-5分钟的电影级视频
+    2. 多片段AI生成 + 素材库补充
+    3. 多语言配音支持（中/英/德/法/西/日/韩/阿等）
+    4. 专业后期处理（字幕、配音、背景音乐、转场）
+    """
+    
+    name = "小影"
     agent_type = AgentType.VIDEO_CREATOR
-    description = "视频创作员 - 生成高质量物流广告视频（AI画面+清晰文字+配音）"
+    description = "视频创作员 - 生成电影级物流广告视频（1.5-5分钟，多语言支持）"
+    
+    # 视频配置
+    MIN_DURATION_SECONDS = 90   # 最短1.5分钟
+    MAX_DURATION_SECONDS = 300  # 最长5分钟
+    DEFAULT_DURATION_SECONDS = 120  # 默认2分钟
+    
+    # AI视频片段时长（可灵AI单次生成时长）
+    AI_SEGMENT_DURATION = 5  # 5秒
     
     def __init__(self):
         super().__init__()
         self.access_key = settings.KELING_ACCESS_KEY
         self.secret_key = settings.KELING_SECRET_KEY
         self.keling_api_url = settings.KELING_API_URL
-        # 是否启用后期处理
         self.enable_post_processing = getattr(settings, 'VIDEO_POST_PROCESSING', True)
     
     def _generate_jwt_token(self) -> str:
         """生成可灵AI的JWT认证token"""
-        headers = {
-            "alg": "HS256",
-            "typ": "JWT"
-        }
+        headers = {"alg": "HS256", "typ": "JWT"}
         payload = {
             "iss": self.access_key,
-            "exp": int(time.time()) + 1800,  # 30分钟过期
+            "exp": int(time.time()) + 1800,
             "nbf": int(time.time()) - 5
         }
         return jwt.encode(payload, self.secret_key, algorithm="HS256", headers=headers)
@@ -53,240 +68,316 @@ class VideoCreatorAgent(BaseAgent):
     
     async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        处理视频生成任务（混合方案）
+        处理视频生成任务
         
-        流程：
-        1. 生成视频提示词（纯画面，不含文字）
-        2. 调用可灵AI生成原始视频
-        3. 后期处理：叠加文字 + TTS配音 + 背景音乐
+        支持两种模式：
+        1. 快速模式（mode="quick"）：生成5-10秒短视频
+        2. 电影模式（mode="movie"）：生成1.5-5分钟长视频
         
         Args:
             input_data: {
                 "title": "视频标题",
                 "script": "视频脚本",
                 "keywords": ["关键词列表"],
-                "voice": "zh_female|zh_male|en_female|en_male" (可选)
-            }
-        
-        Returns:
-            {
-                "video_prompt": "生成的提示词",
-                "video_url": "最终视频URL",
-                "raw_video_url": "原始AI视频URL",
-                "status": "状态"
+                "mode": "quick|movie",  # 默认movie
+                "duration": 120,  # 目标时长（秒），默认120
+                "language": "zh-CN",  # 语言代码
+                "voice_gender": "female|male",  # 配音性别
+                "bgm_type": "corporate|upbeat|warm|tech|epic",  # 背景音乐类型
+                "video_type": "ad|intro|route|case_study"  # 视频类型
             }
         """
+        mode = input_data.get("mode", "movie")
+        
+        if mode == "quick":
+            return await self._process_quick_video(input_data)
+        else:
+            return await self._process_movie_video(input_data)
+    
+    async def _process_quick_video(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """快速生成短视频（5-10秒）"""
         title = input_data.get("title", "")
         script = input_data.get("script", "")
         keywords = input_data.get("keywords", [])
         voice = input_data.get("voice", "zh_female")
         
-        self.log(f"开始处理视频任务: {title}")
+        self.log(f"[快速模式] 开始生成短视频: {title}")
         
-        # 第一步：生成视频提示词
-        self.log("步骤1: 生成视频提示词...")
+        # 生成提示词
         prompt_result = await self._generate_video_prompt(title, script, keywords)
         
-        # 第二步：调用视频生成API
+        # 调用AI生成
         if self.access_key and self.secret_key:
-            self.log("步骤2: 调用可灵AI生成画面...")
             video_result = await self._call_video_api(prompt_result)
         else:
-            video_result = {
-                "status": "api_not_configured",
-                "message": "可灵AI API未配置，请设置KELING_ACCESS_KEY和KELING_SECRET_KEY"
-            }
+            video_result = {"status": "api_not_configured", "message": "可灵AI API未配置"}
         
-        # 第三步：后期处理（如果原始视频生成成功）
+        # 后期处理
         raw_video_url = video_result.get("video_url")
         if raw_video_url and self.enable_post_processing:
-            self.log("步骤3: 进行后期处理（文字+配音+音乐）...")
             final_result = await self._post_process_video(
                 video_url=raw_video_url,
                 prompt_result=prompt_result,
                 script=script,
                 voice=voice
             )
-            
             if final_result.get("status") == "success":
                 video_result["raw_video_url"] = raw_video_url
                 video_result["video_url"] = final_result.get("video_url")
-                video_result["message"] = "视频生成并后期处理完成"
-            else:
-                # 后期处理失败，仍然返回原始视频
-                self.log(f"后期处理失败: {final_result.get('message')}，返回原始视频", "warning")
-                video_result["message"] = f"视频已生成，但后期处理失败: {final_result.get('message')}"
         
-        self.log(f"视频任务处理完成: {title}")
+        return {"video_prompt": prompt_result, **video_result}
+    
+    async def _process_movie_video(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        电影模式：生成1.5-5分钟的专业级视频
         
-        return {
-            "video_prompt": prompt_result,
-            **video_result
+        流程：
+        1. 解析脚本，规划视频结构
+        2. 为每个片段生成AI视频提示词
+        3. 并行生成多个AI视频片段
+        4. 下载并拼接所有片段
+        5. 添加专业后期效果
+        """
+        title = input_data.get("title", "")
+        script = input_data.get("script", "")
+        keywords = input_data.get("keywords", [])
+        duration = input_data.get("duration", self.DEFAULT_DURATION_SECONDS)
+        language = input_data.get("language", "zh-CN")
+        voice_gender = input_data.get("voice_gender", "female")
+        bgm_type = input_data.get("bgm_type", "corporate")
+        video_type = input_data.get("video_type", "ad")
+        
+        # 验证时长
+        duration = max(self.MIN_DURATION_SECONDS, min(self.MAX_DURATION_SECONDS, duration))
+        
+        self.log(f"[电影模式] 开始生成{duration}秒视频: {title}")
+        start_time = time.time()
+        
+        result = {
+            "title": title,
+            "mode": "movie",
+            "target_duration": duration,
+            "language": language,
+            "status": "processing",
+            "segments": [],
+            "progress": 0
         }
-    
-    async def _post_process_video(
-        self,
-        video_url: str,
-        prompt_result: Dict[str, Any],
-        script: str,
-        voice: str
-    ) -> Dict[str, Any]:
-        """
-        后期处理视频：叠加文字、添加配音、合成背景音乐
-        """
+        
         try:
-            from app.services.video_processor import VideoProcessor
-            
-            processor = VideoProcessor()
-            
-            # 获取字幕文字
-            subtitle_texts = prompt_result.get("subtitle_texts", [])
-            if not subtitle_texts:
-                # 如果没有生成字幕，从脚本中提取
-                subtitle_texts = self._extract_subtitles_from_script(script)
-            
-            # 获取音乐类型
-            music_type = prompt_result.get("music_type", "bgm_corporate")
-            
-            # 生成TTS文本（使用脚本或简短版本）
-            tts_text = self._prepare_tts_text(script, subtitle_texts)
-            
-            # 执行后期处理
-            result = await processor.process_video(
-                video_url=video_url,
-                subtitle_texts=subtitle_texts,
-                tts_text=tts_text,
-                music_type=music_type,
-                voice=voice
+            # 步骤1：规划视频结构
+            self.log("步骤1: 规划视频结构...")
+            video_structure = await self._plan_video_structure(
+                title=title,
+                script=script,
+                keywords=keywords,
+                duration=duration,
+                video_type=video_type
             )
+            result["structure"] = video_structure
+            result["progress"] = 10
             
-            # 如果处理成功，需要上传处理后的视频
-            if result.get("status") == "success":
-                output_path = result.get("output_path")
-                if output_path and os.path.exists(output_path):
-                    # TODO: 上传到云存储并返回URL
-                    # 暂时返回本地路径，后续集成云存储
-                    result["video_url"] = f"file://{output_path}"
-                    self.log(f"后期处理完成，输出: {output_path}")
+            # 步骤2：为每个片段生成提示词
+            self.log(f"步骤2: 生成{len(video_structure['segments'])}个片段的提示词...")
+            segment_prompts = await self._generate_segment_prompts(video_structure)
+            result["progress"] = 20
             
-            # 清理临时文件
-            processor.cleanup()
+            # 步骤3：并行生成AI视频片段（使用批次控制并发）
+            self.log("步骤3: 生成AI视频片段...")
+            generated_segments = await self._generate_video_segments_batch(segment_prompts)
+            result["segments"] = generated_segments
+            result["progress"] = 70
             
-            return result
+            # 步骤4：后期处理（拼接、配音、字幕、音乐）
+            self.log("步骤4: 专业后期处理...")
+            final_video = await self._compose_final_video(
+                segments=generated_segments,
+                structure=video_structure,
+                language=language,
+                voice_gender=voice_gender,
+                bgm_type=bgm_type,
+                script=script
+            )
+            result["progress"] = 100
             
-        except ImportError as e:
-            self.log(f"后期处理模块导入失败: {e}", "warning")
-            return {"status": "error", "message": "后期处理模块未安装"}
+            # 计算耗时
+            elapsed = time.time() - start_time
+            result["generation_time_seconds"] = int(elapsed)
+            result["status"] = "success" if final_video.get("video_url") else "partial"
+            result["video_url"] = final_video.get("video_url")
+            result["message"] = f"视频生成完成，耗时{int(elapsed)}秒"
+            
+            self.log(f"[电影模式] 视频生成完成: {title}, 耗时{int(elapsed)}秒")
+            
         except Exception as e:
-            self.log(f"后期处理异常: {e}", "error")
-            return {"status": "error", "message": str(e)}
+            self.log(f"[电影模式] 视频生成失败: {e}", "error")
+            result["status"] = "failed"
+            result["error"] = str(e)
+        
+        return result
     
-    def _extract_subtitles_from_script(self, script: str, max_lines: int = 5) -> List[str]:
-        """从脚本中提取字幕文字"""
-        if not script:
-            return []
-        
-        # 按句号、感叹号、问号分割
-        import re
-        sentences = re.split(r'[。！？\n]', script)
-        sentences = [s.strip() for s in sentences if s.strip()]
-        
-        # 选择前几条作为字幕
-        subtitles = []
-        for s in sentences[:max_lines]:
-            # 截断过长的句子
-            if len(s) > 30:
-                s = s[:27] + "..."
-            subtitles.append(s)
-        
-        return subtitles
-    
-    def _prepare_tts_text(self, script: str, subtitle_texts: List[str]) -> str:
-        """准备TTS配音文本"""
-        # 优先使用脚本（如果不太长）
-        if script and len(script) < 200:
-            return script
-        
-        # 否则使用字幕文字组合
-        if subtitle_texts:
-            return "。".join(subtitle_texts) + "。"
-        
-        return ""
-    
-    async def _generate_video_prompt(
-        self, 
-        title: str, 
-        script: str, 
-        keywords: list
+    async def _plan_video_structure(
+        self,
+        title: str,
+        script: str,
+        keywords: List[str],
+        duration: int,
+        video_type: str
     ) -> Dict[str, Any]:
-        """生成视频提示词（纯画面，不含文字）"""
-        prompt = VIDEO_PROMPT_GENERATION.format(
-            title=title,
-            script=script,
-            keywords=", ".join(keywords)
-        )
+        """规划视频结构，确定每个片段的内容"""
+        from app.services.video_assets import video_template_manager
         
-        response = await self.think([{"role": "user", "content": prompt}])
+        # 获取模板
+        segments = video_template_manager.generate_segments_for_duration(duration, video_type)
         
-        # 解析JSON
+        # 使用AI优化结构
+        planning_prompt = f"""请为以下视频规划详细的分镜结构：
+
+视频标题：{title}
+视频脚本：{script}
+关键词：{', '.join(keywords)}
+目标时长：{duration}秒
+视频类型：{video_type}
+
+基础结构：
+{json.dumps(segments, ensure_ascii=False, indent=2)}
+
+请为每个片段补充：
+1. 具体的画面描述（用于AI视频生成）
+2. 该片段的字幕文案
+3. 镜头运动方式
+
+输出JSON格式：
+{{
+    "segments": [
+        {{
+            "type": "片段类型",
+            "duration": 时长秒数,
+            "scene_description": "详细的画面描述（英文，用于AI生成）",
+            "subtitle": "字幕文案（中文）",
+            "camera_movement": "镜头运动",
+            "mood": "情绪氛围"
+        }}
+    ],
+    "overall_style": "整体风格",
+    "color_tone": "色调"
+}}
+"""
+        
+        response = await self.think([{"role": "user", "content": planning_prompt}])
+        
         try:
             json_start = response.find("{")
             json_end = response.rfind("}") + 1
             if json_start != -1 and json_end > json_start:
-                result = json.loads(response[json_start:json_end])
-                self.log(f"提示词生成成功: {result.get('style', 'N/A')}")
-                return result
-        except json.JSONDecodeError as e:
-            self.log(f"JSON解析失败: {e}", "warning")
+                structure = json.loads(response[json_start:json_end])
+                return structure
+        except json.JSONDecodeError:
+            pass
         
-        # 解析失败，返回默认结构（纯画面，无文字）
+        # 默认结构
         return {
-            "main_prompt": f"Cinematic shot of modern logistics warehouse, cargo trucks, professional commercial quality, smooth camera movement, no text or titles",
-            "style": "商务专业",
-            "music_type": "bgm_corporate",
-            "camera_movement": "smooth pan",
-            "subtitle_texts": [
-                title,
-                "专业物流服务",
-                "高效准时可靠"
-            ]
+            "segments": segments,
+            "overall_style": "professional_corporate",
+            "color_tone": "warm_business"
         }
     
-    async def _call_video_api(self, prompt_data: Dict[str, Any]) -> Dict[str, Any]:
-        """调用可灵AI视频生成API（使用pro模式获得更高画质）"""
+    async def _generate_segment_prompts(
+        self, 
+        video_structure: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """为每个视频片段生成AI提示词"""
+        segments = video_structure.get("segments", [])
+        style = video_structure.get("overall_style", "professional")
+        
+        prompts = []
+        for i, segment in enumerate(segments):
+            # 计算该片段需要生成多少个5秒的AI视频
+            duration = segment.get("duration", 5)
+            ai_clips_needed = max(1, duration // self.AI_SEGMENT_DURATION)
+            
+            scene = segment.get("scene_description", "")
+            if not scene:
+                scene = f"Professional logistics scene, {segment.get('type', 'generic')}"
+            
+            # 确保提示词是英文且专业
+            base_prompt = f"""Cinematic {style} shot, {scene}, 
+                professional commercial quality, 4K resolution, 
+                smooth camera movement, no text or watermark, 
+                film color grading, high production value"""
+            
+            prompts.append({
+                "segment_index": i,
+                "segment_type": segment.get("type", "main"),
+                "duration": duration,
+                "ai_clips_needed": ai_clips_needed,
+                "main_prompt": base_prompt.replace("\n", " ").strip(),
+                "subtitle": segment.get("subtitle", ""),
+                "camera_movement": segment.get("camera_movement", "smooth pan"),
+                "transition": segment.get("transition_out", "cross_dissolve")
+            })
+        
+        return prompts
+    
+    async def _generate_video_segments_batch(
+        self, 
+        segment_prompts: List[Dict[str, Any]],
+        max_concurrent: int = 3
+    ) -> List[Dict[str, Any]]:
+        """批量生成视频片段，控制并发数量"""
         if not self.access_key or not self.secret_key:
-            return {"status": "api_not_configured", "message": "可灵AI API密钥未配置"}
+            self.log("API未配置，使用占位符", "warning")
+            return [{"status": "api_not_configured", **p} for p in segment_prompts]
         
-        # 生成JWT token
+        results = []
+        
+        # 分批处理
+        for i in range(0, len(segment_prompts), max_concurrent):
+            batch = segment_prompts[i:i+max_concurrent]
+            self.log(f"生成批次 {i//max_concurrent + 1}/{(len(segment_prompts)-1)//max_concurrent + 1}")
+            
+            # 并行生成这批片段
+            tasks = [self._generate_single_segment(p) for p in batch]
+            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            for j, result in enumerate(batch_results):
+                if isinstance(result, Exception):
+                    results.append({
+                        **batch[j],
+                        "status": "failed",
+                        "error": str(result)
+                    })
+                else:
+                    results.append(result)
+            
+            # 批次间短暂延迟，避免API限流
+            if i + max_concurrent < len(segment_prompts):
+                await asyncio.sleep(2)
+        
+        return results
+    
+    async def _generate_single_segment(
+        self, 
+        prompt_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """生成单个视频片段"""
         token = self._generate_jwt_token()
-        
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
         }
         
-        # 获取主提示词，确保不含文字描述
-        main_prompt = prompt_data.get("main_prompt", "")
-        
-        # 添加负向提示词，明确排除文字
-        negative_prompt = "text, title, subtitle, watermark, logo, words, letters, characters, caption, blurry, low quality"
-        
-        # 可灵AI API参数 - 使用pro模式获得更高画质
         payload = {
-            "model": "kling-v1-5",  # 使用v1.5模型，画质更好
-            "prompt": main_prompt,
-            "negative_prompt": negative_prompt,
+            "model": "kling-v1-5",
+            "prompt": prompt_data["main_prompt"],
+            "negative_prompt": "text, title, subtitle, watermark, logo, blurry, low quality, amateur",
             "cfg_scale": 0.5,
-            "mode": "pro",  # 使用pro专业模式，画质更高
+            "mode": "pro",
             "aspect_ratio": "16:9",
-            "duration": "5"  # 5秒
+            "duration": "5"
         }
         
         try:
-            self.log(f"调用可灵AI API: {self.keling_api_url}/v1/videos/text2video")
-            
             async with httpx.AsyncClient() as client:
-                # 创建视频生成任务
                 response = await client.post(
                     f"{self.keling_api_url}/v1/videos/text2video",
                     headers=headers,
@@ -294,51 +385,39 @@ class VideoCreatorAgent(BaseAgent):
                     timeout=60.0
                 )
                 
-                self.log(f"API响应状态: {response.status_code}")
-                
                 if response.status_code == 200:
                     result = response.json()
                     task_id = result.get("data", {}).get("task_id")
                     
                     if task_id:
-                        self.log(f"视频任务已创建: {task_id}")
-                        # 轮询检查任务状态
                         video_url = await self._poll_video_status(task_id, headers)
-                        if video_url:
-                            return {
-                                "status": "success",
-                                "task_id": task_id,
-                                "video_url": video_url,
-                                "message": "视频生成成功"
-                            }
-                        else:
-                            return {
-                                "status": "processing",
-                                "task_id": task_id,
-                                "message": "视频正在生成中，请稍后查看"
-                            }
-                    else:
                         return {
-                            "status": "error",
-                            "message": f"API返回异常: {result}"
+                            **prompt_data,
+                            "status": "success" if video_url else "processing",
+                            "task_id": task_id,
+                            "video_url": video_url
                         }
-                else:
-                    error_text = response.text
-                    self.log(f"API调用失败: {response.status_code} - {error_text}", "error")
-                    return {
-                        "status": "error",
-                        "message": f"API调用失败: {response.status_code}"
-                    }
+                
+                return {
+                    **prompt_data,
+                    "status": "failed",
+                    "error": f"API返回: {response.status_code}"
+                }
+                
         except Exception as e:
-            self.log(f"视频API调用失败: {e}", "error")
             return {
-                "status": "error",
-                "message": str(e)
+                **prompt_data,
+                "status": "failed",
+                "error": str(e)
             }
     
-    async def _poll_video_status(self, task_id: str, headers: dict, max_attempts: int = 60) -> Optional[str]:
-        """轮询检查视频生成状态，最长等待5分钟"""
-        import asyncio
+    async def _poll_video_status(
+        self, 
+        task_id: str, 
+        headers: dict, 
+        max_attempts: int = 60
+    ) -> Optional[str]:
+        """轮询视频生成状态"""
         async with httpx.AsyncClient() as client:
             for attempt in range(max_attempts):
                 try:
@@ -353,51 +432,163 @@ class VideoCreatorAgent(BaseAgent):
                         data = result.get("data", {})
                         status = data.get("task_status")
                         
-                        # 每10次输出一次日志，避免日志过多
-                        if attempt % 10 == 0 or status in ["succeed", "failed"]:
-                            self.log(f"任务状态: {status} (尝试 {attempt + 1}/{max_attempts})")
-                        
                         if status == "succeed":
                             videos = data.get("task_result", {}).get("videos", [])
                             if videos:
-                                video_url = videos[0].get("url")
-                                self.log(f"视频生成成功！URL长度: {len(video_url) if video_url else 0}")
-                                return video_url
+                                return videos[0].get("url")
                         elif status == "failed":
-                            self.log(f"视频生成失败: {data.get('task_status_msg')}", "error")
                             return None
                         
-                        # 等待5秒后再次查询
                         await asyncio.sleep(5)
-                    else:
-                        self.log(f"查询状态失败: {response.status_code}", "error")
-                        break
-                        
-                except Exception as e:
-                    self.log(f"轮询异常: {e}", "error")
+                except Exception:
                     break
         
-        self.log(f"轮询超时，任务ID: {task_id}", "warning")
         return None
     
-    async def check_video_status(self, task_id: str) -> Dict[str, Any]:
-        """检查视频生成状态"""
-        if not self.keling_api_key:
-            return {"status": "error", "message": "API密钥未配置"}
+    async def _compose_final_video(
+        self,
+        segments: List[Dict[str, Any]],
+        structure: Dict[str, Any],
+        language: str,
+        voice_gender: str,
+        bgm_type: str,
+        script: str
+    ) -> Dict[str, Any]:
+        """合成最终视频"""
+        try:
+            from app.services.video_processor import VideoProcessor
+            from app.services.video_assets import video_assets_service
+            
+            # 收集成功生成的片段
+            successful_segments = [s for s in segments if s.get("video_url")]
+            
+            if not successful_segments:
+                return {"status": "error", "message": "没有成功生成的视频片段"}
+            
+            # 获取TTS配置
+            voice_config = await video_assets_service.get_tts_voice(language, voice_gender)
+            voice_id = voice_config["voice_id"] if voice_config else None
+            
+            # 获取背景音乐
+            bgm_list = await video_assets_service.get_bgm_by_type(bgm_type)
+            bgm_url = bgm_list[0]["file_url"] if bgm_list else None
+            
+            # 提取字幕
+            subtitles = [s.get("subtitle", "") for s in structure.get("segments", [])]
+            
+            processor = VideoProcessor()
+            
+            # 合成视频
+            result = await processor.compose_long_video(
+                segment_urls=[s["video_url"] for s in successful_segments],
+                subtitles=subtitles,
+                tts_text=script,
+                voice_id=voice_id,
+                bgm_url=bgm_url,
+                transitions=[s.get("transition", "cross_dissolve") for s in segments]
+            )
+            
+            processor.cleanup()
+            return result
+            
+        except Exception as e:
+            self.log(f"视频合成失败: {e}", "error")
+            return {"status": "error", "message": str(e)}
+    
+    async def _generate_video_prompt(
+        self, 
+        title: str, 
+        script: str, 
+        keywords: list
+    ) -> Dict[str, Any]:
+        """生成视频提示词"""
+        prompt = VIDEO_PROMPT_GENERATION.format(
+            title=title,
+            script=script,
+            keywords=", ".join(keywords)
+        )
         
-        headers = {
-            "Authorization": f"Bearer {self.keling_api_key}"
-        }
+        response = await self.think([{"role": "user", "content": prompt}])
         
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{self.keling_api_url}/video/status/{task_id}",
-                    headers=headers
-                )
-                return response.json()
+            json_start = response.find("{")
+            json_end = response.rfind("}") + 1
+            if json_start != -1 and json_end > json_start:
+                return json.loads(response[json_start:json_end])
+        except json.JSONDecodeError:
+            pass
+        
+        return {
+            "main_prompt": f"Cinematic shot of modern logistics warehouse, professional commercial quality",
+            "style": "商务专业",
+            "music_type": "bgm_corporate",
+            "camera_movement": "smooth pan",
+            "subtitle_texts": [title, "专业物流服务"]
+        }
+    
+    async def _post_process_video(
+        self,
+        video_url: str,
+        prompt_result: Dict[str, Any],
+        script: str,
+        voice: str
+    ) -> Dict[str, Any]:
+        """后期处理视频"""
+        try:
+            from app.services.video_processor import VideoProcessor
+            
+            processor = VideoProcessor()
+            subtitle_texts = prompt_result.get("subtitle_texts", [])
+            if not subtitle_texts:
+                subtitle_texts = self._extract_subtitles_from_script(script)
+            
+            music_type = prompt_result.get("music_type", "bgm_corporate")
+            tts_text = self._prepare_tts_text(script, subtitle_texts)
+            
+            result = await processor.process_video(
+                video_url=video_url,
+                subtitle_texts=subtitle_texts,
+                tts_text=tts_text,
+                music_type=music_type,
+                voice=voice
+            )
+            
+            processor.cleanup()
+            return result
+            
         except Exception as e:
+            self.log(f"后期处理异常: {e}", "error")
             return {"status": "error", "message": str(e)}
+    
+    def _extract_subtitles_from_script(self, script: str, max_lines: int = 5) -> List[str]:
+        """从脚本中提取字幕"""
+        if not script:
+            return []
+        
+        import re
+        sentences = re.split(r'[。！？\n]', script)
+        sentences = [s.strip() for s in sentences if s.strip()]
+        
+        subtitles = []
+        for s in sentences[:max_lines]:
+            if len(s) > 30:
+                s = s[:27] + "..."
+            subtitles.append(s)
+        
+        return subtitles
+    
+    def _prepare_tts_text(self, script: str, subtitle_texts: List[str]) -> str:
+        """准备TTS配音文本"""
+        if script and len(script) < 500:
+            return script
+        if subtitle_texts:
+            return "。".join(subtitle_texts) + "。"
+        return ""
+    
+    async def get_supported_languages(self) -> List[Dict[str, str]]:
+        """获取支持的语言列表"""
+        from app.services.video_assets import video_assets_service
+        return await video_assets_service.get_all_supported_languages()
 
 
 # 创建单例并注册

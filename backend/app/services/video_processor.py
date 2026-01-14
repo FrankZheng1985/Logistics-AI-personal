@@ -1,6 +1,7 @@
 """
-视频后期处理服务
-负责：文字叠加、TTS配音、背景音乐合成
+视频后期处理服务（升级版）
+负责：文字叠加、TTS配音、背景音乐合成、长视频拼接、专业转场
+支持：1.5-5分钟电影级视频制作
 """
 import os
 import asyncio
@@ -14,7 +15,8 @@ from loguru import logger
 try:
     from moviepy.editor import (
         VideoFileClip, AudioFileClip, CompositeVideoClip, 
-        TextClip, CompositeAudioClip, concatenate_audioclips
+        TextClip, CompositeAudioClip, concatenate_audioclips,
+        concatenate_videoclips, vfx
     )
     MOVIEPY_AVAILABLE = True
 except ImportError:
@@ -343,6 +345,281 @@ class VideoProcessor:
         # 默认返回第一个选项
         logger.warning(f"未找到中文字体，使用默认: {chinese_fonts[0]}")
         return chinese_fonts[0]
+    
+    async def compose_long_video(
+        self,
+        segment_urls: List[str],
+        subtitles: List[str],
+        tts_text: Optional[str] = None,
+        voice_id: Optional[str] = None,
+        bgm_url: Optional[str] = None,
+        transitions: Optional[List[str]] = None,
+        output_path: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        合成长视频（电影级）
+        
+        Args:
+            segment_urls: 视频片段URL列表
+            subtitles: 字幕列表
+            tts_text: TTS配音文本
+            voice_id: TTS语音ID
+            bgm_url: 背景音乐URL
+            transitions: 转场效果列表
+            output_path: 输出路径
+        
+        Returns:
+            合成结果
+        """
+        if not MOVIEPY_AVAILABLE:
+            return {"status": "error", "message": "moviepy未安装"}
+        
+        if not segment_urls:
+            return {"status": "error", "message": "没有视频片段"}
+        
+        try:
+            # 1. 下载所有视频片段
+            logger.info(f"下载{len(segment_urls)}个视频片段...")
+            segment_paths = []
+            for i, url in enumerate(segment_urls):
+                path = await self._download_video(url)
+                if path:
+                    segment_paths.append(path)
+                else:
+                    logger.warning(f"片段{i}下载失败")
+            
+            if not segment_paths:
+                return {"status": "error", "message": "所有视频片段下载失败"}
+            
+            # 2. 生成TTS配音
+            tts_path = None
+            if tts_text and EDGE_TTS_AVAILABLE:
+                logger.info("生成TTS配音...")
+                voice = voice_id or "zh-CN-XiaoxiaoNeural"
+                tts_path = await self._generate_tts_with_voice_id(tts_text, voice)
+            
+            # 3. 下载背景音乐
+            bgm_path = None
+            if bgm_url:
+                logger.info("下载背景音乐...")
+                bgm_path = await self._download_audio(bgm_url)
+            
+            # 4. 合成视频
+            logger.info("合成长视频...")
+            output = output_path or os.path.join(self.temp_dir, "final_movie.mp4")
+            result = await self._compose_long_video_sync(
+                segment_paths=segment_paths,
+                subtitles=subtitles,
+                tts_path=tts_path,
+                bgm_path=bgm_path,
+                transitions=transitions,
+                output_path=output
+            )
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"长视频合成失败: {e}")
+            return {"status": "error", "message": str(e)}
+    
+    async def _compose_long_video_sync(
+        self,
+        segment_paths: List[str],
+        subtitles: List[str],
+        tts_path: Optional[str],
+        bgm_path: Optional[str],
+        transitions: Optional[List[str]],
+        output_path: str
+    ) -> Dict[str, Any]:
+        """同步合成长视频"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self._do_compose_long_video,
+            segment_paths, subtitles, tts_path, bgm_path, transitions, output_path
+        )
+    
+    def _do_compose_long_video(
+        self,
+        segment_paths: List[str],
+        subtitles: List[str],
+        tts_path: Optional[str],
+        bgm_path: Optional[str],
+        transitions: Optional[List[str]],
+        output_path: str
+    ) -> Dict[str, Any]:
+        """执行长视频合成"""
+        clips = []
+        try:
+            # 加载所有视频片段
+            for path in segment_paths:
+                if os.path.exists(path):
+                    clip = VideoFileClip(path)
+                    clips.append(clip)
+            
+            if not clips:
+                return {"status": "error", "message": "没有有效的视频片段"}
+            
+            # 应用转场效果并拼接
+            final_clips = []
+            for i, clip in enumerate(clips):
+                # 添加淡入淡出转场
+                if i == 0:
+                    clip = clip.crossfadein(0.5)
+                if i == len(clips) - 1:
+                    clip = clip.crossfadeout(0.5)
+                elif i > 0:
+                    # 中间片段添加交叉淡入
+                    clip = clip.crossfadein(0.3)
+                
+                final_clips.append(clip)
+            
+            # 拼接视频
+            video = concatenate_videoclips(final_clips, method="compose")
+            duration = video.duration
+            
+            # 添加字幕
+            if subtitles:
+                video = self._add_subtitles_to_video(video, subtitles)
+            
+            # 处理音频
+            audio_clips = []
+            
+            # 添加TTS配音
+            if tts_path and os.path.exists(tts_path):
+                tts_audio = AudioFileClip(tts_path)
+                if tts_audio.duration > duration:
+                    tts_audio = tts_audio.subclip(0, duration)
+                audio_clips.append(tts_audio)
+            
+            # 添加背景音乐
+            if bgm_path and os.path.exists(bgm_path):
+                bgm_audio = AudioFileClip(bgm_path)
+                # 循环背景音乐
+                if bgm_audio.duration < duration:
+                    loops = int(duration / bgm_audio.duration) + 1
+                    bgm_clips = [bgm_audio] * loops
+                    bgm_audio = concatenate_audioclips(bgm_clips).subclip(0, duration)
+                else:
+                    bgm_audio = bgm_audio.subclip(0, duration)
+                
+                # 降低背景音乐音量
+                volume = 0.25 if audio_clips else 0.6
+                bgm_audio = bgm_audio.volumex(volume)
+                audio_clips.append(bgm_audio)
+            
+            # 合成音频
+            if audio_clips:
+                if len(audio_clips) > 1:
+                    final_audio = CompositeAudioClip(audio_clips)
+                else:
+                    final_audio = audio_clips[0]
+                video = video.set_audio(final_audio)
+            
+            # 导出视频
+            logger.info(f"导出长视频: {output_path}")
+            video.write_videofile(
+                output_path,
+                codec='libx264',
+                audio_codec='aac',
+                fps=24,
+                preset='medium',
+                threads=4,
+                logger=None
+            )
+            
+            # 清理
+            video.close()
+            for clip in clips:
+                clip.close()
+            
+            return {
+                "status": "success",
+                "output_path": output_path,
+                "duration": duration,
+                "message": f"长视频合成完成，时长{int(duration)}秒"
+            }
+            
+        except Exception as e:
+            logger.error(f"长视频合成异常: {e}")
+            for clip in clips:
+                try:
+                    clip.close()
+                except:
+                    pass
+            return {"status": "error", "message": str(e)}
+    
+    def _add_subtitles_to_video(
+        self, 
+        video: "VideoFileClip", 
+        subtitles: List[str]
+    ) -> "CompositeVideoClip":
+        """为视频添加字幕"""
+        if not subtitles:
+            return video
+        
+        duration = video.duration
+        time_per_subtitle = duration / len(subtitles)
+        
+        subtitle_clips = []
+        font_name = self._get_chinese_font()
+        
+        for i, text in enumerate(subtitles):
+            if not text:
+                continue
+            
+            txt_clip = TextClip(
+                text,
+                fontsize=42,
+                color='white',
+                font=font_name,
+                stroke_color='black',
+                stroke_width=2,
+                size=(video.w - 120, None),
+                method='caption'
+            )
+            txt_clip = txt_clip.set_position(('center', video.h - 100))
+            txt_clip = txt_clip.set_start(i * time_per_subtitle)
+            txt_clip = txt_clip.set_duration(time_per_subtitle)
+            txt_clip = txt_clip.crossfadein(0.2).crossfadeout(0.2)
+            subtitle_clips.append(txt_clip)
+        
+        if subtitle_clips:
+            return CompositeVideoClip([video] + subtitle_clips)
+        return video
+    
+    async def _generate_tts_with_voice_id(
+        self, 
+        text: str, 
+        voice_id: str
+    ) -> Optional[str]:
+        """使用指定语音ID生成TTS"""
+        if not EDGE_TTS_AVAILABLE:
+            return None
+        
+        try:
+            output_path = os.path.join(self.temp_dir, "tts_long.mp3")
+            communicate = edge_tts.Communicate(text, voice_id)
+            await communicate.save(output_path)
+            logger.info(f"TTS生成完成: {output_path}")
+            return output_path
+        except Exception as e:
+            logger.error(f"TTS生成失败: {e}")
+            return None
+    
+    async def _download_audio(self, url: str) -> Optional[str]:
+        """下载音频文件"""
+        try:
+            output_path = os.path.join(self.temp_dir, "bgm.mp3")
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, timeout=60.0)
+                if response.status_code == 200:
+                    with open(output_path, "wb") as f:
+                        f.write(response.content)
+                    return output_path
+        except Exception as e:
+            logger.error(f"音频下载失败: {e}")
+        return None
     
     def cleanup(self):
         """清理临时文件"""
