@@ -70,6 +70,7 @@ class Lead(Base):
     )
     source_url: Mapped[Optional[str]] = mapped_column(Text)
     source_content: Mapped[Optional[str]] = mapped_column(Text)  # 原始内容
+    content: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)  # 详细内容（JSON格式）
     
     # 状态和意向
     status: Mapped[LeadStatus] = mapped_column(

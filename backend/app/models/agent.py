@@ -54,6 +54,9 @@ class AIAgent(Base):
     # 配置
     config: Mapped[Dict[str, Any]] = mapped_column(JSONB, default={})
     
+    # 最后活跃时间
+    last_active_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    
     # 时间戳
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), 
@@ -82,4 +85,5 @@ class AIAgent(Base):
         """完成一个任务"""
         self.tasks_completed_today += 1
         self.total_tasks_completed += 1
+        self.last_active_at = datetime.utcnow()
         self.set_online()

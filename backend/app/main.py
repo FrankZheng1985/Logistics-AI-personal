@@ -98,5 +98,104 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """健康检查"""
-    return {"status": "healthy"}
+    """健康检查 - 返回系统各组件状态"""
+    from datetime import datetime
+    import time
+    
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "version": settings.APP_VERSION,
+        "components": {}
+    }
+    
+    # 检查数据库连接
+    db_start = time.time()
+    try:
+        from sqlalchemy import text
+        from app.models.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+        health_status["components"]["database"] = {
+            "status": "healthy",
+            "response_time_ms": round((time.time() - db_start) * 1000, 2)
+        }
+    except Exception as e:
+        health_status["status"] = "degraded"
+        health_status["components"]["database"] = {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+    
+    # 检查Redis连接
+    redis_start = time.time()
+    try:
+        import redis.asyncio as redis_async
+        redis_client = redis_async.from_url(settings.REDIS_URL)
+        await redis_client.ping()
+        await redis_client.close()
+        health_status["components"]["redis"] = {
+            "status": "healthy",
+            "response_time_ms": round((time.time() - redis_start) * 1000, 2)
+        }
+    except Exception as e:
+        # Redis可选，不影响整体健康状态
+        health_status["components"]["redis"] = {
+            "status": "unavailable",
+            "error": str(e),
+            "note": "Redis是可选组件，系统已降级到数据库模式"
+        }
+    
+    # 检查任务队列
+    try:
+        from app.services.task_queue import task_queue
+        queue_stats = await task_queue.get_queue_stats()
+        health_status["components"]["task_queue"] = {
+            "status": "healthy",
+            "mode": "redis" if task_queue._redis else "database",
+            "stats": queue_stats
+        }
+    except Exception as e:
+        health_status["components"]["task_queue"] = {
+            "status": "unknown",
+            "error": str(e)
+        }
+    
+    # 检查定时任务调度器
+    try:
+        from app.scheduler import scheduler
+        if scheduler and scheduler.running:
+            jobs = scheduler.get_jobs()
+            health_status["components"]["scheduler"] = {
+                "status": "healthy",
+                "running": True,
+                "job_count": len(jobs)
+            }
+        else:
+            health_status["components"]["scheduler"] = {
+                "status": "disabled",
+                "running": False
+            }
+    except Exception as e:
+        health_status["components"]["scheduler"] = {
+            "status": "unknown",
+            "error": str(e)
+        }
+    
+    # 检查AI API可用性（仅检查配置，不实际调用）
+    ai_apis = {}
+    if settings.DASHSCOPE_API_KEY:
+        ai_apis["dashscope"] = "configured"
+    if settings.OPENAI_API_KEY:
+        ai_apis["openai"] = "configured"
+    if settings.ANTHROPIC_API_KEY:
+        ai_apis["anthropic"] = "configured"
+    if settings.KELING_ACCESS_KEY:
+        ai_apis["keling"] = "configured"
+    
+    health_status["components"]["ai_apis"] = {
+        "status": "healthy" if ai_apis else "unconfigured",
+        "providers": ai_apis
+    }
+    
+    return health_status

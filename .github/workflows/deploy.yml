@@ -61,6 +61,14 @@ jobs:
               echo "监控脚本不存在，跳过"
             fi
             
+            # 配置数据库备份定时任务
+            if [ -f "scripts/backup/setup-crontab.sh" ]; then
+              echo "配置数据库备份定时任务..."
+              bash scripts/backup/setup-crontab.sh
+            else
+              echo "定时任务脚本不存在，跳过"
+            fi
+            
             # 清理旧镜像
             docker image prune -f
             

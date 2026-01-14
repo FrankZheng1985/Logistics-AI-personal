@@ -16,7 +16,7 @@ CREATE TYPE intent_level AS ENUM ('S', 'A', 'B', 'C');
 CREATE TYPE customer_source AS ENUM ('wechat', 'website', 'referral', 'ad', 'other');
 
 -- AI员工类型
-CREATE TYPE agent_type AS ENUM ('coordinator', 'video_creator', 'copywriter', 'sales', 'follow', 'analyst', 'lead_hunter');
+CREATE TYPE agent_type AS ENUM ('coordinator', 'video_creator', 'copywriter', 'sales', 'follow', 'analyst', 'lead_hunter', 'analyst2');
 
 -- AI员工状态
 CREATE TYPE agent_status AS ENUM ('online', 'busy', 'offline');
@@ -60,6 +60,7 @@ CREATE TABLE ai_agents (
     tasks_completed_today INTEGER DEFAULT 0,
     total_tasks_completed INTEGER DEFAULT 0,
     config JSONB DEFAULT '{}',           -- Agent配置参数
+    last_active_at TIMESTAMP WITH TIME ZONE, -- 最后活跃时间
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -378,7 +379,8 @@ INSERT INTO ai_agents (name, agent_type, description, status) VALUES
     ('小销', 'sales', '销售客服 - 首次接待、解答咨询、收集需求', 'online'),
     ('小跟', 'follow', '跟进专员 - 老客户维护、意向客户跟进、促成转化', 'online'),
     ('小析', 'analyst', '客户分析师 - 意向评分、客户画像、数据报表', 'online'),
-    ('小猎', 'lead_hunter', '线索猎手 - 自动搜索互联网上的潜在客户线索，发现物流需求商机', 'online')
+    ('小猎', 'lead_hunter', '线索猎手 - 自动搜索互联网上的潜在客户线索，发现物流需求商机', 'online'),
+    ('小析2', 'analyst2', '群聊情报员 - 监控微信群消息，提取有价值信息入库，知识库更新', 'online')
 ON CONFLICT (agent_type) DO NOTHING;
 
 -- 插入默认系统配置

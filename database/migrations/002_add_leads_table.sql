@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS leads (
     source lead_source DEFAULT 'other',
     source_url TEXT,
     source_content TEXT,
+    content JSONB,                        -- 线索详细内容（JSON格式）
     
     -- 状态和意向
     status lead_status DEFAULT 'new',
@@ -80,6 +81,9 @@ CREATE INDEX IF NOT EXISTS idx_leads_intent_level ON leads(intent_level);
 CREATE INDEX IF NOT EXISTS idx_leads_created_at ON leads(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_leads_phone ON leads(phone) WHERE phone IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_leads_email ON leads(email) WHERE email IS NOT NULL;
+
+-- 添加source_url唯一约束（用于避免重复线索）
+CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_source_url_unique ON leads(source_url) WHERE source_url IS NOT NULL;
 
 -- 更新agent_type枚举，添加lead_hunter
 DO $$ BEGIN
