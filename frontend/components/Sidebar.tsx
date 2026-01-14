@@ -10,7 +10,13 @@ import {
   Bot,
   Settings,
   Bell,
-  Target
+  Target,
+  BookOpen,
+  ClipboardCheck,
+  Activity,
+  FolderOpen,
+  Mail,
+  MessageCircle
 } from 'lucide-react'
 
 const menuItems = [
@@ -20,6 +26,15 @@ const menuItems = [
   { href: '/conversations', label: '对话记录', icon: MessageSquare },
   { href: '/videos', label: '视频中心', icon: Video },
   { href: '/team', label: 'AI团队', icon: Bot },
+]
+
+const managementItems = [
+  { href: '/knowledge', label: '知识库', icon: BookOpen },
+  { href: '/standards', label: '工作标准', icon: ClipboardCheck },
+  { href: '/monitoring', label: '系统监控', icon: Activity },
+  { href: '/assets', label: '素材库', icon: FolderOpen },
+  { href: '/marketing', label: '营销序列', icon: Mail },
+  { href: '/wechat-groups', label: '微信群监控', icon: MessageCircle },
 ]
 
 export default function Sidebar() {
@@ -36,7 +51,9 @@ export default function Sidebar() {
       </div>
       
       {/* 菜单 */}
-      <nav className="flex-1 p-4 space-y-2">
+      <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+        {/* 主要功能 */}
+        <p className="px-4 py-2 text-xs text-gray-500 uppercase tracking-wider">主要功能</p>
         {menuItems.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
           const Icon = item.icon
@@ -45,14 +62,36 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+              className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
                 isActive 
                   ? 'bg-cyber-blue/20 text-cyber-blue border border-cyber-blue/30' 
                   : 'text-gray-400 hover:bg-white/5 hover:text-white'
               }`}
             >
               <Icon className="w-5 h-5" />
-              <span>{item.label}</span>
+              <span className="text-sm">{item.label}</span>
+            </Link>
+          )
+        })}
+        
+        {/* 系统管理 */}
+        <p className="px-4 py-2 pt-4 text-xs text-gray-500 uppercase tracking-wider">系统管理</p>
+        {managementItems.map((item) => {
+          const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
+          const Icon = item.icon
+          
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
+                isActive 
+                  ? 'bg-cyber-blue/20 text-cyber-blue border border-cyber-blue/30' 
+                  : 'text-gray-400 hover:bg-white/5 hover:text-white'
+              }`}
+            >
+              <Icon className="w-5 h-5" />
+              <span className="text-sm">{item.label}</span>
             </Link>
           )
         })}

@@ -4,7 +4,8 @@ from fastapi import APIRouter
 from app.api import (
     customers, videos, chat, dashboard, agents, 
     wechat, company, leads, follow,
-    reports, knowledge, webchat
+    reports, knowledge, webchat,
+    standards, monitoring
 )
 
 router = APIRouter()
@@ -22,3 +23,5 @@ router.include_router(company.router, tags=["公司配置"])
 router.include_router(reports.router)
 router.include_router(knowledge.router)
 router.include_router(webchat.router)
+router.include_router(standards.router, tags=["工作标准"])
+router.include_router(monitoring.router, tags=["系统监控"])
