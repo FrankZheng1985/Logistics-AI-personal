@@ -21,6 +21,9 @@ FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV production
 
+# 安装curl用于健康检查
+RUN apk add --no-cache curl
+
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
