@@ -4,9 +4,12 @@
 """
 from typing import Dict, Any, List
 from loguru import logger
+from sqlalchemy import select
 
 from app.agents.base import BaseAgent, AgentRegistry
 from app.models.conversation import AgentType
+from app.models.database import AsyncSessionLocal
+from app.models.company_config import CompanyConfig
 from app.core.prompts.copywriter import (
     COPYWRITER_SYSTEM_PROMPT, 
     SCRIPT_WRITING_PROMPT,
@@ -23,6 +26,59 @@ class CopywriterAgent(BaseAgent):
     
     def _build_system_prompt(self) -> str:
         return COPYWRITER_SYSTEM_PROMPT
+    
+    async def _get_company_context(self) -> str:
+        """从数据库获取公司上下文信息"""
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(select(CompanyConfig).limit(1))
+                config = result.scalar_one_or_none()
+                
+                if not config:
+                    return ""
+                
+                lines = []
+                
+                if config.company_name:
+                    lines.append(f"公司名称：{config.company_name}")
+                
+                if config.company_intro:
+                    lines.append(f"公司简介：{config.company_intro}")
+                
+                if config.products:
+                    products_text = []
+                    for p in config.products:
+                        name = p.get('name', '')
+                        desc = p.get('description', '')
+                        features = p.get('features', [])
+                        if name:
+                            products_text.append(f"- {name}: {desc}")
+                    if products_text:
+                        lines.append("主营产品服务：")
+                        lines.extend(products_text)
+                
+                if config.service_routes:
+                    routes_text = []
+                    for r in config.service_routes:
+                        from_loc = r.get('from_location', '')
+                        to_loc = r.get('to_location', '')
+                        transport = r.get('transport', '')
+                        if from_loc and to_loc:
+                            routes_text.append(f"- {from_loc}→{to_loc} ({transport})")
+                    if routes_text:
+                        lines.append("服务航线：")
+                        lines.extend(routes_text[:5])  # 最多5条
+                
+                if config.advantages:
+                    lines.append(f"公司优势：{', '.join(config.advantages)}")
+                
+                if config.contact_phone:
+                    lines.append(f"联系电话：{config.contact_phone}")
+                
+                return "\n".join(lines)
+        except Exception as e:
+            logger.error(f"获取公司配置失败: {e}")
+            return ""
     
     async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -55,12 +111,35 @@ class CopywriterAgent(BaseAgent):
         video_type = input_data.get("video_type", "ad")
         duration = input_data.get("duration", 30)
         
-        prompt = SCRIPT_WRITING_PROMPT.format(
-            title=title,
-            description=description,
-            video_type=video_type,
-            duration=duration
-        )
+        # 获取公司上下文
+        company_context = await self._get_company_context()
+        
+        # 增强版提示词，包含公司信息
+        prompt = f"""请为视频撰写脚本。
+
+## 公司背景信息
+{company_context if company_context else "暂未配置公司信息，请使用通用物流公司背景"}
+
+## 视频要求
+- 标题：{title}
+- 描述：{description}
+- 类型：{video_type}
+- 时长：约{duration}秒
+
+## 脚本要求
+1. 融入公司名称和优势（如有配置）
+2. 突出产品服务特点
+3. 适合短视频平台传播
+4. 结尾引导留下联系方式
+
+请输出完整的视频脚本，包括画面描述和旁白文字。同时在最后列出5-8个适合AI视频生成的关键词。
+
+格式要求：
+【画面描述】...
+【旁白/文字】...
+
+关键词：xxx, xxx, xxx
+"""
         
         script = await self.think([{"role": "user", "content": prompt}])
         

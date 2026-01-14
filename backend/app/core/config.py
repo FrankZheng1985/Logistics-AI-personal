@@ -39,9 +39,11 @@ class Settings(BaseSettings):
     AI_TEMPERATURE: float = 0.7
     AI_MAX_TOKENS: int = 2000
     
-    # 可灵视频API
-    KELING_API_KEY: Optional[str] = None
-    KELING_API_URL: str = "https://api.keling.ai/v1"
+    # 可灵视频API (Kling AI)
+    KELING_API_KEY: Optional[str] = None  # 旧版单密钥（可选）
+    KELING_ACCESS_KEY: Optional[str] = None  # Access Key
+    KELING_SECRET_KEY: Optional[str] = None  # Secret Key
+    KELING_API_URL: str = "https://api.klingai.com"
     
     # 企业微信配置
     WECHAT_CORP_ID: Optional[str] = None

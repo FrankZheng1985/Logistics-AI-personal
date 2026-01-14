@@ -4,9 +4,12 @@
 """
 from typing import Dict, Any, Optional, List
 from loguru import logger
+from sqlalchemy import select
 
 from app.agents.base import BaseAgent, AgentRegistry
 from app.models.conversation import AgentType
+from app.models.database import AsyncSessionLocal
+from app.models.company_config import CompanyConfig
 from app.core.prompts.sales import SALES_SYSTEM_PROMPT, CHAT_RESPONSE_PROMPT
 
 
@@ -19,6 +22,68 @@ class SalesAgent(BaseAgent):
     
     def _build_system_prompt(self) -> str:
         return SALES_SYSTEM_PROMPT
+    
+    async def _get_company_context(self) -> str:
+        """从数据库获取公司上下文信息"""
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(select(CompanyConfig).limit(1))
+                config = result.scalar_one_or_none()
+                
+                if not config:
+                    return ""
+                
+                lines = []
+                
+                if config.company_name:
+                    lines.append(f"公司名称：{config.company_name}")
+                
+                if config.company_intro:
+                    lines.append(f"公司简介：{config.company_intro}")
+                
+                if config.products:
+                    products_text = []
+                    for p in config.products:
+                        name = p.get('name', '')
+                        desc = p.get('description', '')
+                        features = p.get('features', [])
+                        products_text.append(f"- {name}: {desc} (特点: {', '.join(features)})")
+                    if products_text:
+                        lines.append("我们提供的产品服务：")
+                        lines.extend(products_text)
+                
+                if config.service_routes:
+                    routes_text = []
+                    for r in config.service_routes:
+                        from_loc = r.get('from_location', '')
+                        to_loc = r.get('to_location', '')
+                        transport = r.get('transport', '')
+                        time = r.get('time', '')
+                        price_ref = r.get('price_ref', '')
+                        route_info = f"- {from_loc}→{to_loc} ({transport}): {time}"
+                        if price_ref:
+                            route_info += f", 参考价格: {price_ref}"
+                        routes_text.append(route_info)
+                    if routes_text:
+                        lines.append("服务航线：")
+                        lines.extend(routes_text)
+                
+                if config.advantages:
+                    lines.append(f"公司优势：{', '.join(config.advantages)}")
+                
+                if config.price_policy:
+                    lines.append(f"价格政策：{config.price_policy}")
+                
+                if config.contact_phone:
+                    lines.append(f"联系电话：{config.contact_phone}")
+                
+                if config.contact_wechat:
+                    lines.append(f"客服微信：{config.contact_wechat}")
+                
+                return "\n".join(lines)
+        except Exception as e:
+            logger.error(f"获取公司配置失败: {e}")
+            return ""
     
     async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -44,12 +109,26 @@ class SalesAgent(BaseAgent):
         customer_info = input_data.get("customer_info", "新客户，暂无信息")
         chat_history = input_data.get("chat_history", "无历史对话")
         
-        # 构建对话提示
-        chat_prompt = CHAT_RESPONSE_PROMPT.format(
-            customer_info=customer_info,
-            chat_history=chat_history,
-            message=message
-        )
+        # 获取公司上下文信息
+        company_context = await self._get_company_context()
+        
+        # 构建对话提示，包含公司信息
+        chat_prompt = f"""你正在与一位潜在客户对话。
+
+## 你所在公司的信息
+{company_context if company_context else "暂未配置公司信息"}
+
+## 客户信息
+{customer_info}
+
+## 对话历史
+{chat_history}
+
+## 客户最新消息
+{message}
+
+请根据公司信息和上下文，给出专业、友好的回复。如果客户询问价格、航线、时效等，请根据公司配置的信息回答。如果公司没有配置相关信息，可以引导客户留下联系方式，由专业业务员跟进。
+"""
         
         # 生成回复
         reply = await self.think([{"role": "user", "content": chat_prompt}])

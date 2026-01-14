@@ -106,25 +106,85 @@ async def generate_video(
     创建视频生成任务
     这个接口会触发小文生成脚本，然后小视生成视频
     """
+    from app.agents.copywriter import CopywriterAgent
+    from app.agents.video_creator import VideoCreatorAgent
+    from app.services.conversation_service import conversation_service
+    from loguru import logger
+    
     # 创建视频记录
     video = Video(
         title=title,
         description=description,
         video_type=video_type,
         keywords=keywords,
-        status=VideoStatus.DRAFT
+        status=VideoStatus.GENERATING
     )
     db.add(video)
     await db.commit()
     await db.refresh(video)
     
-    # TODO: 创建AI任务，由小调分配给小文和小视
-    
-    return {
-        "video_id": str(video.id),
-        "status": "task_created",
-        "message": "视频生成任务已创建，小文正在撰写脚本..."
-    }
+    try:
+        # 第一步：小文生成脚本
+        logger.info(f"[小文] 开始为视频 '{title}' 撰写脚本")
+        copywriter = CopywriterAgent()
+        script_result = await copywriter.process({
+            "task_type": "video_script",
+            "title": title,
+            "description": description,
+            "video_type": video_type,
+            "keywords": keywords
+        })
+        
+        script = script_result.get("script", description)
+        video.script = script
+        await conversation_service.record_agent_task("copywriter", True)
+        logger.info(f"[小文] 脚本撰写完成")
+        
+        # 第二步：小视生成视频
+        logger.info(f"[小视] 开始生成视频")
+        video_creator = VideoCreatorAgent()
+        video_result = await video_creator.process({
+            "title": title,
+            "script": script,
+            "keywords": keywords
+        })
+        await conversation_service.record_agent_task("video_creator", True)
+        
+        # 更新视频状态
+        if video_result.get("status") == "success":
+            video.video_url = video_result.get("video_url")
+            video.status = VideoStatus.COMPLETED
+            message = "视频生成成功！"
+        elif video_result.get("status") == "processing":
+            # 视频仍在生成中，保存任务ID供后续查询
+            video.status = VideoStatus.GENERATING
+            message = video_result.get("message", "视频正在生成中，请稍后刷新查看")
+        elif video_result.get("status") == "api_not_configured":
+            video.status = VideoStatus.DRAFT
+            message = "视频脚本已生成，但可灵API未配置，无法生成视频文件"
+        else:
+            video.status = VideoStatus.FAILED
+            message = video_result.get("message", "视频生成失败")
+        
+        await db.commit()
+        logger.info(f"[小视] 视频任务完成: {message}")
+        
+        return {
+            "video_id": str(video.id),
+            "status": video.status.value,
+            "script": script,
+            "message": message
+        }
+        
+    except Exception as e:
+        logger.error(f"视频生成失败: {e}")
+        video.status = VideoStatus.FAILED
+        await db.commit()
+        return {
+            "video_id": str(video.id),
+            "status": "failed",
+            "message": f"生成失败: {str(e)}"
+        }
 
 
 @router.post("/{video_id}/regenerate")
@@ -144,10 +204,62 @@ async def regenerate_video(
     video.status = VideoStatus.GENERATING
     await db.commit()
     
-    # TODO: 重新触发视频生成任务
+    try:
+        # 重新生成视频
+        logger.info(f"[小视] 重新生成视频: {video.title}")
+        video_creator = VideoCreatorAgent()
+        video_result = await video_creator.process({
+            "title": video.title,
+            "script": video.script or video.description,
+            "keywords": video.keywords or []
+        })
+        
+        if video_result.get("status") == "success":
+            video.video_url = video_result.get("video_url")
+            video.status = VideoStatus.COMPLETED
+        elif video_result.get("status") == "processing":
+            video.status = VideoStatus.GENERATING
+        else:
+            video.status = VideoStatus.FAILED
+        
+        await db.commit()
+        
+        return {
+            "video_id": str(video_id),
+            "status": video.status.value,
+            "message": "视频重新生成任务已完成"
+        }
+    except Exception as e:
+        logger.error(f"重新生成视频失败: {e}")
+        video.status = VideoStatus.FAILED
+        await db.commit()
+        return {
+            "video_id": str(video_id),
+            "status": "failed",
+            "message": f"重新生成失败: {str(e)}"
+        }
+
+
+@router.delete("/{video_id}")
+async def delete_video(
+    video_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """删除视频"""
+    result = await db.execute(
+        select(Video).where(Video.id == video_id)
+    )
+    video = result.scalar_one_or_none()
+    
+    if not video:
+        raise HTTPException(status_code=404, detail="视频不存在")
+    
+    await db.delete(video)
+    await db.commit()
+    
+    logger.info(f"视频已删除: {video.title}")
     
     return {
-        "video_id": str(video_id),
-        "status": "regenerating",
-        "message": "正在重新生成视频..."
+        "message": "视频已删除",
+        "video_id": str(video_id)
     }

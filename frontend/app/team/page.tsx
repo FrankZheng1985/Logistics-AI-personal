@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { 
   ArrowLeft,
   Settings,
@@ -10,7 +10,12 @@ import {
   CheckCircle,
   Clock,
   Zap,
-  Loader2
+  Loader2,
+  X,
+  Power,
+  Sliders,
+  Activity,
+  RefreshCw
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -25,8 +30,142 @@ interface Agent {
   currentTask: string | null
 }
 
+// AI员工配置弹窗
+function AgentConfigModal({ 
+  agent, 
+  onClose,
+  onToggleStatus,
+  onRefreshStats
+}: { 
+  agent: Agent | null
+  onClose: () => void
+  onToggleStatus: (agentName: string, newStatus: 'online' | 'offline') => void
+  onRefreshStats: () => void
+}) {
+  const [saving, setSaving] = useState(false)
+  
+  if (!agent) return null
+  
+  const handleToggleStatus = async () => {
+    setSaving(true)
+    const newStatus = agent.status === 'offline' ? 'online' : 'offline'
+    await onToggleStatus(agent.name, newStatus)
+    setSaving(false)
+  }
+  
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+      onClick={onClose}
+    >
+      <motion.div 
+        initial={{ scale: 0.9, y: 20 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.9, y: 20 }}
+        className="glass-card w-full max-w-lg mx-4"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* 头部 */}
+        <div className="flex items-center justify-between p-6 border-b border-white/10">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-cyber-blue to-neon-purple flex items-center justify-center text-xl font-bold">
+              {agent.name}
+            </div>
+            <div>
+              <h2 className="text-lg font-bold">{agent.name} - {agent.role}</h2>
+              <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs ${
+                agent.status === 'online' ? 'bg-cyber-green/20 text-cyber-green' :
+                agent.status === 'busy' ? 'bg-energy-orange/20 text-energy-orange' :
+                'bg-gray-500/20 text-gray-400'
+              }`}>
+                {agent.status === 'online' ? '在线' : agent.status === 'busy' ? '忙碌' : '离线'}
+              </span>
+            </div>
+          </div>
+          <button 
+            onClick={onClose}
+            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        
+        {/* 内容 */}
+        <div className="p-6 space-y-6">
+          {/* 描述 */}
+          <div className="glass-card p-4">
+            <h3 className="text-sm text-gray-400 mb-2">职责描述</h3>
+            <p className="text-gray-200">{agent.description}</p>
+          </div>
+          
+          {/* 统计 */}
+          <div className="grid grid-cols-3 gap-4">
+            <div className="glass-card p-4 text-center">
+              <p className="text-2xl font-number font-bold text-cyber-blue">{agent.tasksToday}</p>
+              <p className="text-gray-500 text-xs">今日任务</p>
+            </div>
+            <div className="glass-card p-4 text-center">
+              <p className="text-2xl font-number font-bold text-neon-purple">{agent.totalTasks}</p>
+              <p className="text-gray-500 text-xs">累计任务</p>
+            </div>
+            <div className="glass-card p-4 text-center">
+              <p className="text-2xl font-number font-bold text-cyber-green">{agent.successRate}%</p>
+              <p className="text-gray-500 text-xs">成功率</p>
+            </div>
+          </div>
+          
+          {/* 当前任务 */}
+          {agent.currentTask && (
+            <div className="glass-card p-4 bg-cyber-blue/10 border-cyber-blue/30">
+              <div className="flex items-center gap-2">
+                <Activity className="w-4 h-4 text-cyber-blue animate-pulse" />
+                <span className="text-gray-400">当前任务：</span>
+                <span className="text-cyber-blue">{agent.currentTask}</span>
+              </div>
+            </div>
+          )}
+          
+          {/* 操作按钮 */}
+          <div className="flex gap-3">
+            <button 
+              onClick={handleToggleStatus}
+              disabled={saving || agent.status === 'busy'}
+              className={`flex-1 py-3 glass-card transition-colors flex items-center justify-center gap-2 ${
+                agent.status === 'offline' 
+                  ? 'hover:border-cyber-green/50 hover:text-cyber-green' 
+                  : 'hover:border-alert-red/50 hover:text-alert-red'
+              } disabled:opacity-50`}
+            >
+              {saving ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Power className="w-4 h-4" />
+              )}
+              {agent.status === 'offline' ? '启用员工' : '禁用员工'}
+            </button>
+            <button 
+              onClick={onRefreshStats}
+              className="py-3 px-6 glass-card hover:border-cyber-blue/50 transition-colors flex items-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              刷新数据
+            </button>
+          </div>
+          
+          <p className="text-gray-500 text-xs text-center">
+            💡 AI员工状态由系统自动管理，通常无需手动调整
+          </p>
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
+
 // AI员工详细卡片
-function AgentDetailCard({ agent }: { agent: Agent }) {
+function AgentDetailCard({ agent, onOpenConfig }: { agent: Agent; onOpenConfig: () => void }) {
   const statusColors = {
     online: 'bg-cyber-green',
     busy: 'bg-energy-orange',
@@ -45,6 +184,7 @@ function AgentDetailCard({ agent }: { agent: Agent }) {
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ scale: 1.02 }}
       className="glass-card p-6 cursor-pointer group"
+      onClick={onOpenConfig}
     >
       {/* 头部 */}
       <div className="flex items-start justify-between mb-4">
@@ -67,7 +207,13 @@ function AgentDetailCard({ agent }: { agent: Agent }) {
             </span>
           </div>
         </div>
-        <button className="p-2 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white/10 rounded-lg">
+        <button 
+          onClick={(e) => {
+            e.stopPropagation()
+            onOpenConfig()
+          }}
+          className="p-2 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white/10 rounded-lg"
+        >
           <Settings className="w-5 h-5 text-gray-400" />
         </button>
       </div>
@@ -253,58 +399,74 @@ const DEFAULT_AGENTS: Agent[] = [
 export default function TeamPage() {
   const [agents, setAgents] = useState<Agent[]>(DEFAULT_AGENTS)
   const [loading, setLoading] = useState(true)
+  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
 
-  useEffect(() => {
-    async function fetchAgentData() {
-      setLoading(true)
-      try {
-        // 尝试从API获取真实数据
-        const response = await fetch('/api/agents')
+  const fetchAgentData = async () => {
+    try {
+      const response = await fetch('/api/agents')
+      
+      if (response.ok) {
+        const data = await response.json()
         
-        if (response.ok) {
-          const data = await response.json()
-          
-          if (data.agents && data.agents.length > 0) {
-            // 将API数据映射到前端格式
-            const mappedAgents = data.agents.map((apiAgent: any) => {
-              // 找到对应的默认配置
-              const defaultAgent = DEFAULT_AGENTS.find(a => a.name === apiAgent.name)
-              
-              return {
-                name: apiAgent.name,
-                role: defaultAgent?.role || apiAgent.type,
-                status: apiAgent.status || 'online',
-                description: defaultAgent?.description || apiAgent.description,
-                tasksToday: apiAgent.tasks_today || 0,
-                totalTasks: apiAgent.total_tasks || 0,
-                successRate: apiAgent.success_rate || 100,
-                currentTask: apiAgent.current_task_id ? '处理中...' : null
-              }
-            })
-            setAgents(mappedAgents)
-          } else {
-            // API没有数据，使用默认配置
-            setAgents(DEFAULT_AGENTS)
-          }
+        if (data.agents && data.agents.length > 0) {
+          const mappedAgents = data.agents.map((apiAgent: any) => {
+            const defaultAgent = DEFAULT_AGENTS.find(a => a.name === apiAgent.name)
+            
+            return {
+              name: apiAgent.name,
+              role: defaultAgent?.role || apiAgent.type,
+              status: apiAgent.status || 'online',
+              description: defaultAgent?.description || apiAgent.description,
+              tasksToday: apiAgent.tasks_today || 0,
+              totalTasks: apiAgent.total_tasks || 0,
+              successRate: apiAgent.success_rate || 100,
+              currentTask: apiAgent.current_task_id ? '处理中...' : null
+            }
+          })
+          setAgents(mappedAgents)
         } else {
-          // API请求失败，使用默认配置
           setAgents(DEFAULT_AGENTS)
         }
-      } catch (error) {
-        console.error('获取AI员工数据失败:', error)
-        // 出错时使用默认配置
+      } else {
         setAgents(DEFAULT_AGENTS)
-      } finally {
-        setLoading(false)
       }
+    } catch (error) {
+      console.error('获取AI员工数据失败:', error)
+      setAgents(DEFAULT_AGENTS)
+    } finally {
+      setLoading(false)
     }
+  }
 
+  useEffect(() => {
+    setLoading(true)
     fetchAgentData()
     
-    // 每30秒刷新一次
     const interval = setInterval(fetchAgentData, 30000)
     return () => clearInterval(interval)
   }, [])
+  
+  const handleToggleStatus = async (agentName: string, newStatus: 'online' | 'offline') => {
+    try {
+      // 这里可以调用API更新状态
+      // await fetch(`/api/agents/${agentName}/status`, { method: 'PUT', body: JSON.stringify({ status: newStatus }) })
+      
+      // 本地更新状态
+      setAgents(prev => prev.map(a => 
+        a.name === agentName ? { ...a, status: newStatus } : a
+      ))
+      
+      // 更新选中的agent
+      if (selectedAgent?.name === agentName) {
+        setSelectedAgent(prev => prev ? { ...prev, status: newStatus } : null)
+      }
+      
+      alert(`${agentName} 状态已更新为: ${newStatus === 'online' ? '在线' : '离线'}`)
+    } catch (error) {
+      console.error('更新状态失败:', error)
+      alert('更新失败，请重试')
+    }
+  }
   
   return (
     <div className="min-h-screen p-6">
@@ -320,7 +482,7 @@ export default function TeamPage() {
             </span>
             <span className="text-sm font-normal text-gray-400">{agents.length} 名员工</span>
           </h1>
-          <p className="text-gray-400 text-sm">管理和监控AI员工工作状态 • 数据实时更新</p>
+          <p className="text-gray-400 text-sm">管理和监控AI员工工作状态 • 点击员工卡片查看详情</p>
         </div>
       </header>
       
@@ -336,7 +498,10 @@ export default function TeamPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.1 }}
           >
-            <AgentDetailCard agent={agent} />
+            <AgentDetailCard 
+              agent={agent} 
+              onOpenConfig={() => setSelectedAgent(agent)}
+            />
           </motion.div>
         ))}
       </div>
@@ -348,6 +513,21 @@ export default function TeamPage() {
           AI员工的任务统计会随着企业微信对话自动更新。发送消息给企业微信AI客服，数据将实时反映在此页面。
         </p>
       </div>
+      
+      {/* AI员工配置弹窗 */}
+      <AnimatePresence>
+        {selectedAgent && (
+          <AgentConfigModal 
+            agent={selectedAgent}
+            onClose={() => setSelectedAgent(null)}
+            onToggleStatus={handleToggleStatus}
+            onRefreshStats={() => {
+              setLoading(true)
+              fetchAgentData()
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

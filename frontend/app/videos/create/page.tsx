@@ -37,15 +37,45 @@ export default function CreateVideoPage() {
     if (!title) return
     
     setIsGenerating(true)
+    setGenerationStep(0) // 小调分配任务
     
-    // 模拟生成过程
-    for (let i = 0; i < steps.length; i++) {
-      setGenerationStep(i)
-      await new Promise(resolve => setTimeout(resolve, 2000))
+    try {
+      // 第一步：创建视频任务
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      setGenerationStep(1) // 小文撰写脚本
+      
+      // 第二步：调用后端API创建视频
+      const response = await fetch('/api/videos/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          description,
+          video_type: videoType,
+          keywords: description.split(/[,，、]/).filter(k => k.trim())
+        })
+      })
+      
+      const result = await response.json()
+      
+      if (response.ok) {
+        setGenerationStep(2) // 小视生成视频
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        setGenerationStep(3) // 完成
+        
+        // 2秒后跳转到视频列表
+        setTimeout(() => {
+          window.location.href = '/videos'
+        }, 2000)
+      } else {
+        alert(result.message || '视频生成失败，请检查可灵API配置')
+        setIsGenerating(false)
+      }
+    } catch (error) {
+      console.error('视频生成失败:', error)
+      alert('视频生成失败，请稍后重试')
+      setIsGenerating(false)
     }
-    
-    // 完成后跳转
-    // router.push('/videos')
   }
   
   return (

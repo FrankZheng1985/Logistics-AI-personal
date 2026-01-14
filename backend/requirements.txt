@@ -33,3 +33,4 @@ tencentcloud-sdk-python==3.0.1000
 # 日志
 loguru==0.7.2
 pycryptodome>=3.19.0
+PyJWT>=2.8.0

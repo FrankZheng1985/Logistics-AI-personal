@@ -84,9 +84,9 @@ class Customer(Base):
     
     # 跟进状态
     assigned_to: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), 
-        ForeignKey("users.id")
-    )
+        UUID(as_uuid=True),
+        nullable=True
+    )  # 暂不关联users表
     last_contact_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     next_follow_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     follow_count: Mapped[int] = mapped_column(Integer, default=0)

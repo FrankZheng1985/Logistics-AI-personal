@@ -55,12 +55,13 @@ class Video(Base):
     # 关联
     task_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), 
-        ForeignKey("ai_tasks.id")
+        ForeignKey("ai_tasks.id", ondelete="SET NULL"),
+        nullable=True
     )
     created_by: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), 
-        ForeignKey("users.id")
-    )
+        UUID(as_uuid=True),
+        nullable=True
+    )  # 暂不关联users表
     
     # 时间戳
     created_at: Mapped[datetime] = mapped_column(

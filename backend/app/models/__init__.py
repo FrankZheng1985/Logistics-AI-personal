@@ -5,6 +5,7 @@ from app.models.conversation import Conversation, AgentType, MessageType
 from app.models.task import AITask, TaskStatus
 from app.models.video import Video, VideoStatus
 from app.models.agent import AIAgent, AgentStatus
+from app.models.company_config import CompanyConfig
 
 __all__ = [
     # 数据库
@@ -19,6 +20,7 @@ __all__ = [
     "AITask",
     "Video",
     "AIAgent",
+    "CompanyConfig",
     # 枚举
     "IntentLevel",
     "CustomerSource",

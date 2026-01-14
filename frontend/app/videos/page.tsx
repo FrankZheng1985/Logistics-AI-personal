@@ -12,7 +12,9 @@ import {
   CheckCircle,
   AlertCircle,
   Film,
-  Loader2
+  Loader2,
+  RefreshCw,
+  X
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -24,6 +26,7 @@ interface Video {
   duration: number | null
   createdAt: string
   thumbnailUrl: string | null
+  videoUrl: string | null
 }
 
 // 视频状态配置
@@ -35,9 +38,36 @@ const statusConfig = {
 }
 
 // 视频卡片
-function VideoCard({ video }: { video: any }) {
+function VideoCard({ 
+  video, 
+  onDownload, 
+  onDelete, 
+  onRegenerate,
+  onPlay 
+}: { 
+  video: Video
+  onDownload: () => void
+  onDelete: () => void
+  onRegenerate: () => void
+  onPlay: () => void
+}) {
   const status = statusConfig[video.status as keyof typeof statusConfig]
   const StatusIcon = status.icon
+  const [deleting, setDeleting] = useState(false)
+  const [regenerating, setRegenerate] = useState(false)
+  
+  const handleDelete = async () => {
+    if (!confirm('确定要删除这个视频吗？')) return
+    setDeleting(true)
+    await onDelete()
+    setDeleting(false)
+  }
+  
+  const handleRegenerate = async () => {
+    setRegenerate(true)
+    await onRegenerate()
+    setRegenerate(false)
+  }
   
   return (
     <motion.div
@@ -57,9 +87,12 @@ function VideoCard({ video }: { video: any }) {
         )}
         
         {/* 播放按钮 */}
-        {video.status === 'completed' && (
-          <button className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
-            <div className="w-14 h-14 rounded-full bg-cyber-blue/80 flex items-center justify-center">
+        {video.status === 'completed' && video.videoUrl && (
+          <button 
+            onClick={onPlay}
+            className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <div className="w-14 h-14 rounded-full bg-cyber-blue/80 flex items-center justify-center hover:bg-cyber-blue transition-colors">
               <Play className="w-6 h-6 text-white ml-1" />
             </div>
           </button>
@@ -88,24 +121,55 @@ function VideoCard({ video }: { video: any }) {
         <div className="flex items-center gap-2">
           {video.status === 'completed' && (
             <>
-              <button className="flex-1 py-2 px-3 glass-card hover:border-cyber-blue/50 transition-colors text-sm flex items-center justify-center gap-1">
+              <button 
+                onClick={onDownload}
+                disabled={!video.videoUrl}
+                className="flex-1 py-2 px-3 glass-card hover:border-cyber-blue/50 transition-colors text-sm flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
                 <Download className="w-4 h-4" />
                 下载
               </button>
-              <button className="p-2 glass-card hover:border-alert-red/50 hover:text-alert-red transition-colors">
-                <Trash2 className="w-4 h-4" />
+              <button 
+                onClick={handleDelete}
+                disabled={deleting}
+                className="p-2 glass-card hover:border-alert-red/50 hover:text-alert-red transition-colors disabled:opacity-50"
+              >
+                {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
               </button>
             </>
           )}
           {video.status === 'generating' && (
             <div className="flex-1 py-2 px-3 text-center text-sm text-energy-orange">
-              <Clock className="w-4 h-4 inline mr-1 animate-spin" />
+              <Loader2 className="w-4 h-4 inline mr-1 animate-spin" />
               生成中...
             </div>
           )}
           {video.status === 'failed' && (
-            <button className="flex-1 py-2 px-3 glass-card hover:border-cyber-blue/50 transition-colors text-sm">
+            <button 
+              onClick={handleRegenerate}
+              disabled={regenerating}
+              className="flex-1 py-2 px-3 glass-card hover:border-cyber-blue/50 transition-colors text-sm flex items-center justify-center gap-1 disabled:opacity-50"
+            >
+              {regenerating ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
               重新生成
+            </button>
+          )}
+          {video.status === 'draft' && (
+            <button 
+              onClick={handleRegenerate}
+              disabled={regenerating}
+              className="flex-1 py-2 px-3 glass-card hover:border-cyber-blue/50 transition-colors text-sm flex items-center justify-center gap-1 disabled:opacity-50"
+            >
+              {regenerating ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Play className="w-4 h-4" />
+              )}
+              开始生成
             </button>
           )}
         </div>
@@ -114,43 +178,86 @@ function VideoCard({ video }: { video: any }) {
   )
 }
 
+// 视频播放弹窗
+function VideoModal({ video, onClose }: { video: Video | null, onClose: () => void }) {
+  if (!video || !video.videoUrl) return null
+  
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+      onClick={onClose}
+    >
+      <motion.div 
+        initial={{ scale: 0.9 }}
+        animate={{ scale: 1 }}
+        className="relative w-full max-w-4xl mx-4"
+        onClick={e => e.stopPropagation()}
+      >
+        <button 
+          onClick={onClose}
+          className="absolute -top-12 right-0 p-2 text-white hover:text-cyber-blue transition-colors"
+        >
+          <X className="w-6 h-6" />
+        </button>
+        <div className="glass-card overflow-hidden">
+          <video 
+            src={video.videoUrl} 
+            controls 
+            autoPlay 
+            className="w-full aspect-video"
+          />
+          <div className="p-4">
+            <h3 className="text-lg font-medium">{video.title}</h3>
+            <p className="text-gray-400 text-sm">{video.type} · {video.createdAt}</p>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
+
 export default function VideosPage() {
   const [videos, setVideos] = useState<Video[]>([])
   const [loading, setLoading] = useState(true)
   const [total, setTotal] = useState(0)
+  const [playingVideo, setPlayingVideo] = useState<Video | null>(null)
+  
+  const fetchVideos = async () => {
+    try {
+      const res = await fetch('/api/videos')
+      if (res.ok) {
+        const data = await res.json()
+        if (data.items && data.items.length > 0) {
+          const mapped = data.items.map((v: any) => ({
+            id: v.id,
+            title: v.title || '未命名视频',
+            type: v.video_type || '广告视频',
+            status: v.status || 'draft',
+            duration: v.duration,
+            createdAt: v.created_at ? formatTime(v.created_at) : '未知时间',
+            thumbnailUrl: v.thumbnail_url,
+            videoUrl: v.video_url
+          }))
+          setVideos(mapped)
+          setTotal(data.total || mapped.length)
+        } else {
+          setVideos([])
+          setTotal(0)
+        }
+      }
+    } catch (error) {
+      console.error('获取视频列表失败:', error)
+      setVideos([])
+    } finally {
+      setLoading(false)
+    }
+  }
   
   useEffect(() => {
-    const fetchVideos = async () => {
-      setLoading(true)
-      try {
-        const res = await fetch('/api/videos')
-        if (res.ok) {
-          const data = await res.json()
-          if (data.items && data.items.length > 0) {
-            const mapped = data.items.map((v: any) => ({
-              id: v.id,
-              title: v.title || '未命名视频',
-              type: v.video_type || '广告视频',
-              status: v.status || 'draft',
-              duration: v.duration,
-              createdAt: v.created_at ? formatTime(v.created_at) : '未知时间',
-              thumbnailUrl: v.thumbnail_url
-            }))
-            setVideos(mapped)
-            setTotal(data.total || mapped.length)
-          } else {
-            setVideos([])
-            setTotal(0)
-          }
-        }
-      } catch (error) {
-        console.error('获取视频列表失败:', error)
-        setVideos([])
-      } finally {
-        setLoading(false)
-      }
-    }
-    
+    setLoading(true)
     fetchVideos()
     const interval = setInterval(fetchVideos, 30000)
     return () => clearInterval(interval)
@@ -164,6 +271,52 @@ export default function VideosPage() {
     if (diff < 86400) return '今天 ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
     if (diff < 172800) return '昨天 ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
     return date.toLocaleDateString('zh-CN')
+  }
+  
+  const handleDownload = (video: Video) => {
+    if (!video.videoUrl) {
+      alert('视频文件不存在')
+      return
+    }
+    // 创建下载链接
+    const a = document.createElement('a')
+    a.href = video.videoUrl
+    a.download = `${video.title}.mp4`
+    a.target = '_blank'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
+  
+  const handleDelete = async (videoId: string) => {
+    try {
+      const res = await fetch(`/api/videos/${videoId}`, { method: 'DELETE' })
+      if (res.ok) {
+        setVideos(prev => prev.filter(v => v.id !== videoId))
+        setTotal(prev => prev - 1)
+      } else {
+        alert('删除失败，请重试')
+      }
+    } catch (error) {
+      console.error('删除视频失败:', error)
+      alert('删除失败，请重试')
+    }
+  }
+  
+  const handleRegenerate = async (video: Video) => {
+    try {
+      const res = await fetch(`/api/videos/${video.id}/regenerate`, { method: 'POST' })
+      if (res.ok) {
+        // 刷新列表
+        await fetchVideos()
+        alert('视频重新生成任务已创建，请等待3-5分钟后刷新查看')
+      } else {
+        alert('重新生成失败，请重试')
+      }
+    } catch (error) {
+      console.error('重新生成失败:', error)
+      alert('重新生成失败，请重试')
+    }
   }
   
   const completedCount = videos.filter(v => v.status === 'completed').length
@@ -242,10 +395,21 @@ export default function VideosPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
             >
-              <VideoCard video={video} />
+              <VideoCard 
+                video={video} 
+                onDownload={() => handleDownload(video)}
+                onDelete={() => handleDelete(video.id)}
+                onRegenerate={() => handleRegenerate(video)}
+                onPlay={() => setPlayingVideo(video)}
+              />
             </motion.div>
           ))}
         </div>
+      )}
+      
+      {/* 视频播放弹窗 */}
+      {playingVideo && (
+        <VideoModal video={playingVideo} onClose={() => setPlayingVideo(null)} />
       )}
     </div>
   )
