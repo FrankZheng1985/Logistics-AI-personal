@@ -120,11 +120,22 @@ jobs:
             
             echo "📥 拉取最新代码..."
             if [ -d ".git" ]; then
-              git fetch origin main
-              git reset --hard origin/main
+              echo "✅ Git 仓库已存在，更新代码..."
+              git fetch origin main || { echo "❌ Git fetch 失败"; exit 1; }
+              git reset --hard origin/main || { echo "❌ Git reset 失败"; exit 1; }
             else
-              git clone https://github.com/${{ github.repository }}.git .
+              echo "📦 首次部署，克隆仓库..."
+              rm -rf * .* 2>/dev/null || true
+              git clone https://github.com/${{ github.repository }}.git . || { echo "❌ Git clone 失败"; exit 1; }
             fi
+            
+            echo "✅ 验证代码拉取成功..."
+            if [ ! -f "docker-compose.prod.yml" ]; then
+              echo "❌ 错误: docker-compose.prod.yml 文件不存在!"
+              ls -la
+              exit 1
+            fi
+            echo "✅ docker-compose.prod.yml 文件存在"
             
             echo "📝 创建环境变量文件..."
             cat > .env << EOF
@@ -154,15 +165,15 @@ jobs:
           EOF
             
             echo "🐳 使用 Docker Compose 部署..."
-            docker-compose -f docker-compose.prod.yml down || true
-            docker-compose -f docker-compose.prod.yml pull || true
-            docker-compose -f docker-compose.prod.yml up -d --build
+            docker compose -f docker-compose.prod.yml down || true
+            docker compose -f docker-compose.prod.yml pull || true
+            docker compose -f docker-compose.prod.yml up -d --build || { echo "❌ Docker Compose 启动失败"; exit 1; }
             
             echo "🧹 清理未使用的镜像..."
             docker image prune -f || true
             
             echo "✅ 部署完成!"
-            docker-compose -f docker-compose.prod.yml ps
+            docker compose -f docker-compose.prod.yml ps
           ENDSSH
 
       - name: 📊 健康检查
@@ -170,7 +181,7 @@ jobs:
           echo "⏳ 等待服务启动..."
           sleep 30
           echo "🔍 检查服务状态..."
-          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "cd ${{ env.DEPLOY_PATH }} && docker-compose -f docker-compose.prod.yml ps"
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} "cd ${{ env.DEPLOY_PATH }} && docker compose -f docker-compose.prod.yml ps"
 
   # ==================== 部署通知 ====================
   notify:
