@@ -25,6 +25,7 @@ async def lifespan(app: FastAPI):
     logger.info("   - 小销 (销售客服) ✓")
     logger.info("   - 小跟 (跟进专员) ✓")
     logger.info("   - 小析 (客户分析) ✓")
+    logger.info("   - 小猎 (线索猎手) ✓")
     
     yield
     
@@ -70,6 +71,7 @@ async def root():
             {"name": "小销", "role": "销售客服", "status": "online"},
             {"name": "小跟", "role": "跟进专员", "status": "online"},
             {"name": "小析", "role": "客户分析", "status": "online"},
+            {"name": "小猎", "role": "线索猎手", "status": "online"},
         ]
     }
 
