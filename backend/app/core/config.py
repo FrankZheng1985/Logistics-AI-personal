@@ -57,6 +57,15 @@ class Settings(BaseSettings):
     WECHAT_SECRET: Optional[str] = None
     WECHAT_TOKEN: Optional[str] = None
     WECHAT_ENCODING_AES_KEY: Optional[str] = None
+    NOTIFY_WECHAT_USERS: str = ""  # 接收通知的企业微信用户ID，逗号分隔
+    
+    # 邮件配置
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 465
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    NOTIFY_EMAIL: str = ""  # 接收通知的邮箱
+    EMAIL_SENDER_NAME: str = "物流获客AI"
     
     # 腾讯云COS配置
     COS_SECRET_ID: Optional[str] = None
@@ -81,6 +90,17 @@ class Settings(BaseSettings):
     
     # 高意向通知阈值
     HIGH_INTENT_THRESHOLD: int = 60
+    
+    # 定时任务配置
+    SCHEDULER_ENABLED: bool = True
+    DAILY_FOLLOW_CHECK_HOUR: int = 9  # 每日跟进检查时间（小时）
+    DAILY_SUMMARY_HOUR: int = 18  # 每日汇总时间（小时）
+    
+    # 跟进策略配置
+    FOLLOW_INTERVAL_S: int = 1   # S级客户跟进间隔（天）
+    FOLLOW_INTERVAL_A: int = 2   # A级客户跟进间隔（天）
+    FOLLOW_INTERVAL_B: int = 5   # B级客户跟进间隔（天）
+    FOLLOW_INTERVAL_C: int = 15  # C级客户跟进间隔（天）
     
     class Config:
         env_file = ".env"

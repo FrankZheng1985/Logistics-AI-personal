@@ -27,9 +27,14 @@ async def lifespan(app: FastAPI):
     logger.info("   - 小析 (客户分析) ✓")
     logger.info("   - 小猎 (线索猎手) ✓")
     
+    # 初始化定时任务
+    from app.scheduler import init_scheduler, shutdown_scheduler
+    await init_scheduler()
+    
     yield
     
     # 关闭时执行
+    await shutdown_scheduler()
     logger.info("👋 系统关闭中...")
 
 

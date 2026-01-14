@@ -8,6 +8,7 @@ from app.models.agent import AIAgent, AgentStatus
 from app.models.company_config import CompanyConfig
 from app.models.lead import Lead, LeadSource, LeadStatus, LeadIntentLevel
 from app.models.follow_record import FollowRecord, FollowType, FollowResult, FollowChannel
+from app.models.channel import ChannelConfig, ChannelType
 
 __all__ = [
     # 数据库
@@ -39,4 +40,6 @@ __all__ = [
     "FollowType",
     "FollowResult",
     "FollowChannel",
+    "ChannelConfig",
+    "ChannelType",
 ]

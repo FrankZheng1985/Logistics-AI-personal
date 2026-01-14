@@ -35,6 +35,9 @@ loguru==0.7.2
 pycryptodome>=3.19.0
 PyJWT>=2.8.0
 
+# 定时任务
+APScheduler==3.10.4
+
 # 视频处理（混合方案）
 moviepy==1.0.3
 edge-tts==6.1.9
