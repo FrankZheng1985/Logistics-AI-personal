@@ -1,6 +1,6 @@
 # AI员工模块
 from app.agents.base import BaseAgent, AgentRegistry
-from app.agents.coordinator import coordinator, CoordinatorAgent
+from app.agents.coordinator import coordinator, coordinator_agent, CoordinatorAgent
 from app.agents.sales_agent import sales_agent, SalesAgent
 from app.agents.analyst import analyst_agent, AnalystAgent
 from app.agents.copywriter import copywriter_agent, CopywriterAgent
@@ -22,6 +22,7 @@ __all__ = [
     "LeadHunterAgent",
     # 单例实例
     "coordinator",
+    "coordinator_agent",  # 兼容旧代码
     "sales_agent",
     "analyst_agent",
     "copywriter_agent",

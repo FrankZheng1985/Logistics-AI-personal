@@ -507,5 +507,6 @@ class CoordinatorAgent(BaseAgent):
 
 
 # 创建单例并注册
-coordinator_agent = CoordinatorAgent()
-AgentRegistry.register(coordinator_agent)
+coordinator = CoordinatorAgent()
+coordinator_agent = coordinator  # 别名，兼容旧代码
+AgentRegistry.register(coordinator)
