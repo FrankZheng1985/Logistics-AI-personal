@@ -5,6 +5,9 @@ version: '3.8'
 
 services:
   # ==================== PostgreSQL 数据库 ====================
+  # 数据存储位置：腾讯云服务器 Docker Volume
+  # 存储路径：/var/lib/docker/volumes/logistics-ai_postgres_data/_data
+  # 数据持久化：容器重启不会丢失数据
   postgres:
     image: postgres:15-alpine
     container_name: logistics-ai-db
@@ -15,10 +18,13 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_this_password}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
+      # 数据持久化卷：存储在服务器本地，不随容器删除而丢失
       - postgres_data:/var/lib/postgresql/data
+      # 数据库初始化脚本：首次启动时自动执行
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
-      - "127.0.0.1:5432:5432"  # 只允许本地访问
+      # 只允许服务器本地访问，不暴露到公网（安全）
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-logistics_ai}"]
       interval: 10s
@@ -28,15 +34,20 @@ services:
       - logistics-network
 
   # ==================== Redis 缓存/队列 ====================
+  # 数据存储位置：腾讯云服务器 Docker Volume
+  # 存储路径：/var/lib/docker/volumes/logistics-ai_redis_data/_data
+  # 数据持久化：使用 AOF 持久化，容器重启不会丢失数据
   redis:
     image: redis:7-alpine
     container_name: logistics-ai-redis
     restart: always
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
+      # 数据持久化卷：存储在服务器本地
       - redis_data:/data
     ports:
-      - "127.0.0.1:6379:6379"  # 只允许本地访问
+      # 只允许服务器本地访问，不暴露到公网（安全）
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -53,8 +64,13 @@ services:
     container_name: logistics-ai-backend
     restart: always
     environment:
-      # 数据库连接
+      # 数据库连接：连接到服务器上的 PostgreSQL 容器（通过 Docker 网络）
+      # postgres 是容器服务名，在 Docker 网络中自动解析
+      # 数据实际存储在服务器：/var/lib/docker/volumes/logistics-ai_postgres_data/_data
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-change_this_password}@postgres:5432/${POSTGRES_DB:-logistics_ai}
+      # Redis 连接：连接到服务器上的 Redis 容器
+      # redis 是容器服务名，在 Docker 网络中自动解析
+      # 数据实际存储在服务器：/var/lib/docker/volumes/logistics-ai_redis_data/_data
       - REDIS_URL=redis://redis:6379/0
       # AI API 配置
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
@@ -142,6 +158,12 @@ services:
       - logistics-network
 
 # ==================== 数据卷 ====================
+# 数据卷说明：
+# - 所有数据存储在腾讯云服务器本地磁盘
+# - PostgreSQL 数据：/var/lib/docker/volumes/logistics-ai_postgres_data/_data
+# - Redis 数据：/var/lib/docker/volumes/logistics-ai_redis_data/_data
+# - 数据持久化：容器删除重建不会丢失数据
+# - 备份建议：定期备份这些目录或使用 Docker volume 备份工具
 volumes:
   postgres_data:
     driver: local
