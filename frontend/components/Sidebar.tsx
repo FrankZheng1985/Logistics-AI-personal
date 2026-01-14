@@ -9,12 +9,14 @@ import {
   Video, 
   Bot,
   Settings,
-  Bell
+  Bell,
+  Target
 } from 'lucide-react'
 
 const menuItems = [
   { href: '/dashboard', label: '控制台', icon: LayoutDashboard },
   { href: '/customers', label: '客户管理', icon: Users },
+  { href: '/leads', label: '线索狩猎', icon: Target },
   { href: '/conversations', label: '对话记录', icon: MessageSquare },
   { href: '/videos', label: '视频中心', icon: Video },
   { href: '/team', label: 'AI团队', icon: Bot },
