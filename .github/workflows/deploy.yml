@@ -35,7 +35,7 @@ jobs:
             for migration in database/migrations/*.sql; do
               if [ -f "$migration" ]; then
                 echo "执行迁移: $migration"
-                docker exec -i logistics-ai-db psql -U logistics_ai -d logistics_ai < "$migration" || true
+                docker exec -i logistics-ai-db psql -U admin -d logistics_ai < "$migration" || true
               fi
             done
             
