@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     COS_BUCKET: Optional[str] = None
     COS_REGION: str = "ap-guangzhou"
     
+    # Serper API配置（Google搜索）
+    SERPER_API_KEY: Optional[str] = None
+    
     # CORS配置
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
     
