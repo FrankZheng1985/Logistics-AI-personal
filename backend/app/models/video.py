@@ -41,8 +41,8 @@ class Video(Base):
     keywords: Mapped[Optional[List[str]]] = mapped_column(ARRAY(String(50)))
     
     # 文件信息
-    video_url: Mapped[Optional[str]] = mapped_column(String(500))
-    thumbnail_url: Mapped[Optional[str]] = mapped_column(String(500))
+    video_url: Mapped[Optional[str]] = mapped_column(Text)  # 可灵AI返回的URL很长
+    thumbnail_url: Mapped[Optional[str]] = mapped_column(Text)
     duration: Mapped[Optional[int]] = mapped_column(Integer)  # 秒
     file_size: Mapped[Optional[int]] = mapped_column(BigInteger)  # 字节
     
