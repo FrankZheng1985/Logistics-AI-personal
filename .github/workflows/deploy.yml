@@ -101,7 +101,9 @@ jobs:
       - name: 📤 上传代码到服务器
         run: |
           echo "📤 上传代码到服务器..."
-          scp deploy.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ env.DEPLOY_PATH }}/deploy.tar.gz
+          ls -lh deploy.tar.gz
+          scp -v deploy.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ env.DEPLOY_PATH }}/deploy.tar.gz || { echo "❌ scp 上传失败"; exit 1; }
+          echo "✅ 代码上传成功"
           
       - name: 📥 在服务器上解压代码
         run: |
@@ -110,9 +112,21 @@ jobs:
             echo "📂 进入部署目录..."
             mkdir -p ${{ env.DEPLOY_PATH }}
             cd ${{ env.DEPLOY_PATH }}
+            echo "✅ 验证 deploy.tar.gz 存在..."
+            if [ ! -f "deploy.tar.gz" ]; then
+              echo "❌ 错误: deploy.tar.gz 文件不存在!"
+              ls -la
+              exit 1
+            fi
             echo "📦 解压代码..."
-            tar -xzf deploy.tar.gz
+            tar -xzf deploy.tar.gz || { echo "❌ tar 解压失败"; exit 1; }
             rm -f deploy.tar.gz
+            echo "✅ 验证 docker-compose.prod.yml 存在..."
+            if [ ! -f "docker-compose.prod.yml" ]; then
+              echo "❌ 错误: docker-compose.prod.yml 文件不存在!"
+              ls -la
+              exit 1
+            fi
             echo "✅ 代码解压完成"
           ENDSSH
 
