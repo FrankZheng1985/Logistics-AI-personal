@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { 
   Search, 
@@ -10,9 +10,22 @@ import {
   MessageSquare,
   TrendingUp,
   MoreVertical,
-  ArrowLeft
+  ArrowLeft,
+  Loader2,
+  Users
 } from 'lucide-react'
 import Link from 'next/link'
+
+interface Customer {
+  id: string
+  name: string
+  company: string | null
+  intentLevel: 'S' | 'A' | 'B' | 'C'
+  intentScore: number
+  phone: string | null
+  source: string
+  lastContact: string | null
+}
 
 // 意向等级徽章
 function IntentBadge({ level }: { level: 'S' | 'A' | 'B' | 'C' }) {
@@ -90,23 +103,68 @@ function CustomerRow({
 export default function CustomersPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [filterLevel, setFilterLevel] = useState<string | null>(null)
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const [loading, setLoading] = useState(true)
+  const [total, setTotal] = useState(0)
   
-  // 模拟数据
-  const [customers] = useState([
-    { id: '1', name: '张先生', company: '广州某贸易公司', intentLevel: 'S' as const, intentScore: 85, phone: '138****1234', source: '微信', lastContact: '10分钟前' },
-    { id: '2', name: '李经理', company: '深圳电子科技', intentLevel: 'A' as const, intentScore: 72, phone: '139****5678', source: '网站', lastContact: '1小时前' },
-    { id: '3', name: '王总', company: '东莞制造厂', intentLevel: 'A' as const, intentScore: 65, phone: '136****9012', source: '广告', lastContact: '3小时前' },
-    { id: '4', name: '陈小姐', company: '佛山外贸公司', intentLevel: 'B' as const, intentScore: 45, phone: '137****3456', source: '微信', lastContact: '昨天' },
-    { id: '5', name: '刘先生', company: '惠州电商', intentLevel: 'B' as const, intentScore: 38, phone: '135****7890', source: '转介绍', lastContact: '2天前' },
-    { id: '6', name: '赵经理', company: '中山家具厂', intentLevel: 'C' as const, intentScore: 22, phone: '133****1122', source: '网站', lastContact: '1周前' },
-  ])
+  // 从API获取真实数据
+  useEffect(() => {
+    const fetchCustomers = async () => {
+      setLoading(true)
+      try {
+        const params = new URLSearchParams()
+        if (filterLevel) params.append('intent_level', filterLevel)
+        if (searchQuery) params.append('search', searchQuery)
+        
+        const res = await fetch(`/api/customers?${params.toString()}`)
+        if (res.ok) {
+          const data = await res.json()
+          if (data.items && data.items.length > 0) {
+            const mapped = data.items.map((c: any) => ({
+              id: c.id,
+              name: c.name || '未知客户',
+              company: c.company,
+              intentLevel: c.intent_level?.toUpperCase() || 'C',
+              intentScore: c.intent_score || 0,
+              phone: c.phone,
+              source: c.source || '微信',
+              lastContact: c.last_contact_at ? formatTime(c.last_contact_at) : null
+            }))
+            setCustomers(mapped)
+            setTotal(data.total || mapped.length)
+          } else {
+            setCustomers([])
+            setTotal(0)
+          }
+        }
+      } catch (error) {
+        console.error('获取客户列表失败:', error)
+        setCustomers([])
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    fetchCustomers()
+    // 每30秒刷新
+    const interval = setInterval(fetchCustomers, 30000)
+    return () => clearInterval(interval)
+  }, [filterLevel, searchQuery])
   
-  // 筛选客户
-  const filteredCustomers = customers.filter(c => {
-    if (filterLevel && c.intentLevel !== filterLevel) return false
-    if (searchQuery && !c.name.includes(searchQuery) && !c.company?.includes(searchQuery)) return false
-    return true
-  })
+  // 格式化时间
+  const formatTime = (timestamp: string) => {
+    const date = new Date(timestamp)
+    const now = new Date()
+    const diff = Math.floor((now.getTime() - date.getTime()) / 1000)
+    if (diff < 60) return '刚刚'
+    if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`
+    if (diff < 86400) return `${Math.floor(diff / 3600)}小时前`
+    if (diff < 604800) return `${Math.floor(diff / 86400)}天前`
+    return date.toLocaleDateString('zh-CN')
+  }
+  
+  // 筛选客户（本地搜索作为备用）
+  const filteredCustomers = customers
   
   return (
     <div className="min-h-screen p-6">
@@ -118,7 +176,7 @@ export default function CustomersPage() {
           </Link>
           <div>
             <h1 className="text-2xl font-bold">客户管理</h1>
-            <p className="text-gray-400 text-sm">共 {customers.length} 位客户</p>
+            <p className="text-gray-400 text-sm">共 {total} 位客户 {loading && <Loader2 className="inline w-4 h-4 animate-spin ml-2" />}</p>
           </div>
         </div>
         <button className="btn-cyber flex items-center gap-2">
@@ -188,11 +246,18 @@ export default function CustomersPage() {
           </tbody>
         </table>
         
-        {filteredCustomers.length === 0 && (
-          <div className="text-center py-12 text-gray-500">
-            没有找到匹配的客户
+        {loading ? (
+          <div className="text-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-cyber-blue mx-auto mb-4" />
+            <p className="text-gray-500">加载客户数据...</p>
           </div>
-        )}
+        ) : filteredCustomers.length === 0 ? (
+          <div className="text-center py-12">
+            <Users className="w-12 h-12 text-gray-500 mx-auto mb-4" />
+            <p className="text-gray-400 mb-2">暂无客户数据</p>
+            <p className="text-gray-500 text-sm">当客户通过企业微信联系你时，客户记录会自动创建</p>
+          </div>
+        ) : null}
       </div>
     </div>
   )

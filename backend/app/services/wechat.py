@@ -40,18 +40,40 @@ class WeChatCrypto:
     
     def _decrypt(self, encrypted: str) -> str:
         """解密消息"""
-        cipher = AES.new(self.aes_key, AES.MODE_CBC, self.aes_key[:16])
-        decrypted = cipher.decrypt(base64.b64decode(encrypted))
-        
-        # 去除补位
-        pad = decrypted[-1]
-        content = decrypted[:-pad]
-        
-        # 解析内容 (16字节随机 + 4字节msg长度 + msg + corp_id)
-        msg_len = struct.unpack(">I", content[16:20])[0]
-        msg = content[20:20+msg_len].decode("utf-8")
-        
-        return msg
+        try:
+            # 解码base64
+            encrypted_bytes = base64.b64decode(encrypted)
+            logger.debug(f"Encrypted bytes length: {len(encrypted_bytes)}")
+            
+            # AES解密
+            cipher = AES.new(self.aes_key, AES.MODE_CBC, self.aes_key[:16])
+            decrypted = cipher.decrypt(encrypted_bytes)
+            logger.debug(f"Decrypted bytes length: {len(decrypted)}")
+            
+            # PKCS7去除补位
+            pad = decrypted[-1]
+            if isinstance(pad, int):
+                pad_len = pad
+            else:
+                pad_len = ord(pad)
+            
+            content = decrypted[:-pad_len] if pad_len > 0 else decrypted
+            logger.debug(f"Content length after padding removal: {len(content)}")
+            
+            if len(content) < 20:
+                raise ValueError(f"解密后内容太短: {len(content)} bytes")
+            
+            # 解析内容 (16字节随机 + 4字节msg长度 + msg + corp_id)
+            msg_len = struct.unpack(">I", content[16:20])[0]
+            logger.debug(f"Message length: {msg_len}")
+            
+            msg = content[20:20+msg_len].decode("utf-8")
+            logger.debug(f"Decrypted message: {msg}")
+            
+            return msg
+        except Exception as e:
+            logger.error(f"解密失败: {e}")
+            raise
     
     def decrypt_message(self, msg_signature: str, timestamp: str, nonce: str, encrypted_msg: str) -> str:
         """解密接收的消息"""

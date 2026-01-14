@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { 
   ArrowLeft,
@@ -11,9 +11,20 @@ import {
   Clock,
   CheckCircle,
   AlertCircle,
-  Film
+  Film,
+  Loader2
 } from 'lucide-react'
 import Link from 'next/link'
+
+interface Video {
+  id: string
+  title: string
+  type: string
+  status: 'draft' | 'generating' | 'completed' | 'failed'
+  duration: number | null
+  createdAt: string
+  thumbnailUrl: string | null
+}
 
 // 视频状态配置
 const statusConfig = {
@@ -104,14 +115,60 @@ function VideoCard({ video }: { video: any }) {
 }
 
 export default function VideosPage() {
-  const [videos] = useState([
-    { id: '1', title: '海运物流服务宣传片', type: '广告视频', status: 'completed', duration: 32, createdAt: '今天 14:30', thumbnailUrl: null },
-    { id: '2', title: '仓储服务介绍', type: '产品展示', status: 'generating', duration: null, createdAt: '今天 13:00', thumbnailUrl: null },
-    { id: '3', title: '中欧班列服务', type: '广告视频', status: 'completed', duration: 28, createdAt: '昨天 16:20', thumbnailUrl: null },
-    { id: '4', title: '空运快递优势', type: '广告视频', status: 'completed', duration: 25, createdAt: '昨天 10:15', thumbnailUrl: null },
-    { id: '5', title: '东南亚专线推广', type: '广告视频', status: 'failed', duration: null, createdAt: '3天前', thumbnailUrl: null },
-    { id: '6', title: '公司形象宣传', type: '品牌视频', status: 'draft', duration: null, createdAt: '1周前', thumbnailUrl: null },
-  ])
+  const [videos, setVideos] = useState<Video[]>([])
+  const [loading, setLoading] = useState(true)
+  const [total, setTotal] = useState(0)
+  
+  useEffect(() => {
+    const fetchVideos = async () => {
+      setLoading(true)
+      try {
+        const res = await fetch('/api/videos')
+        if (res.ok) {
+          const data = await res.json()
+          if (data.items && data.items.length > 0) {
+            const mapped = data.items.map((v: any) => ({
+              id: v.id,
+              title: v.title || '未命名视频',
+              type: v.video_type || '广告视频',
+              status: v.status || 'draft',
+              duration: v.duration,
+              createdAt: v.created_at ? formatTime(v.created_at) : '未知时间',
+              thumbnailUrl: v.thumbnail_url
+            }))
+            setVideos(mapped)
+            setTotal(data.total || mapped.length)
+          } else {
+            setVideos([])
+            setTotal(0)
+          }
+        }
+      } catch (error) {
+        console.error('获取视频列表失败:', error)
+        setVideos([])
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    fetchVideos()
+    const interval = setInterval(fetchVideos, 30000)
+    return () => clearInterval(interval)
+  }, [])
+  
+  const formatTime = (timestamp: string) => {
+    const date = new Date(timestamp)
+    const now = new Date()
+    const diff = Math.floor((now.getTime() - date.getTime()) / 1000)
+    if (diff < 3600) return '今天 ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    if (diff < 86400) return '今天 ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    if (diff < 172800) return '昨天 ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    return date.toLocaleDateString('zh-CN')
+  }
+  
+  const completedCount = videos.filter(v => v.status === 'completed').length
+  const generatingCount = videos.filter(v => v.status === 'generating').length
+  const failedCount = videos.filter(v => v.status === 'failed').length
   
   return (
     <div className="min-h-screen p-6">
@@ -135,36 +192,61 @@ export default function VideosPage() {
       {/* 统计 */}
       <div className="grid grid-cols-4 gap-4 mb-8">
         <div className="glass-card p-4 text-center">
-          <p className="text-3xl font-number font-bold text-cyber-blue">{videos.length}</p>
+          {loading ? <Loader2 className="w-8 h-8 animate-spin text-cyber-blue mx-auto" /> : (
+            <p className="text-3xl font-number font-bold text-cyber-blue">{total}</p>
+          )}
           <p className="text-gray-500 text-sm">总视频数</p>
         </div>
         <div className="glass-card p-4 text-center">
-          <p className="text-3xl font-number font-bold text-cyber-green">{videos.filter(v => v.status === 'completed').length}</p>
+          {loading ? <Loader2 className="w-8 h-8 animate-spin text-cyber-green mx-auto" /> : (
+            <p className="text-3xl font-number font-bold text-cyber-green">{completedCount}</p>
+          )}
           <p className="text-gray-500 text-sm">已完成</p>
         </div>
         <div className="glass-card p-4 text-center">
-          <p className="text-3xl font-number font-bold text-energy-orange">{videos.filter(v => v.status === 'generating').length}</p>
+          {loading ? <Loader2 className="w-8 h-8 animate-spin text-energy-orange mx-auto" /> : (
+            <p className="text-3xl font-number font-bold text-energy-orange">{generatingCount}</p>
+          )}
           <p className="text-gray-500 text-sm">生成中</p>
         </div>
         <div className="glass-card p-4 text-center">
-          <p className="text-3xl font-number font-bold text-alert-red">{videos.filter(v => v.status === 'failed').length}</p>
+          {loading ? <Loader2 className="w-8 h-8 animate-spin text-alert-red mx-auto" /> : (
+            <p className="text-3xl font-number font-bold text-alert-red">{failedCount}</p>
+          )}
           <p className="text-gray-500 text-sm">失败</p>
         </div>
       </div>
       
       {/* 视频网格 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {videos.map((video, index) => (
-          <motion.div
-            key={video.id}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.05 }}
-          >
-            <VideoCard video={video} />
-          </motion.div>
-        ))}
-      </div>
+      {loading ? (
+        <div className="glass-card p-12 text-center">
+          <Loader2 className="w-10 h-10 animate-spin text-cyber-blue mx-auto mb-4" />
+          <p className="text-gray-400">加载视频数据...</p>
+        </div>
+      ) : videos.length === 0 ? (
+        <div className="glass-card p-12 text-center">
+          <Film className="w-16 h-16 text-gray-500 mx-auto mb-4" />
+          <p className="text-gray-400 text-lg mb-2">暂无视频</p>
+          <p className="text-gray-500 text-sm mb-4">点击"生成新视频"开始创建AI视频</p>
+          <Link href="/videos/create" className="btn-cyber inline-flex items-center gap-2">
+            <Plus className="w-4 h-4" />
+            生成第一个视频
+          </Link>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {videos.map((video, index) => (
+            <motion.div
+              key={video.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.05 }}
+            >
+              <VideoCard video={video} />
+            </motion.div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
