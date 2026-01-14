@@ -20,6 +20,7 @@ class AgentType(str, enum.Enum):
     SALES = "sales"               # 小销 - 销售客服
     FOLLOW = "follow"             # 小跟 - 跟进专员
     ANALYST = "analyst"           # 小析 - 客户分析
+    LEAD_HUNTER = "lead_hunter"   # 小猎 - 线索猎手
 
 
 class MessageType(str, enum.Enum):

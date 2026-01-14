@@ -6,6 +6,7 @@ from app.models.task import AITask, TaskStatus
 from app.models.video import Video, VideoStatus
 from app.models.agent import AIAgent, AgentStatus
 from app.models.company_config import CompanyConfig
+from app.models.lead import Lead, LeadSource, LeadStatus, LeadIntentLevel
 
 __all__ = [
     # 数据库
@@ -21,6 +22,7 @@ __all__ = [
     "Video",
     "AIAgent",
     "CompanyConfig",
+    "Lead",
     # 枚举
     "IntentLevel",
     "CustomerSource",
@@ -29,4 +31,7 @@ __all__ = [
     "TaskStatus",
     "VideoStatus",
     "AgentStatus",
+    "LeadSource",
+    "LeadStatus",
+    "LeadIntentLevel",
 ]
