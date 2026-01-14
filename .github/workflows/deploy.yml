@@ -149,6 +149,10 @@ jobs:
               ls -la
               exit 1
             fi
+            echo "🧹 清理旧代码文件..."
+            # 删除旧代码但保留数据库和Docker数据
+            rm -rf backend frontend database scripts .github
+            rm -f docker-compose.yml docker-compose.prod.yml nginx.conf README.md .gitignore
             echo "📦 解压代码..."
             tar -xzf deploy.tar.gz || { echo "❌ tar 解压失败"; exit 1; }
             rm -f deploy.tar.gz
