@@ -394,6 +394,16 @@ const DEFAULT_AGENTS: Agent[] = [
     successRate: 100,
     currentTask: null
   },
+  { 
+    name: '小猎', 
+    role: '线索猎手', 
+    status: 'online',
+    description: '负责从互联网搜索潜在客户线索，自动发现物流需求、货代询价等商机。',
+    tasksToday: 0,
+    totalTasks: 0,
+    successRate: 100,
+    currentTask: null
+  },
 ]
 
 export default function TeamPage() {
