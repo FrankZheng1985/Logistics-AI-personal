@@ -233,24 +233,24 @@ jobs:
           EOF
             
             echo "🐳 使用 Docker Compose 部署..."
-            docker compose -f docker-compose.prod.yml down || true
-            docker compose -f docker-compose.prod.yml pull || true
+            docker-compose -f docker-compose.prod.yml down || true
+            docker-compose -f docker-compose.prod.yml pull || true
             
             echo "📦 启动数据库和 Redis..."
-            docker compose -f docker-compose.prod.yml up -d postgres redis || { echo "❌ 数据库启动失败"; exit 1; }
+            docker-compose -f docker-compose.prod.yml up -d postgres redis || { echo "❌ 数据库启动失败"; exit 1; }
             
             echo "⏳ 等待数据库就绪..."
             sleep 10
             
             echo "🔍 检查数据库健康状态..."
             for i in {1..30}; do
-              if docker compose -f docker-compose.prod.yml exec -T postgres pg_isready -U ${{ secrets.POSTGRES_USER }} -d ${{ secrets.POSTGRES_DB }} > /dev/null 2>&1; then
+              if docker-compose -f docker-compose.prod.yml exec -T postgres pg_isready -U ${{ secrets.POSTGRES_USER }} -d ${{ secrets.POSTGRES_DB }} > /dev/null 2>&1; then
                 echo "✅ 数据库已就绪"
                 break
               fi
               if [ $i -eq 30 ]; then
                 echo "❌ 数据库启动超时"
-                docker compose -f docker-compose.prod.yml logs postgres
+                docker-compose -f docker-compose.prod.yml logs postgres
                 exit 1
               fi
               echo "⏳ 等待数据库启动... ($i/30)"
@@ -258,7 +258,7 @@ jobs:
             done
             
             echo "🔍 验证数据库初始化..."
-            TABLE_COUNT=$(docker compose -f docker-compose.prod.yml exec -T postgres psql -U ${{ secrets.POSTGRES_USER }} -d ${{ secrets.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ' || echo "0")
+            TABLE_COUNT=$(docker-compose -f docker-compose.prod.yml exec -T postgres psql -U ${{ secrets.POSTGRES_USER }} -d ${{ secrets.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ' || echo "0")
             if [ "$TABLE_COUNT" -gt "0" ]; then
               echo "✅ 数据库表已创建 ($TABLE_COUNT 个表)"
             else
@@ -266,13 +266,13 @@ jobs:
             fi
             
             echo "🚀 启动所有服务..."
-            docker compose -f docker-compose.prod.yml up -d --build || { echo "❌ Docker Compose 启动失败"; exit 1; }
+            docker-compose -f docker-compose.prod.yml up -d --build || { echo "❌ Docker Compose 启动失败"; exit 1; }
             
             echo "🧹 清理未使用的镜像..."
             docker image prune -f || true
             
             echo "✅ 部署完成!"
-            docker compose -f docker-compose.prod.yml ps
+            docker-compose -f docker-compose.prod.yml ps
           ENDSSH
 
       - name: 📊 健康检查
@@ -284,19 +284,19 @@ jobs:
             cd ${{ env.DEPLOY_PATH }}
             
             echo "📊 Docker Compose 服务状态:"
-            docker compose -f docker-compose.prod.yml ps
+            docker-compose -f docker-compose.prod.yml ps
             
             echo ""
             echo "🔍 数据库健康检查..."
-            if docker compose -f docker-compose.prod.yml exec -T postgres pg_isready -U ${{ secrets.POSTGRES_USER }} -d ${{ secrets.POSTGRES_DB }} > /dev/null 2>&1; then
+            if docker-compose -f docker-compose.prod.yml exec -T postgres pg_isready -U ${{ secrets.POSTGRES_USER }} -d ${{ secrets.POSTGRES_DB }} > /dev/null 2>&1; then
               echo "✅ PostgreSQL 数据库连接正常"
               
               echo "📊 数据库表统计:"
-              TABLE_COUNT=$(docker compose -f docker-compose.prod.yml exec -T postgres psql -U ${{ secrets.POSTGRES_USER }} -d ${{ secrets.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ')
+              TABLE_COUNT=$(docker-compose -f docker-compose.prod.yml exec -T postgres psql -U ${{ secrets.POSTGRES_USER }} -d ${{ secrets.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ')
               echo "   表数量: $TABLE_COUNT"
               
               echo "📊 AI员工数量:"
-              AGENT_COUNT=$(docker compose -f docker-compose.prod.yml exec -T postgres psql -U ${{ secrets.POSTGRES_USER }} -d ${{ secrets.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM ai_agents;" 2>/dev/null | tr -d ' ')
+              AGENT_COUNT=$(docker-compose -f docker-compose.prod.yml exec -T postgres psql -U ${{ secrets.POSTGRES_USER }} -d ${{ secrets.POSTGRES_DB }} -t -c "SELECT COUNT(*) FROM ai_agents;" 2>/dev/null | tr -d ' ')
               echo "   AI员工: $AGENT_COUNT"
             else
               echo "❌ PostgreSQL 数据库连接失败"
@@ -305,7 +305,7 @@ jobs:
             
             echo ""
             echo "🔍 Redis 健康检查..."
-            if docker compose -f docker-compose.prod.yml exec -T redis redis-cli ping > /dev/null 2>&1; then
+            if docker-compose -f docker-compose.prod.yml exec -T redis redis-cli ping > /dev/null 2>&1; then
               echo "✅ Redis 连接正常"
             else
               echo "❌ Redis 连接失败"
