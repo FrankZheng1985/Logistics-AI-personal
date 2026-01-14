@@ -6,10 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional, List
 from uuid import UUID
-from datetime import datetime
 from pydantic import BaseModel
+from loguru import logger
 
-from app.models import get_db, Video, VideoStatus, AITask
+from app.models import get_db, Video, VideoStatus
 
 router = APIRouter()
 

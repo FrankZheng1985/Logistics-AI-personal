@@ -323,4 +323,4 @@ class LeadHunterAgent(BaseAgent):
 
 # 注册Agent
 lead_hunter_agent = LeadHunterAgent()
-# AgentRegistry.register(lead_hunter_agent)  # 暂时不注册，需要先添加AgentType
+AgentRegistry.register(lead_hunter_agent)

@@ -4,10 +4,10 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Any
 
-from app.models import get_db, Customer, Conversation, AITask, Video, AIAgent
+from app.models import get_db, Customer, IntentLevel
 
 router = APIRouter()
 

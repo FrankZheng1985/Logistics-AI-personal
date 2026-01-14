@@ -16,7 +16,7 @@ CREATE TYPE intent_level AS ENUM ('S', 'A', 'B', 'C');
 CREATE TYPE customer_source AS ENUM ('wechat', 'website', 'referral', 'ad', 'other');
 
 -- AI员工类型
-CREATE TYPE agent_type AS ENUM ('coordinator', 'video_creator', 'copywriter', 'sales', 'follow', 'analyst');
+CREATE TYPE agent_type AS ENUM ('coordinator', 'video_creator', 'copywriter', 'sales', 'follow', 'analyst', 'lead_hunter');
 
 -- AI员工状态
 CREATE TYPE agent_status AS ENUM ('online', 'busy', 'offline');
@@ -377,7 +377,8 @@ INSERT INTO ai_agents (name, agent_type, description, status) VALUES
     ('小文', 'copywriter', '文案策划 - 广告文案、朋友圈文案、视频脚本', 'online'),
     ('小销', 'sales', '销售客服 - 首次接待、解答咨询、收集需求', 'online'),
     ('小跟', 'follow', '跟进专员 - 老客户维护、意向客户跟进、促成转化', 'online'),
-    ('小析', 'analyst', '客户分析师 - 意向评分、客户画像、数据报表', 'online');
+    ('小析', 'analyst', '客户分析师 - 意向评分、客户画像、数据报表', 'online'),
+    ('小猎', 'lead_hunter', '线索猎手 - 自动搜索互联网上的潜在客户线索，发现物流需求商机', 'online');
 
 -- 插入默认系统配置
 INSERT INTO system_configs (config_key, config_value, description) VALUES
