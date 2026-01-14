@@ -4,13 +4,23 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
+from pydantic import BaseModel
 
 from app.models import get_db, Video, VideoStatus, AITask
 
 router = APIRouter()
+
+
+# 请求体模型
+class VideoGenerateRequest(BaseModel):
+    title: str
+    description: str
+    video_type: str = "ad"
+    keywords: List[str] = []
+    voice: str = "zh_female"
 
 
 @router.get("")
@@ -96,11 +106,7 @@ async def get_video(
 
 @router.post("/generate")
 async def generate_video(
-    title: str,
-    description: str,
-    video_type: str = "ad",
-    keywords: list[str] = [],
-    voice: str = "zh_female",  # TTS语音选项: zh_male, zh_female, en_male, en_female
+    request: VideoGenerateRequest,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -118,6 +124,13 @@ async def generate_video(
     from app.agents.video_creator import VideoCreatorAgent
     from app.services.conversation_service import conversation_service
     from loguru import logger
+    
+    # 从请求体中提取参数
+    title = request.title
+    description = request.description
+    video_type = request.video_type
+    keywords = request.keywords
+    voice = request.voice
     
     # 创建视频记录
     video = Video(
