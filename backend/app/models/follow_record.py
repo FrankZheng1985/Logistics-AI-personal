@@ -108,8 +108,8 @@ class FollowRecord(Base):
         nullable=True
     )
     
-    # 元数据
-    metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+    # 扩展数据 (注意: 不能用metadata作为字段名，因为是SQLAlchemy保留字)
+    extra_data: Mapped[dict] = mapped_column(JSONB, default=dict, name="metadata")
     
     # 时间戳
     created_at: Mapped[datetime] = mapped_column(
