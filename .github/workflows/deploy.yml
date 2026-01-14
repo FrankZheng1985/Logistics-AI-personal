@@ -86,6 +86,36 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
+      - name: 📦 打包代码
+        run: |
+          echo "📦 打包代码..."
+          tar -czf deploy.tar.gz \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.env' \
+            --exclude='deploy.tar.gz' \
+            .
+
+      - name: 📤 上传代码到服务器
+        run: |
+          echo "📤 上传代码到服务器..."
+          scp deploy.tar.gz ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ env.DEPLOY_PATH }}/deploy.tar.gz
+          
+      - name: 📥 在服务器上解压代码
+        run: |
+          ssh ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH'
+            set -e
+            echo "📂 进入部署目录..."
+            mkdir -p ${{ env.DEPLOY_PATH }}
+            cd ${{ env.DEPLOY_PATH }}
+            echo "📦 解压代码..."
+            tar -xzf deploy.tar.gz
+            rm -f deploy.tar.gz
+            echo "✅ 代码解压完成"
+          ENDSSH
+
       - name: 🚀 部署到服务器
         env:
           SERVER_HOST: ${{ secrets.SERVER_HOST }}
@@ -118,18 +148,7 @@ jobs:
             mkdir -p ${{ env.DEPLOY_PATH }}
             cd ${{ env.DEPLOY_PATH }}
             
-            echo "📥 拉取最新代码..."
-            if [ -d ".git" ]; then
-              echo "✅ Git 仓库已存在，更新代码..."
-              git fetch origin main || { echo "❌ Git fetch 失败"; exit 1; }
-              git reset --hard origin/main || { echo "❌ Git reset 失败"; exit 1; }
-            else
-              echo "📦 首次部署，克隆仓库..."
-              rm -rf * .* 2>/dev/null || true
-              git clone https://github.com/${{ github.repository }}.git . || { echo "❌ Git clone 失败"; exit 1; }
-            fi
-            
-            echo "✅ 验证代码拉取成功..."
+            echo "✅ 验证文件存在..."
             if [ ! -f "docker-compose.prod.yml" ]; then
               echo "❌ 错误: docker-compose.prod.yml 文件不存在!"
               ls -la
