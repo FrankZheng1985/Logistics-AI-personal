@@ -43,21 +43,22 @@ jobs:
             docker-compose -f docker-compose.prod.yml build --no-cache backend frontend
             docker-compose -f docker-compose.prod.yml up -d
             
-            # 配置监控和备份（首次部署时）
-            if [ ! -f "/var/log/logistics-ai/setup_complete" ]; then
-              echo "配置监控和备份..."
-              chmod +x scripts/backup/*.sh 2>/dev/null || true
-              chmod +x scripts/monitoring/*.sh 2>/dev/null || true
-              chmod +x scripts/logging/*.sh 2>/dev/null || true
-              
-              # 执行监控设置脚本
-              if [ -f "scripts/monitoring/setup-monitoring.sh" ]; then
-                bash scripts/monitoring/setup-monitoring.sh || true
-              fi
-              
-              # 标记设置完成
-              mkdir -p /var/log/logistics-ai
-              touch /var/log/logistics-ai/setup_complete
+            # 配置监控和备份
+            echo "配置监控和备份脚本..."
+            chmod +x scripts/backup/*.sh 2>/dev/null || true
+            chmod +x scripts/monitoring/*.sh 2>/dev/null || true
+            chmod +x scripts/logging/*.sh 2>/dev/null || true
+            
+            # 显示当前脚本目录内容
+            echo "Scripts 目录内容:"
+            ls -la scripts/ 2>/dev/null || echo "scripts目录不存在"
+            
+            # 执行监控设置脚本
+            if [ -f "scripts/monitoring/setup-monitoring.sh" ]; then
+              echo "执行监控设置..."
+              bash scripts/monitoring/setup-monitoring.sh
+            else
+              echo "监控脚本不存在，跳过"
             fi
             
             # 清理旧镜像
