@@ -23,7 +23,7 @@ if [ -z "$1" ]; then
     echo "示例: $0 /root/backups/postgres/logistics_ai_backup_20260114_120000.sql.gz"
     echo ""
     echo "可用的备份文件:"
-    ls -la /root/backups/postgres/*.sql.gz 2>/dev/null || echo "  无备份文件"
+    ls -la /home/ubuntu/backups/postgres/*.sql.gz 2>/dev/null || echo "  无备份文件"
     exit 1
 fi
 

@@ -8,7 +8,7 @@
 set -e
 
 # 配置变量
-BACKUP_DIR="/root/backups/postgres"
+BACKUP_DIR="/home/ubuntu/backups/postgres"
 DATE=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="logistics_ai_backup_${DATE}.sql"
 BACKUP_FILE_GZ="${BACKUP_FILE}.gz"

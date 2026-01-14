@@ -25,7 +25,7 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
           script: |
-            cd /root/logistics-ai
+            cd /home/ubuntu/logistics-ai
             
             # 拉取最新代码
             git pull origin main

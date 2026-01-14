@@ -7,7 +7,7 @@
 
 set -e
 
-SCRIPT_DIR="/root/logistics-ai/scripts"
+SCRIPT_DIR="/home/ubuntu/logistics-ai/scripts"
 
 echo "========================================"
 echo "  物流获客AI - 定时任务配置"
@@ -36,10 +36,10 @@ cat > /tmp/logistics_ai_cron << 'EOF'
 # ============================================
 
 # 数据库自动备份 - 每天凌晨3点执行
-0 3 * * * /root/logistics-ai/scripts/backup/backup-database.sh >> /var/log/logistics-ai/backup.log 2>&1
+0 3 * * * /home/ubuntu/logistics-ai/scripts/backup/backup-database.sh >> /var/log/logistics-ai/backup.log 2>&1
 
 # 健康检查 - 每5分钟执行一次
-*/5 * * * * /root/logistics-ai/scripts/monitoring/health-check.sh >> /var/log/logistics-ai/health-check.log 2>&1
+*/5 * * * * /home/ubuntu/logistics-ai/scripts/monitoring/health-check.sh >> /var/log/logistics-ai/health-check.log 2>&1
 
 # 日志清理 - 每周日凌晨4点清理超过30天的日志
 0 4 * * 0 find /var/log/logistics-ai -name "*.log" -mtime +30 -delete

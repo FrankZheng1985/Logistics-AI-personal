@@ -7,7 +7,7 @@
 
 set -e
 
-SCRIPT_DIR="/root/logistics-ai/scripts"
+SCRIPT_DIR="/home/ubuntu/logistics-ai/scripts"
 
 echo "========================================"
 echo "  物流获客AI - 日志轮转配置"
