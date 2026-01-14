@@ -100,11 +100,19 @@ async def generate_video(
     description: str,
     video_type: str = "ad",
     keywords: list[str] = [],
+    voice: str = "zh_female",  # TTS语音选项: zh_male, zh_female, en_male, en_female
     db: AsyncSession = Depends(get_db)
 ):
     """
-    创建视频生成任务
-    这个接口会触发小文生成脚本，然后小视生成视频
+    创建视频生成任务（混合方案）
+    
+    流程：
+    1. 小文撰写脚本
+    2. 小视生成AI画面（不含文字）
+    3. 后期处理：叠加高清文字 + TTS配音 + 背景音乐
+    
+    参数：
+    - voice: TTS语音类型 (zh_male/zh_female/en_male/en_female)
     """
     from app.agents.copywriter import CopywriterAgent
     from app.agents.video_creator import VideoCreatorAgent
@@ -140,13 +148,14 @@ async def generate_video(
         await conversation_service.record_agent_task("copywriter", True)
         logger.info(f"[小文] 脚本撰写完成")
         
-        # 第二步：小视生成视频
-        logger.info(f"[小视] 开始生成视频")
+        # 第二步：小视生成视频（混合方案：AI画面 + 文字叠加 + 配音）
+        logger.info(f"[小视] 开始生成视频（混合方案）")
         video_creator = VideoCreatorAgent()
         video_result = await video_creator.process({
             "title": title,
             "script": script,
-            "keywords": keywords
+            "keywords": keywords,
+            "voice": voice  # 传递TTS语音选项
         })
         await conversation_service.record_agent_task("video_creator", True)
         

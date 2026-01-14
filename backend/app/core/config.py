@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     KELING_SECRET_KEY: Optional[str] = None  # Secret Key
     KELING_API_URL: str = "https://api.klingai.com"
     
+    # 视频后期处理配置
+    VIDEO_POST_PROCESSING: bool = True  # 是否启用后期处理（文字叠加、配音、背景音乐）
+    VIDEO_TTS_VOICE: str = "zh_female"  # 默认TTS语音: zh_male, zh_female, en_male, en_female
+    VIDEO_DEFAULT_BGM: str = "bgm_corporate"  # 默认背景音乐类型
+    VIDEO_OUTPUT_DIR: str = "/tmp/video_output"  # 视频输出目录
+    
     # 企业微信配置
     WECHAT_CORP_ID: Optional[str] = None
     WECHAT_AGENT_ID: Optional[str] = None
