@@ -117,14 +117,17 @@ jobs:
       - name: 📦 打包代码
         run: |
           echo "📦 打包代码..."
+          # 使用 --warning=no-file-changed 忽略文件变化警告
           tar -czf deploy.tar.gz \
+            --warning=no-file-changed \
             --exclude='.git' \
             --exclude='node_modules' \
             --exclude='__pycache__' \
             --exclude='*.pyc' \
             --exclude='.env' \
             --exclude='deploy.tar.gz' \
-            .
+            . || [[ $? -eq 1 ]]
+          echo "✅ 打包完成"
 
       - name: 📤 上传代码到服务器
         run: |
