@@ -1,6 +1,7 @@
 """
 AI员工基类
 所有AI员工都继承自这个基类
+集成物流专业老人级别知识库
 """
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
@@ -10,19 +11,48 @@ from loguru import logger
 
 from app.core.llm import chat_completion
 from app.models.conversation import AgentType
+from app.core.prompts.logistics_expert import LOGISTICS_EXPERT_BASE_PROMPT
 
 
 class BaseAgent(ABC):
-    """AI员工基类"""
+    """AI员工基类
+    
+    所有AI员工都具备专业物流老人级别的知识水平
+    """
     
     # 子类必须定义这些属性
     name: str = "未命名"
     agent_type: AgentType = None
     description: str = ""
     
+    # 是否启用专业物流知识
+    enable_logistics_expertise: bool = True
+    
     def __init__(self):
-        self.system_prompt = self._build_system_prompt()
-        logger.info(f"🤖 {self.name} 初始化完成")
+        self.system_prompt = self._build_full_system_prompt()
+        logger.info(f"🤖 {self.name} 初始化完成 (物流专家模式: {'开启' if self.enable_logistics_expertise else '关闭'})")
+    
+    def _build_full_system_prompt(self) -> str:
+        """构建完整的系统提示词，包含专业知识"""
+        base_prompt = self._build_system_prompt()
+        
+        if self.enable_logistics_expertise:
+            # 集成物流专业知识
+            expertise_intro = """
+
+## 专业背景
+你具备15年国际物流从业经验的专业水准：
+- 熟悉海运、空运、铁路、快递等全物流链条
+- 精通各国清关政策和流程
+- 了解危险品、敏感品处理规范
+- 掌握报价策略和成本控制技巧
+- 深谙客户痛点和解决方案
+
+在回答问题和处理任务时，请运用你的专业知识，给出专业、可靠的建议。
+"""
+            return base_prompt + expertise_intro
+        
+        return base_prompt
     
     @abstractmethod
     def _build_system_prompt(self) -> str:
