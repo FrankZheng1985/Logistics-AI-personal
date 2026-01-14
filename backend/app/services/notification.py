@@ -421,6 +421,65 @@ class NotificationService:
         except Exception as e:
             logger.error(f"标记所有通知已读失败: {e}")
             return 0
+    
+    async def send_to_boss(
+        self,
+        title: str,
+        content: str,
+        priority: str = "normal"
+    ) -> Dict[str, Any]:
+        """
+        发送消息给老板
+        
+        Args:
+            title: 消息标题
+            content: 消息内容
+            priority: 优先级 (urgent/high/normal/low)
+        """
+        results = {"channels": {}}
+        
+        # 1. 保存系统通知
+        await self._save_system_notification(
+            notification_type="boss_message",
+            title=title,
+            content=content
+        )
+        results["channels"]["system"] = {"status": "saved"}
+        
+        # 2. 企业微信通知
+        if self.wechat_enabled:
+            # 紧急消息添加特殊标记
+            prefix = ""
+            if priority == "urgent":
+                prefix = "⚠️ 【紧急】"
+            elif priority == "high":
+                prefix = "🔔 【重要】"
+            
+            wechat_content = f"""# {prefix}{title}
+
+{content}
+"""
+            results["channels"]["wechat"] = await self._send_wechat_notification(
+                title=title,
+                content=wechat_content
+            )
+        
+        # 3. 邮件通知（重要消息）
+        if self.email_enabled and priority in ["urgent", "high"]:
+            try:
+                from app.services.email_service import email_service
+                email_result = await email_service.send_simple_notification(
+                    subject=title,
+                    content=content
+                )
+                results["channels"]["email"] = email_result
+            except Exception as e:
+                logger.error(f"邮件通知发送失败: {e}")
+                results["channels"]["email"] = {"status": "error", "message": str(e)}
+        
+        logger.info(f"📢 老板通知已发送: {title}")
+        
+        return results
 
 
 # 创建单例

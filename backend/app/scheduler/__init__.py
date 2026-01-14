@@ -1,6 +1,7 @@
 """
 定时任务模块
 使用APScheduler实现定时任务调度
+支持7个AI员工的24小时自动化工作
 """
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -31,7 +32,9 @@ async def init_scheduler():
     global scheduler
     scheduler = get_scheduler()
     
-    # 导入任务
+    # ==================== 导入任务 ====================
+    
+    # 跟进任务
     from app.scheduler.follow_tasks import (
         daily_follow_check,
         check_no_reply_customers,
@@ -39,49 +42,178 @@ async def init_scheduler():
         reset_daily_stats
     )
     
-    # 每日跟进检查 - 每天早上9点
+    # 市场情报任务
+    from app.scheduler.market_tasks import (
+        collect_market_intelligence,
+        send_boss_daily_report,
+        send_boss_weekly_report,
+        check_urgent_intel
+    )
+    
+    # 内容发布任务
+    from app.scheduler.content_tasks import (
+        lead_hunt_task,
+        auto_video_generation,
+        auto_content_publish,
+        knowledge_base_update
+    )
+    
+    # ==================== 小跟任务 ====================
+    
+    # 每日跟进检查 - 每天早上9点（第一批）
     scheduler.add_job(
         daily_follow_check,
-        CronTrigger(hour=settings.DAILY_FOLLOW_CHECK_HOUR, minute=0),
-        id="daily_follow_check",
-        name="每日跟进检查",
+        CronTrigger(hour=9, minute=0),
+        id="daily_follow_check_morning",
+        name="[小跟] 每日跟进检查(上午)",
         replace_existing=True
     )
-    logger.info(f"📅 注册任务: 每日跟进检查 (每天 {settings.DAILY_FOLLOW_CHECK_HOUR}:00)")
+    logger.info("📅 注册任务: [小跟] 每日跟进检查(上午) - 09:00")
+    
+    # 每日跟进检查 - 每天下午14点（第二批）
+    scheduler.add_job(
+        daily_follow_check,
+        CronTrigger(hour=14, minute=0),
+        id="daily_follow_check_afternoon",
+        name="[小跟] 每日跟进检查(下午)",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小跟] 每日跟进检查(下午) - 14:00")
     
     # 未回复检查 - 每4小时
     scheduler.add_job(
         check_no_reply_customers,
         IntervalTrigger(hours=4),
         id="check_no_reply",
-        name="未回复客户检查",
+        name="[小跟] 未回复客户检查",
         replace_existing=True
     )
-    logger.info("📅 注册任务: 未回复客户检查 (每4小时)")
+    logger.info("📅 注册任务: [小跟] 未回复客户检查 - 每4小时")
+    
+    # ==================== 小调任务 ====================
     
     # 每日汇总 - 每天下午6点
     scheduler.add_job(
         daily_summary_task,
         CronTrigger(hour=settings.DAILY_SUMMARY_HOUR, minute=0),
         id="daily_summary",
-        name="每日工作汇总",
+        name="[小调] 每日工作汇总",
         replace_existing=True
     )
-    logger.info(f"📅 注册任务: 每日工作汇总 (每天 {settings.DAILY_SUMMARY_HOUR}:00)")
+    logger.info(f"📅 注册任务: [小调] 每日工作汇总 - {settings.DAILY_SUMMARY_HOUR}:00")
     
     # 重置每日统计 - 每天凌晨0点
     scheduler.add_job(
         reset_daily_stats,
         CronTrigger(hour=0, minute=5),
         id="reset_daily_stats",
-        name="重置每日统计",
+        name="[系统] 重置每日统计",
         replace_existing=True
     )
-    logger.info("📅 注册任务: 重置每日统计 (每天 00:05)")
+    logger.info("📅 注册任务: [系统] 重置每日统计 - 00:05")
     
-    # 启动调度器
+    # ==================== 小猎任务 ====================
+    
+    # 线索搜索 - 每2小时（工作时间内）
+    scheduler.add_job(
+        lead_hunt_task,
+        CronTrigger(hour='8-22/2', minute=30),
+        id="lead_hunt",
+        name="[小猎] 线索搜索",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小猎] 线索搜索 - 每2小时(8:30-22:30)")
+    
+    # ==================== 小析任务 ====================
+    
+    # 市场情报采集 - 每日早上6点
+    scheduler.add_job(
+        collect_market_intelligence,
+        CronTrigger(hour=6, minute=0),
+        id="market_intel_collect",
+        name="[小析] 市场情报采集",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小析] 市场情报采集 - 06:00")
+    
+    # 老板日报 - 每日早上8点
+    scheduler.add_job(
+        send_boss_daily_report,
+        CronTrigger(hour=8, minute=0),
+        id="boss_daily_report",
+        name="[小析] 老板日报推送",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小析] 老板日报推送 - 08:00")
+    
+    # 老板周报 - 每周一早上8点
+    scheduler.add_job(
+        send_boss_weekly_report,
+        CronTrigger(day_of_week='mon', hour=8, minute=30),
+        id="boss_weekly_report",
+        name="[小析] 老板周报推送",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小析] 老板周报推送 - 每周一 08:30")
+    
+    # 紧急情报检查 - 每小时
+    scheduler.add_job(
+        check_urgent_intel,
+        IntervalTrigger(hours=1),
+        id="urgent_intel_check",
+        name="[小析] 紧急情报检查",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小析] 紧急情报检查 - 每小时")
+    
+    # ==================== 小视任务 ====================
+    
+    # 自动视频生成 - 每日上午10点
+    scheduler.add_job(
+        auto_video_generation,
+        CronTrigger(hour=10, minute=0),
+        id="auto_video_generation",
+        name="[小视] 自动视频生成",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小视] 自动视频生成 - 10:00")
+    
+    # ==================== 小文任务 ====================
+    
+    # 自动内容发布 - 每周一/三/五下午3点
+    scheduler.add_job(
+        auto_content_publish,
+        CronTrigger(day_of_week='mon,wed,fri', hour=15, minute=0),
+        id="auto_content_publish",
+        name="[小文] 自动内容发布",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小文] 自动内容发布 - 周一/三/五 15:00")
+    
+    # ==================== 小析2任务 ====================
+    
+    # 知识库更新 - 每日23点
+    scheduler.add_job(
+        knowledge_base_update,
+        CronTrigger(hour=23, minute=0),
+        id="knowledge_base_update",
+        name="[小析2] 知识库更新",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小析2] 知识库更新 - 23:00")
+    
+    # ==================== 启动调度器 ====================
+    
     scheduler.start()
-    logger.info("✅ 定时任务调度器已启动")
+    
+    # 输出任务汇总
+    jobs = scheduler.get_jobs()
+    logger.info(f"✅ 定时任务调度器已启动，共注册 {len(jobs)} 个任务")
+    logger.info("=" * 50)
+    logger.info("📋 任务列表:")
+    for job in jobs:
+        logger.info(f"   • {job.name}")
+    logger.info("=" * 50)
 
 
 async def shutdown_scheduler():
@@ -116,6 +248,26 @@ def remove_job(job_id: str):
         logger.error(f"移除任务失败: {e}")
 
 
+def pause_job(job_id: str):
+    """暂停任务"""
+    scheduler = get_scheduler()
+    try:
+        scheduler.pause_job(job_id)
+        logger.info(f"📅 暂停任务: {job_id}")
+    except Exception as e:
+        logger.error(f"暂停任务失败: {e}")
+
+
+def resume_job(job_id: str):
+    """恢复任务"""
+    scheduler = get_scheduler()
+    try:
+        scheduler.resume_job(job_id)
+        logger.info(f"📅 恢复任务: {job_id}")
+    except Exception as e:
+        logger.error(f"恢复任务失败: {e}")
+
+
 def get_jobs():
     """获取所有任务"""
     scheduler = get_scheduler()
@@ -124,7 +276,40 @@ def get_jobs():
             "id": job.id,
             "name": job.name,
             "next_run_time": job.next_run_time.isoformat() if job.next_run_time else None,
-            "trigger": str(job.trigger)
+            "trigger": str(job.trigger),
+            "pending": job.pending
         }
         for job in scheduler.get_jobs()
     ]
+
+
+def get_job_status(job_id: str):
+    """获取单个任务状态"""
+    scheduler = get_scheduler()
+    job = scheduler.get_job(job_id)
+    if job:
+        return {
+            "id": job.id,
+            "name": job.name,
+            "next_run_time": job.next_run_time.isoformat() if job.next_run_time else None,
+            "trigger": str(job.trigger),
+            "pending": job.pending
+        }
+    return None
+
+
+async def run_job_now(job_id: str):
+    """立即执行任务"""
+    scheduler = get_scheduler()
+    job = scheduler.get_job(job_id)
+    if job:
+        logger.info(f"📅 手动触发任务: {job.name}")
+        try:
+            # 直接调用任务函数
+            result = await job.func()
+            logger.info(f"📅 任务执行完成: {job.name}")
+            return {"status": "success", "result": result}
+        except Exception as e:
+            logger.error(f"任务执行失败: {e}")
+            return {"status": "error", "error": str(e)}
+    return {"status": "error", "error": "任务不存在"}

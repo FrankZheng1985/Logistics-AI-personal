@@ -1,7 +1,11 @@
 # API 路由模块
 from fastapi import APIRouter
 
-from app.api import customers, videos, chat, dashboard, agents, wechat, company, leads, follow
+from app.api import (
+    customers, videos, chat, dashboard, agents, 
+    wechat, company, leads, follow,
+    reports, knowledge, webchat
+)
 
 router = APIRouter()
 
@@ -15,3 +19,6 @@ router.include_router(videos.router, prefix="/videos", tags=["视频"])
 router.include_router(agents.router, prefix="/agents", tags=["AI员工"])
 router.include_router(wechat.router, tags=["企业微信"])
 router.include_router(company.router, tags=["公司配置"])
+router.include_router(reports.router)
+router.include_router(knowledge.router)
+router.include_router(webchat.router)

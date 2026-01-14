@@ -51,8 +51,8 @@ CREATE TABLE users (
 -- AI员工表
 CREATE TABLE ai_agents (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name VARCHAR(20) NOT NULL,           -- 小调、小视、小文等
-    agent_type agent_type NOT NULL,
+    name VARCHAR(20) NOT NULL UNIQUE,    -- 小调、小视、小文等（唯一）
+    agent_type agent_type NOT NULL UNIQUE, -- 员工类型（唯一，防止重复）
     description TEXT,
     avatar_url VARCHAR(500),
     status agent_status DEFAULT 'online',
@@ -370,7 +370,7 @@ CREATE TRIGGER calculate_customer_intent_level
 -- 初始化数据
 -- =====================================================
 
--- 插入AI员工
+-- 插入AI员工（使用ON CONFLICT防止重复插入）
 INSERT INTO ai_agents (name, agent_type, description, status) VALUES
     ('小调', 'coordinator', 'AI调度主管 - 负责任务分配、流程协调、异常处理', 'online'),
     ('小视', 'video_creator', '视频创作员 - 生成物流广告视频、产品展示视频', 'online'),
@@ -378,7 +378,8 @@ INSERT INTO ai_agents (name, agent_type, description, status) VALUES
     ('小销', 'sales', '销售客服 - 首次接待、解答咨询、收集需求', 'online'),
     ('小跟', 'follow', '跟进专员 - 老客户维护、意向客户跟进、促成转化', 'online'),
     ('小析', 'analyst', '客户分析师 - 意向评分、客户画像、数据报表', 'online'),
-    ('小猎', 'lead_hunter', '线索猎手 - 自动搜索互联网上的潜在客户线索，发现物流需求商机', 'online');
+    ('小猎', 'lead_hunter', '线索猎手 - 自动搜索互联网上的潜在客户线索，发现物流需求商机', 'online')
+ON CONFLICT (agent_type) DO NOTHING;
 
 -- 插入默认系统配置
 INSERT INTO system_configs (config_key, config_value, description) VALUES

@@ -26,14 +26,28 @@ async def lifespan(app: FastAPI):
     logger.info("   - 小跟 (跟进专员) ✓")
     logger.info("   - 小析 (客户分析) ✓")
     logger.info("   - 小猎 (线索猎手) ✓")
+    logger.info("   - 小析2 (群聊情报员) ✓")
+    
+    # 初始化任务队列
+    from app.services.task_queue import task_queue, init_task_handlers
+    await task_queue.init()
+    await init_task_handlers()
     
     # 初始化定时任务
     from app.scheduler import init_scheduler, shutdown_scheduler
     await init_scheduler()
     
+    # 初始化微信群监控（可选，需要WeChatFerry）
+    try:
+        from app.services.wechat_monitor import setup_wechat_monitor
+        await setup_wechat_monitor()
+    except Exception as e:
+        logger.warning(f"微信群监控初始化跳过: {e}")
+    
     yield
     
     # 关闭时执行
+    await task_queue.close()
     await shutdown_scheduler()
     logger.info("👋 系统关闭中...")
 
@@ -77,6 +91,7 @@ async def root():
             {"name": "小跟", "role": "跟进专员", "status": "online"},
             {"name": "小析", "role": "客户分析", "status": "online"},
             {"name": "小猎", "role": "线索猎手", "status": "online"},
+            {"name": "小析2", "role": "群聊情报员", "status": "online"},
         ]
     }
 
