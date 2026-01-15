@@ -1,6 +1,6 @@
-# 物流获客AI - 自动部署工作流
+# 物流获客AI - 自动部署工作流（原生部署版本）
 # 当代码推送到 main 分支时自动部署到腾讯云服务器
-# 优化：使用 Docker 缓存 + 并行构建，部署时间从 3-5 分钟降至 1-2 分钟
+# 不使用 Docker，直接部署到系统服务
 
 name: Deploy to Production
 
@@ -9,10 +9,6 @@ on:
     branches:
       - main
   workflow_dispatch:  # 允许手动触发
-
-env:
-  DOCKER_BUILDKIT: 1
-  COMPOSE_DOCKER_CLI_BUILD: 1
 
 jobs:
   deploy:
@@ -35,9 +31,9 @@ jobs:
             set -e
             cd /home/ubuntu/logistics-ai
             
-            # 启用 Docker BuildKit 加速构建
-            export DOCKER_BUILDKIT=1
-            export COMPOSE_DOCKER_CLI_BUILD=1
+            echo "=============================================="
+            echo "    开始部署 - 原生部署方式"
+            echo "=============================================="
             
             # 配置 GitHub 镜像代理（解决国内服务器访问 GitHub 慢的问题）
             echo "🌐 配置 GitHub 镜像代理..."
@@ -51,65 +47,149 @@ jobs:
               sleep 5
             done
             
-            # 检查哪些文件有变化，智能决定是否需要重建
+            # 检查哪些文件有变化
             BACKEND_CHANGED=$(git diff HEAD~1 --name-only | grep -E '^backend/' | wc -l || echo 0)
             FRONTEND_CHANGED=$(git diff HEAD~1 --name-only | grep -E '^frontend/' | wc -l || echo 0)
+            DATABASE_CHANGED=$(git diff HEAD~1 --name-only | grep -E '^database/' | wc -l || echo 0)
             
-            echo "📊 变更检测: Backend=$BACKEND_CHANGED, Frontend=$FRONTEND_CHANGED"
+            echo "📊 变更检测: Backend=$BACKEND_CHANGED, Frontend=$FRONTEND_CHANGED, Database=$DATABASE_CHANGED"
             
-            # 执行数据库迁移（如果有新的迁移文件）
-            echo "🗄️ 检查数据库迁移..."
-            for migration in database/migrations/*.sql; do
-              if [ -f "$migration" ]; then
-                echo "执行迁移: $migration"
-                docker exec -i logistics-ai-db psql -U admin -d logistics_ai < "$migration" 2>/dev/null || true
-              fi
-            done
+            # =================================================================
+            # 数据库迁移（如果有变化）
+            # =================================================================
+            if [ "$DATABASE_CHANGED" -gt 0 ]; then
+              echo "🗄️ 执行数据库迁移..."
+              source .env 2>/dev/null || true
+              DB_USER="${POSTGRES_USER:-admin}"
+              DB_NAME="${POSTGRES_DB:-logistics_ai}"
+              
+              for migration in database/migrations/*.sql; do
+                if [ -f "$migration" ]; then
+                  echo "  执行: $(basename $migration)"
+                  sudo -u postgres psql -d "$DB_NAME" -f "$migration" 2>/dev/null || true
+                fi
+              done
+            fi
             
-            # 智能构建：只重建有变化的服务（使用缓存）
-            echo "🔨 开始构建..."
-            BUILD_SERVICES=""
-            
+            # =================================================================
+            # 后端更新
+            # =================================================================
             if [ "$BACKEND_CHANGED" -gt 0 ]; then
-              BUILD_SERVICES="$BUILD_SERVICES backend"
+              echo "🔧 更新后端..."
+              
+              cd backend
+              
+              # 激活虚拟环境
+              source venv/bin/activate
+              
+              # 更新依赖（如果 requirements.txt 有变化）
+              if git diff HEAD~1 --name-only | grep -q 'backend/requirements.txt'; then
+                echo "  📦 安装新依赖..."
+                pip install -r requirements.txt -q
+              fi
+              
+              deactivate
+              cd ..
+              
+              # 重启后端服务
+              echo "  🔄 重启后端服务..."
+              sudo systemctl restart logistics-backend
+              sleep 5
+              
+              # 检查后端是否启动成功
+              if curl -sf http://127.0.0.1:8000/health > /dev/null 2>&1; then
+                echo "  ✅ 后端重启成功"
+              else
+                echo "  ⚠️ 后端启动中，等待..."
+                sleep 10
+              fi
             fi
             
+            # =================================================================
+            # 前端更新
+            # =================================================================
             if [ "$FRONTEND_CHANGED" -gt 0 ]; then
-              BUILD_SERVICES="$BUILD_SERVICES frontend"
+              echo "🎨 更新前端..."
+              
+              cd frontend
+              
+              # 更新依赖（如果 package.json 有变化）
+              if git diff HEAD~1 --name-only | grep -q 'frontend/package.json'; then
+                echo "  📦 安装新依赖..."
+                npm ci --legacy-peer-deps
+              fi
+              
+              # 重新构建
+              echo "  🔨 重新构建..."
+              npm run build
+              
+              cd ..
+              
+              # 重启前端服务
+              echo "  🔄 重启前端服务..."
+              cd frontend
+              pm2 reload ecosystem.config.js 2>/dev/null || pm2 start ecosystem.config.js
+              cd ..
+              
+              sleep 3
+              
+              if curl -sf http://127.0.0.1:3000 > /dev/null 2>&1; then
+                echo "  ✅ 前端重启成功"
+              else
+                echo "  ⚠️ 前端启动中..."
+              fi
             fi
             
-            if [ -n "$BUILD_SERVICES" ]; then
-              echo "构建服务: $BUILD_SERVICES"
-              
-              # 先停止需要重建的服务，避免容器名称冲突
-              echo "🛑 停止需要重建的服务..."
-              docker-compose -f docker-compose.prod.yml stop $BUILD_SERVICES 2>/dev/null || true
-              docker-compose -f docker-compose.prod.yml rm -f $BUILD_SERVICES 2>/dev/null || true
-              
-              # 清理可能存在的孤立容器（名称冲突的根源）
-              echo "🧹 清理孤立容器..."
-              docker container prune -f 2>/dev/null || true
-              
-              # 使用缓存构建
-              docker-compose -f docker-compose.prod.yml build $BUILD_SERVICES
+            # =================================================================
+            # 无变化时的简单重启（可选）
+            # =================================================================
+            if [ "$BACKEND_CHANGED" -eq 0 ] && [ "$FRONTEND_CHANGED" -eq 0 ]; then
+              echo "⏭️ 代码无变化，跳过重启"
+            fi
+            
+            # =================================================================
+            # 最终健康检查
+            # =================================================================
+            echo ""
+            echo "🏥 最终健康检查..."
+            echo "-------------------------------------------"
+            
+            # PostgreSQL
+            if sudo systemctl is-active --quiet postgresql; then
+              echo "✅ PostgreSQL: 运行中"
             else
-              echo "⏭️ 无需重建，只重启服务"
+              echo "❌ PostgreSQL: 已停止"
             fi
             
-            # 启动/重启服务（使用 --force-recreate 确保容器被正确重建）
-            echo "🚀 启动服务..."
-            docker-compose -f docker-compose.prod.yml up -d --remove-orphans
+            # Redis
+            if sudo systemctl is-active --quiet redis-server; then
+              echo "✅ Redis: 运行中"
+            else
+              echo "❌ Redis: 已停止"
+            fi
             
-            # 等待服务健康
-            echo "⏳ 等待服务启动..."
-            sleep 10
+            # 后端
+            if curl -sf http://127.0.0.1:8000/health > /dev/null 2>&1; then
+              echo "✅ 后端: 运行中"
+            else
+              echo "⚠️ 后端: 启动中或异常"
+            fi
             
-            # 健康检查
-            echo "🏥 健康检查..."
-            curl -sf http://localhost:8000/health > /dev/null && echo "✅ Backend OK" || echo "⚠️ Backend 启动中..."
-            curl -sf http://localhost:3000 > /dev/null && echo "✅ Frontend OK" || echo "⚠️ Frontend 启动中..."
+            # 前端
+            if curl -sf http://127.0.0.1:3000 > /dev/null 2>&1; then
+              echo "✅ 前端: 运行中"
+            else
+              echo "⚠️ 前端: 启动中或异常"
+            fi
             
-            # 清理旧镜像（保留最近的）
-            docker image prune -f --filter "until=24h" 2>/dev/null || true
+            # Nginx
+            if sudo systemctl is-active --quiet nginx; then
+              echo "✅ Nginx: 运行中"
+            else
+              echo "❌ Nginx: 已停止"
+            fi
             
-            echo "✅ 部署完成！"
+            echo ""
+            echo "=============================================="
+            echo "    ✅ 部署完成！"
+            echo "=============================================="

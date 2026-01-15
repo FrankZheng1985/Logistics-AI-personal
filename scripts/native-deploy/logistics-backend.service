@@ -1,0 +1,72 @@
+# =============================================================================
+# 物流获客AI 后端 - Systemd 服务配置
+# 使用 Gunicorn + Uvicorn workers 运行 FastAPI
+# =============================================================================
+
+[Unit]
+Description=Logistics AI Backend (FastAPI + Gunicorn)
+Documentation=https://github.com/yourusername/logistics-ai
+After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
+
+[Service]
+Type=notify
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/logistics-ai/backend
+
+# 环境变量文件
+EnvironmentFile=/home/ubuntu/logistics-ai/.env
+
+# 设置环境变量
+Environment="PATH=/home/ubuntu/logistics-ai/backend/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+
+# 数据库连接（本地 PostgreSQL）
+Environment="DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:5432/${POSTGRES_DB}"
+
+# Redis 连接（本地 Redis）
+Environment="REDIS_URL=redis://127.0.0.1:6379/0"
+
+# 启动命令：Gunicorn + Uvicorn workers
+# - workers: 4 个工作进程（根据 CPU 核心数调整）
+# - worker-class: 使用 uvicorn 的异步 worker
+# - timeout: 请求超时时间
+# - graceful-timeout: 优雅关闭等待时间
+# - keep-alive: 保持连接时间
+ExecStart=/home/ubuntu/logistics-ai/backend/venv/bin/gunicorn app.main:app \
+    --workers 4 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind 127.0.0.1:8000 \
+    --timeout 120 \
+    --graceful-timeout 30 \
+    --keep-alive 5 \
+    --access-logfile /var/log/logistics-ai/access.log \
+    --error-logfile /var/log/logistics-ai/error.log \
+    --capture-output \
+    --enable-stdio-inheritance
+
+# 重启策略
+Restart=always
+RestartSec=5
+
+# 限制资源使用
+# 最大打开文件数
+LimitNOFILE=65536
+# 最大进程数
+LimitNPROC=4096
+
+# 安全设置
+PrivateTmp=true
+NoNewPrivileges=true
+
+# 日志目录
+RuntimeDirectory=logistics-ai
+LogsDirectory=logistics-ai
+
+# 启动前创建日志目录
+ExecStartPre=/bin/mkdir -p /var/log/logistics-ai
+ExecStartPre=/bin/chown ubuntu:ubuntu /var/log/logistics-ai
+
+[Install]
+WantedBy=multi-user.target
