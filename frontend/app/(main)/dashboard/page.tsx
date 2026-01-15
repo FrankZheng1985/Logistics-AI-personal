@@ -148,6 +148,15 @@ interface CompanyConfig {
   price_policy: string
 }
 
+// 微信配置状态类型
+interface WechatConfigStatus {
+  is_configured: boolean
+  is_callback_configured: boolean
+  corp_id_masked: string | null
+  agent_id: string | null
+  status: 'configured' | 'pending'
+}
+
 // 设置弹窗
 function SettingsModal({ 
   isOpen, 
@@ -173,13 +182,27 @@ function SettingsModal({
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [newAdvantage, setNewAdvantage] = useState('')
+  const [wechatStatus, setWechatStatus] = useState<WechatConfigStatus | null>(null)
   
   // 获取公司配置
   useEffect(() => {
     if (isOpen) {
       fetchCompanyConfig()
+      fetchWechatStatus()
     }
   }, [isOpen])
+  
+  const fetchWechatStatus = async () => {
+    try {
+      const res = await fetch('/api/wechat/config-status')
+      if (res.ok) {
+        const data = await res.json()
+        setWechatStatus(data)
+      }
+    } catch (error) {
+      console.error('获取微信配置状态失败:', error)
+    }
+  }
   
   const fetchCompanyConfig = async () => {
     setLoading(true)
@@ -736,17 +759,48 @@ function SettingsModal({
                 </div>
                 <p className="text-gray-400 text-sm mb-3">用于接收和发送客户消息</p>
                 <div className="flex items-center gap-2">
-                  <span className="px-2 py-1 bg-energy-orange/20 text-energy-orange text-xs rounded">待配置</span>
+                  {wechatStatus?.is_configured ? (
+                    <>
+                      <span className="px-2 py-1 bg-cyber-green/20 text-cyber-green text-xs rounded">已配置</span>
+                      {wechatStatus.corp_id_masked && (
+                        <span className="text-gray-500 text-xs">CorpID: {wechatStatus.corp_id_masked}</span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="px-2 py-1 bg-energy-orange/20 text-energy-orange text-xs rounded">待配置</span>
+                  )}
                 </div>
               </div>
+              
+              {wechatStatus?.is_callback_configured && (
+                <div className="glass-card p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Check className="w-4 h-4 text-cyber-green" />
+                    <p className="font-medium">消息回调配置</p>
+                  </div>
+                  <p className="text-gray-400 text-sm">消息回调已配置，可以接收客户消息</p>
+                </div>
+              )}
               
               <div className="glass-card p-4 border-dashed">
                 <h4 className="font-medium mb-2">配置步骤：</h4>
                 <ol className="text-gray-400 text-sm space-y-2 list-decimal list-inside">
-                  <li>登录企业微信管理后台</li>
-                  <li>创建应用获取 CorpID 和 Secret</li>
-                  <li>配置消息接收服务器URL</li>
-                  <li>在服务器 .env 文件中填写配置</li>
+                  <li className={wechatStatus?.is_configured ? 'text-cyber-green' : ''}>
+                    {wechatStatus?.is_configured && <Check className="w-3 h-3 inline mr-1" />}
+                    登录企业微信管理后台
+                  </li>
+                  <li className={wechatStatus?.is_configured ? 'text-cyber-green' : ''}>
+                    {wechatStatus?.is_configured && <Check className="w-3 h-3 inline mr-1" />}
+                    创建应用获取 CorpID 和 Secret
+                  </li>
+                  <li className={wechatStatus?.is_callback_configured ? 'text-cyber-green' : ''}>
+                    {wechatStatus?.is_callback_configured && <Check className="w-3 h-3 inline mr-1" />}
+                    配置消息接收服务器URL
+                  </li>
+                  <li className={wechatStatus?.is_configured ? 'text-cyber-green' : ''}>
+                    {wechatStatus?.is_configured && <Check className="w-3 h-3 inline mr-1" />}
+                    在服务器 .env 文件中填写配置
+                  </li>
                 </ol>
               </div>
               

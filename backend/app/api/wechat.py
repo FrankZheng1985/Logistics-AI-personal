@@ -12,6 +12,20 @@ from app.agents.sales_agent import SalesAgent
 router = APIRouter(prefix="/wechat", tags=["企业微信"])
 
 
+@router.get("/config-status")
+async def get_wechat_config_status():
+    """
+    获取企业微信配置状态
+    """
+    return {
+        "is_configured": wechat_service.is_configured,
+        "is_callback_configured": wechat_service.is_callback_configured,
+        "corp_id_masked": wechat_service.corp_id[:6] + "****" if wechat_service.corp_id else None,
+        "agent_id": wechat_service.agent_id,
+        "status": "configured" if wechat_service.is_configured else "pending"
+    }
+
+
 @router.get("/callback")
 async def verify_callback(
     msg_signature: str = Query(..., description="签名"),
