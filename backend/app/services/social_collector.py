@@ -488,16 +488,27 @@ class SocialMediaCollector:
     async def _save_results(self, results: List[Dict]) -> int:
         """保存采集结果到数据库"""
         saved = 0
+        skipped = 0
         
         for item in results:
+            file_url = item.get("file_url")
+            name = item.get("name", "未命名")[:100]
+            
+            # 跳过无效数据
+            if not file_url:
+                logger.debug(f"[小采] 跳过无file_url的素材: {name}")
+                skipped += 1
+                continue
+            
             try:
                 async with AsyncSessionLocal() as db:
                     # 检查是否已存在
                     check = await db.execute(
                         text("SELECT id FROM assets WHERE file_url = :url"),
-                        {"url": item.get("file_url")}
+                        {"url": file_url}
                     )
                     if check.fetchone():
+                        skipped += 1
                         continue
                     
                     # 插入新素材
@@ -507,20 +518,22 @@ class SocialMediaCollector:
                             VALUES (:name, :type, :category, :file_url, :thumbnail_url, :description)
                         """),
                         {
-                            "name": item.get("name", "未命名")[:100],
-                            "type": item.get("type", "image"),
+                            "name": name,
+                            "type": item.get("type", "video"),
                             "category": item.get("platform", "unknown"),
-                            "file_url": item.get("file_url"),
-                            "thumbnail_url": item.get("thumbnail_url"),
+                            "file_url": file_url,
+                            "thumbnail_url": item.get("thumbnail_url") or file_url,
                             "description": (item.get("description", "") or "")[:500]
                         }
                     )
                     await db.commit()
                     saved += 1
+                    logger.info(f"[小采] 保存素材成功: {name}")
                     
             except Exception as e:
-                logger.debug(f"保存素材失败: {e}")
+                logger.error(f"[小采] 保存素材失败 ({name}): {e}")
         
+        logger.info(f"[小采] 素材保存完成，成功 {saved} 个，跳过 {skipped} 个")
         return saved
     
     async def _update_stats(self, platform_stats: Dict[str, int]):
