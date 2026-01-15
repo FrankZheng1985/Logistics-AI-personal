@@ -3,8 +3,9 @@
 负责首次接待、解答咨询、收集需求
 """
 from typing import Dict, Any, Optional, List
+from datetime import datetime, timezone
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.agents.base import BaseAgent, AgentRegistry
 from app.models.conversation import AgentType
@@ -85,6 +86,78 @@ class SalesAgent(BaseAgent):
             logger.error(f"获取公司配置失败: {e}")
             return ""
     
+    async def _get_work_stats(self) -> Dict[str, Any]:
+        """从数据库获取真实的工作统计数据"""
+        stats = {
+            "today_conversations": 0,
+            "today_inquiries": 0,  # 询价相关对话
+            "today_new_customers": 0,
+            "today_follow_records": 0,
+            "total_customers": 0,
+            "high_intent_customers": 0,
+            "total_leads": 0,
+        }
+        
+        try:
+            async with AsyncSessionLocal() as db:
+                # 获取今天的开始时间（UTC）
+                today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                
+                # 今日对话总数
+                result = await db.execute(
+                    text("SELECT COUNT(*) FROM conversations WHERE created_at >= :today"),
+                    {"today": today}
+                )
+                stats["today_conversations"] = result.scalar() or 0
+                
+                # 今日询价相关对话（包含报价、价格、费用等关键词）
+                result = await db.execute(
+                    text("""
+                        SELECT COUNT(*) FROM conversations 
+                        WHERE created_at >= :today 
+                        AND message_type = 'inbound'
+                        AND (content ILIKE '%报价%' OR content ILIKE '%价格%' 
+                             OR content ILIKE '%多少钱%' OR content ILIKE '%费用%'
+                             OR content ILIKE '%运费%' OR content ILIKE '%FCL%'
+                             OR content ILIKE '%整柜%' OR content ILIKE '%拼箱%')
+                    """),
+                    {"today": today}
+                )
+                stats["today_inquiries"] = result.scalar() or 0
+                
+                # 今日新客户数
+                result = await db.execute(
+                    text("SELECT COUNT(*) FROM customers WHERE created_at >= :today"),
+                    {"today": today}
+                )
+                stats["today_new_customers"] = result.scalar() or 0
+                
+                # 今日跟进记录数
+                result = await db.execute(
+                    text("SELECT COUNT(*) FROM follow_records WHERE created_at >= :today"),
+                    {"today": today}
+                )
+                stats["today_follow_records"] = result.scalar() or 0
+                
+                # 总客户数
+                result = await db.execute(text("SELECT COUNT(*) FROM customers"))
+                stats["total_customers"] = result.scalar() or 0
+                
+                # 高意向客户数 (intent_score >= 60)
+                result = await db.execute(
+                    text("SELECT COUNT(*) FROM customers WHERE intent_score >= 60")
+                )
+                stats["high_intent_customers"] = result.scalar() or 0
+                
+                # 总线索数
+                result = await db.execute(text("SELECT COUNT(*) FROM leads"))
+                stats["total_leads"] = result.scalar() or 0
+                
+        except Exception as e:
+            logger.error(f"获取工作统计数据失败: {e}")
+        
+        return stats
+    
     async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         处理对话
@@ -117,22 +190,37 @@ class SalesAgent(BaseAgent):
         
         # 根据用户类型使用不同的提示
         if user_type == "internal":
-            # 内部同事模式 - 轻松友好的同事语气
+            # 内部同事模式 - 获取真实工作数据
+            work_stats = await self._get_work_stats()
+            
+            # 构建工作数据摘要
+            work_summary = f"""## 今日真实工作数据（必须基于此回答）
+- 今日对话总数：{work_stats['today_conversations']}条
+- 今日询价咨询：{work_stats['today_inquiries']}条
+- 今日新增客户：{work_stats['today_new_customers']}位
+- 今日跟进记录：{work_stats['today_follow_records']}条
+- 客户总数：{work_stats['total_customers']}位
+- 高意向客户：{work_stats['high_intent_customers']}位
+- 线索总数：{work_stats['total_leads']}条"""
+            
             chat_prompt = f"""你是公司的AI助手"小销"，现在正在和公司内部的同事聊天。
 
 ## 你所在公司的信息
 {company_context if company_context else "暂未配置公司信息"}
 
+{work_summary}
+
 ## 同事的消息
 {message}
 
-请用轻松、友好的同事语气回复。特点：
+请用轻松、友好的同事语气回复。重要规则：
 1. 语气亲切随和，像朋友聊天一样
 2. 可以用一些轻松的表情符号
-3. 如果同事问工作相关问题，尽力帮助解答
-4. 如果是闲聊，也可以简单回应
-5. 不需要太正式，但要专业
-6. 回复简洁，不要太长
+3. **关于工作的问题，必须且只能基于上面的"今日真实工作数据"来回答**
+4. **绝对不能编造或夸大工作成果！如果数据是0就如实说没有**
+5. 如果同事问"忙不忙"、"处理了多少"等问题，如实回答真实数据
+6. 如果是闲聊，可以简单回应
+7. 回复简洁，不要太长
 """
         else:
             # 外部客户模式 - 专业的销售客服语气
