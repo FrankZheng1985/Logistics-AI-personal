@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     KELING_SECRET_KEY: Optional[str] = None  # Secret Key
     KELING_API_URL: str = "https://api.klingai.com"
     
+    # 素材采集API（小采使用）
+    PEXELS_API_KEY: Optional[str] = None  # Pexels免费素材API
+    PIXABAY_API_KEY: Optional[str] = None  # Pixabay免费素材API
+    
     # 视频后期处理配置
     VIDEO_POST_PROCESSING: bool = True  # 是否启用后期处理（文字叠加、配音、背景音乐）
     VIDEO_TTS_VOICE: str = "zh_female"  # 默认TTS语音: zh_male, zh_female, en_male, en_female
