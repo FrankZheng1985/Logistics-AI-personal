@@ -55,13 +55,19 @@ class Settings(BaseSettings):
     VIDEO_DEFAULT_BGM: str = "bgm_corporate"  # 默认背景音乐类型
     VIDEO_OUTPUT_DIR: str = "/tmp/video_output"  # 视频输出目录
     
-    # 企业微信配置
+    # 企业微信配置 - 小销（销售客服）
     WECHAT_CORP_ID: Optional[str] = None
     WECHAT_AGENT_ID: Optional[str] = None
     WECHAT_SECRET: Optional[str] = None
     WECHAT_TOKEN: Optional[str] = None
     WECHAT_ENCODING_AES_KEY: Optional[str] = None
     NOTIFY_WECHAT_USERS: str = ""  # 接收通知的企业微信用户ID，逗号分隔
+    
+    # 企业微信配置 - 小析2（群情报员/菠萝蜜）
+    WECHAT_ANALYST2_AGENT_ID: Optional[str] = None
+    WECHAT_ANALYST2_SECRET: Optional[str] = None
+    WECHAT_ANALYST2_TOKEN: Optional[str] = None
+    WECHAT_ANALYST2_ENCODING_AES_KEY: Optional[str] = None
     
     # 邮件配置
     SMTP_HOST: str = ""

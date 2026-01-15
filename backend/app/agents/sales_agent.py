@@ -1,17 +1,20 @@
 """
 小销 - 销售客服
 负责首次接待、解答咨询、收集需求
+支持查询ERP业务系统数据（只读）
 """
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 from loguru import logger
 from sqlalchemy import select, text
+import re
 
 from app.agents.base import BaseAgent, AgentRegistry
 from app.models.conversation import AgentType
 from app.models.database import AsyncSessionLocal
 from app.models.company_config import CompanyConfig
 from app.core.prompts.sales import SALES_SYSTEM_PROMPT, CHAT_RESPONSE_PROMPT
+from app.services.erp_query_helper import erp_query_helper
 
 
 class SalesAgent(BaseAgent):
@@ -85,6 +88,104 @@ class SalesAgent(BaseAgent):
         except Exception as e:
             logger.error(f"获取公司配置失败: {e}")
             return ""
+    
+    async def _get_erp_context(self, message: str, customer_id: str = None) -> str:
+        """
+        根据消息内容智能查询ERP数据
+        
+        分析用户问题，自动判断需要查询什么ERP数据
+        返回格式化的上下文信息供AI参考
+        """
+        erp_context_parts = []
+        message_lower = message.lower()
+        
+        try:
+            # 检查ERP是否可用
+            if not await erp_query_helper.is_available():
+                return ""
+            
+            # 1. 检测订单查询意图
+            order_patterns = [
+                r'订单[号]?\s*[：:是]?\s*([A-Za-z0-9\-]+)',
+                r'单号\s*[：:是]?\s*([A-Za-z0-9\-]+)',
+                r'查[一下]*\s*([A-Za-z0-9\-]+)\s*[订的]?单'
+            ]
+            for pattern in order_patterns:
+                match = re.search(pattern, message)
+                if match:
+                    order_id = match.group(1)
+                    order_data = await erp_query_helper.get_order_status(order_id)
+                    if order_data:
+                        erp_context_parts.append(
+                            await erp_query_helper.format_for_ai_context("order", order_data)
+                        )
+                    break
+            
+            # 2. 检测物流跟踪意图
+            if any(kw in message_lower for kw in ["物流", "到哪了", "运输状态", "在哪", "跟踪"]):
+                # 尝试从消息中提取订单号
+                for pattern in order_patterns:
+                    match = re.search(pattern, message)
+                    if match:
+                        order_id = match.group(1)
+                        tracking_data = await erp_query_helper.get_shipment_tracking(order_id)
+                        if tracking_data:
+                            erp_context_parts.append(
+                                await erp_query_helper.format_for_ai_context("tracking", tracking_data)
+                            )
+                        break
+            
+            # 3. 检测报价查询意图
+            if any(kw in message_lower for kw in ["报价", "价格", "多少钱", "运费", "费用"]):
+                # 尝试提取路线信息
+                from_loc = None
+                to_loc = None
+                transport = None
+                
+                # 检测目的地
+                destinations = {
+                    "美国": "USA", "英国": "UK", "德国": "Germany", 
+                    "法国": "France", "日本": "Japan", "韩国": "Korea",
+                    "澳洲": "Australia", "东南亚": "SEA", "欧洲": "Europe"
+                }
+                for dest_cn, dest_en in destinations.items():
+                    if dest_cn in message:
+                        to_loc = dest_cn
+                        break
+                
+                # 检测运输方式
+                if any(kw in message_lower for kw in ["海运", "船运", "海上"]):
+                    transport = "sea"
+                elif any(kw in message_lower for kw in ["空运", "航空", "飞机"]):
+                    transport = "air"
+                elif any(kw in message_lower for kw in ["铁路", "中欧班列", "陆运"]):
+                    transport = "rail"
+                
+                # 查询报价
+                pricing_data = await erp_query_helper.get_pricing_info(
+                    to_location=to_loc,
+                    transport_type=transport
+                )
+                if pricing_data:
+                    erp_context_parts.append(
+                        await erp_query_helper.format_for_ai_context("pricing", pricing_data)
+                    )
+            
+            # 4. 如果有客户ID，获取客户档案作为背景
+            if customer_id and len(customer_id) > 10:  # 看起来像有效的ID
+                customer_data = await erp_query_helper.get_customer_profile(customer_id)
+                if customer_data:
+                    erp_context_parts.append(
+                        await erp_query_helper.format_for_ai_context("customer", customer_data)
+                    )
+            
+            if erp_context_parts:
+                return "\n\n## ERP业务系统数据（来自真实系统，可用于回答客户问题）\n" + "\n\n".join(erp_context_parts)
+            
+        except Exception as e:
+            logger.warning(f"获取ERP上下文失败: {e}")
+        
+        return ""
     
     async def _get_work_stats(self) -> Dict[str, Any]:
         """从数据库获取真实的工作统计数据"""
@@ -224,10 +325,14 @@ class SalesAgent(BaseAgent):
 """
         else:
             # 外部客户模式 - 专业的销售客服语气
+            # 获取ERP业务数据上下文
+            erp_context = await self._get_erp_context(message, customer_id)
+            
             chat_prompt = f"""你正在与一位潜在客户对话。
 
 ## 你所在公司的信息
 {company_context if company_context else "暂未配置公司信息"}
+{erp_context}
 
 ## 客户信息
 {customer_info}
@@ -238,7 +343,11 @@ class SalesAgent(BaseAgent):
 ## 客户最新消息
 {message}
 
-请根据公司信息和上下文，给出专业、友好的回复。如果客户询问价格、航线、时效等，请根据公司配置的信息回答。如果公司没有配置相关信息，可以引导客户留下联系方式，由专业业务员跟进。
+请根据公司信息和上下文，给出专业、友好的回复。
+- 如果有ERP业务系统数据，优先使用这些真实数据回答客户问题
+- 如果客户询问订单状态、物流跟踪、报价等，参考ERP数据给出准确回复
+- 如果没有相关ERP数据，可以引导客户提供更多信息（如订单号）或留下联系方式
+- 回复要专业但亲切，展现服务态度
 """
         
         # 生成回复

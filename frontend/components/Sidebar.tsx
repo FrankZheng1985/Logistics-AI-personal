@@ -17,7 +17,8 @@ import {
   Activity,
   FolderOpen,
   Mail,
-  MessageCircle
+  MessageCircle,
+  Database
 } from 'lucide-react'
 
 const menuItems = [
@@ -36,6 +37,7 @@ const managementItems = [
   { href: '/assets', label: '素材库', icon: FolderOpen },
   { href: '/marketing', label: '营销序列', icon: Mail },
   { href: '/wechat-groups', label: '微信群监控', icon: MessageCircle },
+  { href: '/settings/erp', label: 'ERP对接', icon: Database },
 ]
 
 export default function Sidebar() {
