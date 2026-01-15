@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ClipboardCheck, Bot, Zap, Award, ChevronDown, ChevronUp, Edit2, X, Loader2, Save } from 'lucide-react'
 
@@ -191,11 +191,42 @@ export default function StandardsPage() {
     setExpandedAgent(prev => prev === agentType ? null : agentType)
   }
 
-  const renderValue = (value: any): string => {
+  // 渲染值（支持嵌套对象）
+  const renderValue = (value: any, depth: number = 0): React.ReactNode => {
+    if (value === null || value === undefined) {
+      return '-'
+    }
     if (Array.isArray(value)) {
       return value.join('、')
     }
-    if (typeof value === 'object' && value !== null) {
+    if (typeof value === 'object') {
+      // 检查是否是深度嵌套的对象
+      const hasNestedObjects = Object.values(value).some(v => typeof v === 'object' && v !== null)
+      
+      if (hasNestedObjects && depth === 0) {
+        // 嵌套对象，显示为可展开的列表
+        return (
+          <div className="space-y-2 mt-2">
+            {Object.entries(value).map(([k, v]) => (
+              <div key={k} className="pl-3 border-l-2 border-cyber-blue/30">
+                <span className="text-cyber-blue font-medium">{k}:</span>
+                {typeof v === 'object' && v !== null ? (
+                  <div className="pl-2 text-gray-300 text-xs">
+                    {Object.entries(v as Record<string, any>).map(([k2, v2]) => (
+                      <span key={k2} className="mr-3">
+                        {k2}: <span className="text-white">{String(v2)}</span>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-white ml-2">{String(v)}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )
+      }
+      // 简单对象，一行显示
       return Object.entries(value).map(([k, v]) => `${k}: ${v}`).join(', ')
     }
     return String(value)
@@ -307,7 +338,7 @@ export default function StandardsPage() {
                                     <p className="text-gray-500 text-xs mb-1">
                                       {key.replace(/_/g, ' ')}
                                     </p>
-                                    <p className="text-white text-sm">{renderValue(value)}</p>
+                                    <div className="text-white text-sm">{renderValue(value)}</div>
                                   </div>
                                 ))}
                               </div>
@@ -325,7 +356,7 @@ export default function StandardsPage() {
                                     <p className="text-gray-500 text-xs mb-1">
                                       {key.replace(/_/g, ' ')}
                                     </p>
-                                    <p className="text-white text-sm">{renderValue(value)}</p>
+                                    <div className="text-white text-sm">{renderValue(value)}</div>
                                   </div>
                                 ))}
                               </div>
