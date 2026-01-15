@@ -489,13 +489,13 @@ class SocialMediaCollector:
         """保存采集结果到数据库"""
         saved = 0
         
-        async with AsyncSessionLocal() as db:
-            for item in results:
-                try:
+        for item in results:
+            try:
+                async with AsyncSessionLocal() as db:
                     # 检查是否已存在
                     check = await db.execute(
-                        text("SELECT id FROM assets WHERE file_url = :url OR name = :name"),
-                        {"url": item.get("file_url"), "name": item.get("name")}
+                        text("SELECT id FROM assets WHERE file_url = :url"),
+                        {"url": item.get("file_url")}
                     )
                     if check.fetchone():
                         continue
@@ -507,20 +507,19 @@ class SocialMediaCollector:
                             VALUES (:name, :type, :category, :file_url, :thumbnail_url, :description)
                         """),
                         {
-                            "name": item.get("name"),
+                            "name": item.get("name", "未命名")[:100],
                             "type": item.get("type", "image"),
-                            "category": item.get("platform"),
+                            "category": item.get("platform", "unknown"),
                             "file_url": item.get("file_url"),
                             "thumbnail_url": item.get("thumbnail_url"),
-                            "description": item.get("description", "")[:500]
+                            "description": (item.get("description", "") or "")[:500]
                         }
                     )
+                    await db.commit()
                     saved += 1
                     
-                except Exception as e:
-                    logger.debug(f"保存素材失败: {e}")
-            
-            await db.commit()
+            except Exception as e:
+                logger.debug(f"保存素材失败: {e}")
         
         return saved
     

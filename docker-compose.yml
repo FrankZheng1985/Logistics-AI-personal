@@ -63,6 +63,7 @@ services:
       - COS_SECRET_KEY=${COS_SECRET_KEY}
       - COS_BUCKET=${COS_BUCKET}
       - COS_REGION=${COS_REGION}
+      - SERPER_API_KEY=${SERPER_API_KEY}
     ports:
       - "8000:8000"
     depends_on:
