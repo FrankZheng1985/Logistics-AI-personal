@@ -17,6 +17,7 @@ class LeadSource(str, enum.Enum):
     WEIBO = "weibo"           # 微博
     ZHIHU = "zhihu"           # 知乎
     TIEBA = "tieba"           # 贴吧
+    WECHAT = "wechat"         # 微信
     GOOGLE = "google"         # Google搜索
     YOUTUBE = "youtube"       # YouTube
     FACEBOOK = "facebook"     # Facebook
