@@ -6,7 +6,8 @@ from app.api import (
     wechat, company, leads, follow,
     reports, knowledge, webchat,
     standards, monitoring, marketing,
-    assets, settings, notifications, wechat_groups
+    assets, settings, notifications, wechat_groups,
+    social_auth
 )
 
 router = APIRouter()
@@ -31,3 +32,4 @@ router.include_router(assets.router, tags=["素材库"])
 router.include_router(settings.router, tags=["系统设置"])
 router.include_router(notifications.router, tags=["通知中心"])
 router.include_router(wechat_groups.router, tags=["微信群监控"])
+router.include_router(social_auth.router, tags=["社交媒体登录"])

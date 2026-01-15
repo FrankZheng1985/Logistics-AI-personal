@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FolderOpen, Upload, Video, Music, Image, Grid, List, Play, Download, X, Loader2, Trash2 } from 'lucide-react'
+import { FolderOpen, Upload, Video, Music, Image, Grid, List, Play, Download, X, Loader2, Trash2, Sparkles, LogIn, LogOut, Check, AlertCircle, ExternalLink } from 'lucide-react'
 
 interface Asset {
   id: string
@@ -17,12 +17,32 @@ interface Asset {
   created_at?: string
 }
 
+interface SocialPlatform {
+  platform: string
+  name: string
+  is_logged_in: boolean
+  username?: string
+  avatar_url?: string
+  expires_at?: string
+  total_collected: number
+  today_collected: number
+  error_message?: string
+}
+
 const categories = [
   { id: 'all', name: '全部', icon: FolderOpen },
   { id: 'video', name: '视频素材', icon: Video },
   { id: 'audio', name: '背景音乐', icon: Music },
   { id: 'image', name: '图片素材', icon: Image }
 ]
+
+const PLATFORM_ICONS: Record<string, string> = {
+  xiaohongshu: '📕',
+  douyin: '🎵',
+  bilibili: '📺',
+  pexels: '📷',
+  pixabay: '🖼️'
+}
 
 const formatFileSize = (bytes: number) => {
   if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + ' GB'
@@ -236,6 +256,137 @@ function PlayModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
   )
 }
 
+// 社交平台登录管理面板
+function SocialPlatformPanel({ 
+  platforms, 
+  onCollect, 
+  collecting 
+}: { 
+  platforms: SocialPlatform[]
+  onCollect: (platforms: string[]) => void
+  collecting: boolean
+}) {
+  const [showLoginModal, setShowLoginModal] = useState<string | null>(null)
+
+  const handleLogout = async (platform: string) => {
+    if (!confirm(`确定要退出 ${platform} 登录吗？`)) return
+    try {
+      await fetch(`/api/social-auth/logout/${platform}`, { method: 'POST' })
+      window.location.reload()
+    } catch (error) {
+      console.error('退出失败:', error)
+    }
+  }
+
+  return (
+    <div className="bg-dark-purple/40 rounded-xl p-6 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-cyber-purple" />
+          AI素材采集
+        </h2>
+        <button
+          onClick={() => onCollect(['pexels', 'pixabay', 'bilibili'])}
+          disabled={collecting}
+          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyber-purple to-pink-500 rounded-lg text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+        >
+          {collecting ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              采集中...
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-4 h-4" />
+              一键采集
+            </>
+          )}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        {/* Pexels - 已启用 */}
+        <div className="bg-deep-space/50 rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-2xl">{PLATFORM_ICONS.pexels}</span>
+            <span className="text-white font-medium">Pexels</span>
+          </div>
+          <div className="flex items-center gap-1 text-green-400 text-sm mb-2">
+            <Check className="w-4 h-4" />
+            已启用
+          </div>
+          <p className="text-gray-500 text-xs">免版权视频素材</p>
+        </div>
+
+        {/* Pixabay - 已启用 */}
+        <div className="bg-deep-space/50 rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-2xl">{PLATFORM_ICONS.pixabay}</span>
+            <span className="text-white font-medium">Pixabay</span>
+          </div>
+          <div className="flex items-center gap-1 text-green-400 text-sm mb-2">
+            <Check className="w-4 h-4" />
+            已启用
+          </div>
+          <p className="text-gray-500 text-xs">免版权视频素材</p>
+        </div>
+
+        {/* 社交媒体平台 */}
+        {platforms.map(p => (
+          <div key={p.platform} className="bg-deep-space/50 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-2xl">{PLATFORM_ICONS[p.platform] || '📱'}</span>
+              <span className="text-white font-medium">{p.name}</span>
+            </div>
+            
+            {p.is_logged_in ? (
+              <>
+                <div className="flex items-center gap-1 text-green-400 text-sm mb-2">
+                  <Check className="w-4 h-4" />
+                  <span className="truncate">{p.username || '已登录'}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-500 text-xs">采集 {p.total_collected} 个</span>
+                  <button
+                    onClick={() => handleLogout(p.platform)}
+                    className="text-gray-500 hover:text-red-400 text-xs"
+                  >
+                    退出
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-1 text-yellow-500 text-sm mb-2">
+                  <AlertCircle className="w-4 h-4" />
+                  未登录
+                </div>
+                <a
+                  href={
+                    p.platform === 'xiaohongshu' ? 'https://www.xiaohongshu.com' :
+                    p.platform === 'douyin' ? 'https://www.douyin.com' :
+                    p.platform === 'bilibili' ? 'https://www.bilibili.com' : '#'
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-cyber-blue hover:underline text-xs"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  前往登录
+                </a>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <p className="text-gray-500 text-xs mt-4">
+        💡 提示：Pexels 和 Pixabay 已自动启用。小红书、抖音需要登录后才能采集（功能开发中）。
+      </p>
+    </div>
+  )
+}
+
 export default function AssetsPage() {
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
@@ -243,6 +394,8 @@ export default function AssetsPage() {
   const [loading, setLoading] = useState(true)
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [playingAsset, setPlayingAsset] = useState<Asset | null>(null)
+  const [socialPlatforms, setSocialPlatforms] = useState<SocialPlatform[]>([])
+  const [collecting, setCollecting] = useState(false)
 
   const fetchAssets = async () => {
     try {
@@ -263,9 +416,60 @@ export default function AssetsPage() {
     }
   }
 
+  const fetchSocialPlatforms = async () => {
+    try {
+      const res = await fetch('/api/social-auth/platforms')
+      if (res.ok) {
+        const data = await res.json()
+        setSocialPlatforms(data.platforms || [])
+      }
+    } catch (error) {
+      console.error('获取平台状态失败:', error)
+    }
+  }
+
+  const handleAICollect = async (platforms: string[]) => {
+    setCollecting(true)
+    try {
+      // 先从Pexels和Pixabay采集
+      const res1 = await fetch('/api/assets/collect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keywords: ['logistics warehouse', 'container shipping', 'cargo transport'],
+          platforms: ['pexels', 'pixabay']
+        })
+      })
+      
+      // 再从B站采集（不需要登录）
+      const res2 = await fetch('/api/social-auth/collect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          platforms: ['bilibili'],
+          keywords: ['物流仓库', '跨境物流']
+        })
+      })
+
+      if (res1.ok || res2.ok) {
+        const data1 = res1.ok ? await res1.json() : { found: 0 }
+        const data2 = res2.ok ? await res2.json() : { total_found: 0 }
+        alert(`采集完成！共发现 ${(data1.found || 0) + (data2.total_found || 0)} 个素材`)
+        fetchAssets()
+        fetchSocialPlatforms()
+      }
+    } catch (error) {
+      console.error('采集失败:', error)
+      alert('采集失败，请重试')
+    } finally {
+      setCollecting(false)
+    }
+  }
+
   useEffect(() => {
     setLoading(true)
     fetchAssets()
+    fetchSocialPlatforms()
   }, [selectedCategory])
 
   const handleDownload = (asset: Asset) => {
@@ -331,6 +535,13 @@ export default function AssetsPage() {
           上传素材
         </button>
       </div>
+
+      {/* 社交平台管理面板 */}
+      <SocialPlatformPanel
+        platforms={socialPlatforms}
+        onCollect={handleAICollect}
+        collecting={collecting}
+      />
 
       {/* 分类和视图切换 */}
       <div className="flex items-center justify-between">

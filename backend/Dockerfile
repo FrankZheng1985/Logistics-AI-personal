@@ -34,6 +34,10 @@ RUN pip install --no-cache-dir -r requirements.txt \
     -i http://mirrors.tencentyun.com/pypi/simple \
     --trusted-host mirrors.tencentyun.com
 
+# 安装 Playwright 浏览器（用于社交媒体采集）
+# 注意：这会增加镜像大小约 400MB
+RUN playwright install chromium --with-deps || true
+
 # ============ 应用代码层（每次代码变化都会重建）============
 COPY . .
 
