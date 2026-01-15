@@ -195,10 +195,16 @@ async def receive_message(
             if msg_id:
                 mark_message_processed(msg_id)
             
-            logger.info(f"收到用户 {user_id} 的消息: {content} (MsgId={msg_id})")
+            # 判断用户类型
+            user_type = wechat_service.get_user_type(user_id)
+            logger.info(f"收到用户 {user_id} ({user_type}) 的消息: {content} (MsgId={msg_id})")
             
-            # 在后台异步处理消息，立即返回success
-            background_tasks.add_task(process_wechat_message, message)
+            # 只处理外部客户的消息，内部员工不自动回复
+            if user_type == "external":
+                # 在后台异步处理消息，立即返回success
+                background_tasks.add_task(process_wechat_message, message)
+            else:
+                logger.info(f"⏭️ 跳过内部员工消息: 用户={user_id}")
         
         # 立即返回success，避免企业微信重试
         return PlainTextResponse(content="success")

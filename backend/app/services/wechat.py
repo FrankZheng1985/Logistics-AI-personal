@@ -100,6 +100,35 @@ class WeChatService:
         self._access_token: Optional[str] = None
         self._crypto: Optional[WeChatCrypto] = None
     
+    @staticmethod
+    def is_external_user(user_id: str) -> bool:
+        """
+        判断是否为外部联系人（客户）
+        
+        企业微信用户ID规则：
+        - 内部员工：自定义的UserID，如 "Frank.Z"、"zhangsan"
+        - 外部联系人：以 "wm" 或 "wo" 开头，如 "wmxxxxxxxxxxxxxx"
+        """
+        if not user_id:
+            return False
+        user_id_lower = user_id.lower()
+        return user_id_lower.startswith("wm") or user_id_lower.startswith("wo")
+    
+    @staticmethod
+    def is_internal_user(user_id: str) -> bool:
+        """
+        判断是否为内部员工
+        """
+        return not WeChatService.is_external_user(user_id)
+    
+    @staticmethod
+    def get_user_type(user_id: str) -> str:
+        """
+        获取用户类型
+        返回: "external" (外部客户) 或 "internal" (内部员工)
+        """
+        return "external" if WeChatService.is_external_user(user_id) else "internal"
+    
     @property
     def crypto(self) -> WeChatCrypto:
         """获取加解密实例"""
