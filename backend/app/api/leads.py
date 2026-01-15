@@ -337,7 +337,9 @@ async def convert_lead_to_customer(
         intent_level=intent_level_map.get(lead.intent_level, IntentLevel.C),
         intent_score=lead.intent_score,
         tags=lead.tags or [],
-        cargo_types=lead.needs or []
+        cargo_types=lead.needs or [],
+        last_contact_at=datetime.utcnow(),  # 标记为首次联系时间
+        follow_count=0  # 初始跟进次数
     )
     
     db.add(customer)

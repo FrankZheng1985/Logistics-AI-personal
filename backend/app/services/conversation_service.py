@@ -364,7 +364,9 @@ class ConversationService:
                         FROM customers
                         WHERE is_active = true
                         AND (
+                            -- 情况1: 有明确的下次跟进时间且已到期
                             next_follow_at <= NOW()
+                            -- 情况2: 有联系记录但超过跟进周期
                             OR (
                                 next_follow_at IS NULL 
                                 AND last_contact_at IS NOT NULL
@@ -375,15 +377,24 @@ class ConversationService:
                                     OR (intent_level = 'C' AND last_contact_at < NOW() - INTERVAL '15 days')
                                 )
                             )
+                            -- 情况3: 从未联系过的新客户（最高优先级）
+                            OR (
+                                last_contact_at IS NULL
+                                AND next_follow_at IS NULL
+                            )
                         )
                         ORDER BY 
+                            -- 从未联系的客户优先
+                            CASE WHEN last_contact_at IS NULL THEN 0 ELSE 1 END,
+                            -- 然后按意向等级排序
                             CASE intent_level 
                                 WHEN 'S' THEN 1 
                                 WHEN 'A' THEN 2 
                                 WHEN 'B' THEN 3 
                                 ELSE 4 
                             END,
-                            last_contact_at ASC
+                            -- 最后按联系时间排序（越久越优先）
+                            last_contact_at ASC NULLS FIRST
                         LIMIT :limit
                     """),
                     {"limit": limit}
