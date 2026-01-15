@@ -308,14 +308,20 @@ async def convert_lead_to_customer(
         LeadIntentLevel.UNKNOWN: IntentLevel.C,
     }
     
-    # 映射来源
+    # 映射来源 - 线索来源 -> 客户来源
+    # CustomerSource 只有: WECHAT, WEBSITE, REFERRAL, AD, OTHER
     source_map = {
-        LeadSource.GOOGLE: CustomerSource.WECHAT,
-        LeadSource.WEIBO: CustomerSource.WECHAT,
-        LeadSource.ZHIHU: CustomerSource.WECHAT,
-        LeadSource.TIEBA: CustomerSource.WECHAT,
+        LeadSource.GOOGLE: CustomerSource.WEBSITE,
+        LeadSource.WEIBO: CustomerSource.OTHER,
+        LeadSource.ZHIHU: CustomerSource.OTHER,
+        LeadSource.TIEBA: CustomerSource.OTHER,
         LeadSource.WECHAT: CustomerSource.WECHAT,
-        LeadSource.MANUAL: CustomerSource.MANUAL,
+        LeadSource.YOUTUBE: CustomerSource.OTHER,
+        LeadSource.FACEBOOK: CustomerSource.AD,
+        LeadSource.LINKEDIN: CustomerSource.OTHER,
+        LeadSource.B2B_ALIBABA: CustomerSource.OTHER,
+        LeadSource.B2B_1688: CustomerSource.OTHER,
+        LeadSource.MANUAL: CustomerSource.OTHER,
         LeadSource.OTHER: CustomerSource.OTHER,
     }
     
@@ -327,10 +333,11 @@ async def convert_lead_to_customer(
         email=lead.email,
         wechat_id=lead.wechat,
         source=source_map.get(lead.source, CustomerSource.OTHER),
+        source_detail=f"来自线索: {lead.id}, 需求: {lead.needs}",
         intent_level=intent_level_map.get(lead.intent_level, IntentLevel.C),
         intent_score=lead.intent_score,
         tags=lead.tags or [],
-        profile={"from_lead": str(lead.id), "needs": lead.needs}
+        cargo_types=lead.needs or []
     )
     
     db.add(customer)
