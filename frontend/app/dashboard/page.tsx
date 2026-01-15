@@ -900,10 +900,17 @@ export default function Dashboard() {
   // 通知和设置状态
   const [showNotifications, setShowNotifications] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [notifications, setNotifications] = useState<Array<{ id: string; title: string; content: string; time: string; read: boolean }>>([
-    { id: '1', title: '系统已就绪', content: 'AI员工团队已上线，等待客户对话', time: '刚刚', read: false },
-    { id: '2', title: '视频生成完成', content: '物流服务宣传视频已生成成功', time: '5分钟前', read: true },
-  ])
+  const [notifications, setNotifications] = useState<Array<{ id: string; title: string; content: string; time: string; read: boolean }>>([])
+  const [mounted, setMounted] = useState(false)
+  
+  // 客户端挂载后初始化通知（避免水合错误）
+  useEffect(() => {
+    setMounted(true)
+    setNotifications([
+      { id: '1', title: '系统已就绪', content: 'AI员工团队已上线，等待客户对话', time: '刚刚', read: false },
+      { id: '2', title: '视频生成完成', content: '物流服务宣传视频已生成成功', time: '5分钟前', read: true },
+    ])
+  }, [])
   
   const unreadCount = notifications.filter(n => !n.read).length
   

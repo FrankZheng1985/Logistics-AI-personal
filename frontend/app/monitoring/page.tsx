@@ -29,13 +29,14 @@ interface SystemHealth {
   }
 }
 
-const mockHealth: SystemHealth = {
+// 初始化时使用固定时间戳，避免水合错误
+const getInitialHealth = (): SystemHealth => ({
   overall_status: 'healthy',
   apis: [
-    { name: '可灵AI视频', status: 'available', response_time_ms: 245, last_check: new Date().toISOString() },
-    { name: '通义千问', status: 'available', response_time_ms: 156, last_check: new Date().toISOString() },
-    { name: 'Serper搜索', status: 'degraded', response_time_ms: 1250, last_check: new Date().toISOString(), error: '响应较慢' },
-    { name: 'SMTP邮件', status: 'available', response_time_ms: 89, last_check: new Date().toISOString() }
+    { name: '可灵AI视频', status: 'available', response_time_ms: 245, last_check: '' },
+    { name: '通义千问', status: 'available', response_time_ms: 156, last_check: '' },
+    { name: 'Serper搜索', status: 'degraded', response_time_ms: 1250, last_check: '', error: '响应较慢' },
+    { name: 'SMTP邮件', status: 'available', response_time_ms: 89, last_check: '' }
   ],
   certificates: [
     { domain: 'api.klingai.com', status: 'valid', days_until_expiry: 245, issuer: 'DigiCert', valid_until: '2026-09-15' },
@@ -45,7 +46,7 @@ const mockHealth: SystemHealth = {
     status: 'healthy',
     response_time_ms: 12
   }
-}
+})
 
 const statusColors = {
   available: 'text-green-400',
@@ -84,16 +85,40 @@ const StatusIcon = ({ status }: { status: string }) => {
 }
 
 export default function MonitoringPage() {
-  const [health, setHealth] = useState<SystemHealth>(mockHealth)
+  const [health, setHealth] = useState<SystemHealth>(getInitialHealth)
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [lastRefresh, setLastRefresh] = useState(new Date())
+  const [lastRefresh, setLastRefresh] = useState<string>('')
+  const [mounted, setMounted] = useState(false)
+
+  // 客户端挂载后更新时间
+  useEffect(() => {
+    setMounted(true)
+    setLastRefresh(new Date().toLocaleTimeString())
+    // 更新 API 的 last_check 时间
+    setHealth(prev => ({
+      ...prev,
+      apis: prev.apis.map(api => ({
+        ...api,
+        last_check: new Date().toISOString()
+      }))
+    }))
+  }, [])
 
   const refresh = async () => {
     setIsRefreshing(true)
     // 模拟刷新
     await new Promise(resolve => setTimeout(resolve, 1500))
-    setLastRefresh(new Date())
+    setLastRefresh(new Date().toLocaleTimeString())
     setIsRefreshing(false)
+  }
+
+  // 避免水合错误，在客户端挂载前不渲染动态内容
+  if (!mounted) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <RefreshCw className="w-8 h-8 animate-spin text-cyber-blue" />
+      </div>
+    )
   }
 
   const getOverallStatusText = (status: string) => {
@@ -118,7 +143,7 @@ export default function MonitoringPage() {
         </div>
         <div className="flex items-center gap-4">
           <span className="text-gray-500 text-sm">
-            上次刷新: {lastRefresh.toLocaleTimeString()}
+            上次刷新: {lastRefresh}
           </span>
           <button
             onClick={refresh}
