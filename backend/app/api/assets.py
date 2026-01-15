@@ -5,9 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
 from typing import Optional, List
+from pydantic import BaseModel
 from uuid import UUID
 from datetime import datetime
-from pydantic import BaseModel
 import os
 import aiofiles
 from loguru import logger
@@ -274,3 +274,86 @@ async def record_asset_usage(asset_id: str):
     except Exception as e:
         logger.error(f"更新使用次数失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 素材采集功能 ====================
+
+class CollectionRequest(BaseModel):
+    platforms: Optional[List[str]] = None  # ["pexels", "pixabay"]
+    keywords: Optional[List[str]] = None   # ["物流仓库", "港口"]
+
+
+@router.post("/collect")
+async def trigger_collection(request: CollectionRequest = None):
+    """触发素材采集任务（小采执行）"""
+    try:
+        from app.agents.asset_collector import asset_collector
+        
+        platforms = request.platforms if request else None
+        keywords = request.keywords if request else None
+        
+        # 执行采集
+        assets = await asset_collector.run_collection_task(
+            platforms=platforms,
+            keywords=keywords
+        )
+        
+        return {
+            "message": "采集任务完成",
+            "found": len(assets),
+            "platforms": platforms or ["pexels", "pixabay"],
+            "keywords": keywords or asset_collector.SEARCH_KEYWORDS[:3]
+        }
+    except Exception as e:
+        logger.error(f"素材采集失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/collection/status")
+async def get_collection_status():
+    """获取采集状态和统计"""
+    try:
+        async with AsyncSessionLocal() as db:
+            # 统计各来源的素材数量
+            result = await db.execute(
+                text("""
+                    SELECT 
+                        category as source,
+                        COUNT(*) as count,
+                        MAX(created_at) as last_collected
+                    FROM assets 
+                    WHERE category IN ('pexels', 'pixabay', 'xiaohongshu', 'douyin')
+                    GROUP BY category
+                """)
+            )
+            sources = [
+                {
+                    "source": row[0],
+                    "count": row[1],
+                    "last_collected": row[2].isoformat() if row[2] else None
+                }
+                for row in result.fetchall()
+            ]
+            
+            # 今日采集数
+            result = await db.execute(
+                text("""
+                    SELECT COUNT(*) FROM assets 
+                    WHERE DATE(created_at) = CURRENT_DATE 
+                    AND category IN ('pexels', 'pixabay', 'xiaohongshu', 'douyin')
+                """)
+            )
+            today_count = result.scalar() or 0
+            
+            return {
+                "sources": sources,
+                "today_collected": today_count,
+                "supported_platforms": ["pexels", "pixabay", "xiaohongshu", "douyin"]
+            }
+    except Exception as e:
+        logger.error(f"获取采集状态失败: {e}")
+        return {
+            "sources": [],
+            "today_collected": 0,
+            "supported_platforms": ["pexels", "pixabay"]
+        }

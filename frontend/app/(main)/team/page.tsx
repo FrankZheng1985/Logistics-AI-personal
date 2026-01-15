@@ -404,6 +404,16 @@ const DEFAULT_AGENTS: Agent[] = [
     successRate: 100,
     currentTask: null
   },
+  { 
+    name: '小采', 
+    role: '素材采集员', 
+    status: 'online',
+    description: '负责从小红书、抖音、Pexels等平台自动采集物流相关视频、图片和音频素材。',
+    tasksToday: 0,
+    totalTasks: 0,
+    successRate: 100,
+    currentTask: null
+  },
 ]
 
 export default function TeamPage() {

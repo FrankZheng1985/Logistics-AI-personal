@@ -58,6 +58,9 @@ async def init_scheduler():
         knowledge_base_update
     )
     
+    # 素材采集任务
+    from app.scheduler.asset_tasks import asset_collection_task
+    
     # ==================== 小跟任务 ====================
     
     # 每日跟进检查 - 每天早上9点（第一批）
@@ -201,6 +204,27 @@ async def init_scheduler():
         replace_existing=True
     )
     logger.info("📅 注册任务: [小析2] 知识库更新 - 23:00")
+    
+    # ==================== 小采任务 ====================
+    
+    # 素材采集 - 每日上午7点和下午16点
+    scheduler.add_job(
+        asset_collection_task,
+        CronTrigger(hour=7, minute=0),
+        id="asset_collection_morning",
+        name="[小采] 素材采集(上午)",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小采] 素材采集(上午) - 07:00")
+    
+    scheduler.add_job(
+        asset_collection_task,
+        CronTrigger(hour=16, minute=0),
+        id="asset_collection_afternoon",
+        name="[小采] 素材采集(下午)",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小采] 素材采集(下午) - 16:00")
     
     # ==================== 启动调度器 ====================
     

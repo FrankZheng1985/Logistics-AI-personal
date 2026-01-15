@@ -84,6 +84,13 @@ const AGENT_INFO: Record<string, {
     description: '负责生成物流广告视频、产品展示视频等视觉内容。',
     color: 'from-amber-500 to-orange-500',
     tasks: ['视频生成', '脚本配合', '画面优化', '视频发布']
+  },
+  asset_collector: {
+    name: '小采',
+    role: '素材采集员',
+    description: '负责从小红书、抖音、Pexels等社交媒体和素材网站自动采集物流相关视频、图片和音频素材。',
+    color: 'from-emerald-500 to-teal-500',
+    tasks: ['素材搜索', '视频采集', '图片采集', '素材入库']
   }
 }
 
