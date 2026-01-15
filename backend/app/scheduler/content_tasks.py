@@ -15,106 +15,135 @@ from app.core.config import settings
 
 async def lead_hunt_task():
     """
-    线索搜索任务
-    每2小时执行，小猎自动搜索互联网潜在客户
+    线索搜索任务 - 24小时智能版
+    每小时执行，小猎自动搜索互联网潜在客户
+    使用智能关键词轮换和效果追踪
     """
-    logger.info("🎯 开始执行: 线索搜索任务")
+    logger.info("🎯 [小猎] 开始执行: 24小时智能线索搜索")
     
     try:
         from app.agents.lead_hunter import lead_hunter_agent
         
-        # 欧洲物流相关搜索关键词
-        search_queries = [
-            "找欧洲货代 site:weibo.com OR site:zhihu.com",
-            "欧洲清关 报价",
-            "德国派送 物流公司",
-            "法国到门 价格",
-            "欧洲FBA物流 推荐"
-        ]
+        # 使用智能狩猎模式
+        result = await lead_hunter_agent.process({
+            "action": "smart_hunt",
+            "max_keywords": 5,      # 每次最多使用5个关键词
+            "max_results": 30       # 每次最多分析30条结果
+        })
         
-        total_leads = 0
-        high_intent_leads = 0
+        total_leads = result.get("total_leads", 0)
+        high_intent_leads = result.get("high_intent_leads", 0)
+        new_urls = result.get("new_urls", 0)
+        keywords_used = result.get("keywords_used", [])
         
-        for query in search_queries:
-            try:
-                # 使用Serper API搜索
-                results = await lead_hunter_agent.search_with_serper(query)
-                
-                for result in results:
-                    # 分析是否是有效线索
-                    analysis = await lead_hunter_agent._analyze_content({
-                        "content": f"{result.get('title', '')} {result.get('content', '')}",
-                        "source": "serper",
-                        "url": result.get("url", "")
-                    })
-                    
-                    if analysis.get("is_lead"):
-                        total_leads += 1
-                        
-                        # 保存线索到数据库
-                        async with async_session_maker() as db:
-                            await db.execute(
-                                text("""
-                                    INSERT INTO leads 
-                                    (source, source_url, content, quality_score, 
-                                     intent_level, status, source_channel, created_at)
-                                    VALUES ('serper', :url, :content, :score, 
-                                            :level, 'new', 'lead_hunter', NOW())
-                                    ON CONFLICT (source_url) DO NOTHING
-                                """),
-                                {
-                                    "url": result.get("url", ""),
-                                    "content": json.dumps({
-                                        "title": result.get("title", ""),
-                                        "snippet": result.get("content", ""),
-                                        "analysis": analysis
-                                    }, ensure_ascii=False),
-                                    "score": analysis.get("confidence", 50),
-                                    "level": {
-                                        "high": "A",
-                                        "medium": "B",
-                                        "low": "C"
-                                    }.get(analysis.get("intent_level", "low"), "C")
-                                }
-                            )
-                            await db.commit()
-                        
-                        if analysis.get("intent_level") == "high":
-                            high_intent_leads += 1
-                            
-            except Exception as e:
-                logger.warning(f"搜索失败 [{query}]: {e}")
+        logger.info(f"🎯 [小猎] 搜索完成: 关键词 {len(keywords_used)} 个, "
+                    f"新URL {new_urls} 条, 线索 {total_leads} 条, 高意向 {high_intent_leads} 条")
         
-        # 更新小猎的任务统计
-        async with async_session_maker() as db:
-            await db.execute(
-                text("""
-                    UPDATE ai_agents
-                    SET tasks_completed_today = tasks_completed_today + 1,
-                        tasks_completed_total = tasks_completed_total + 1,
-                        last_active_at = NOW(),
-                        updated_at = NOW()
-                    WHERE agent_type = 'lead_hunter'
-                """)
-            )
-            await db.commit()
-        
-        logger.info(f"🎯 线索搜索完成: 发现 {total_leads} 条线索，高意向 {high_intent_leads} 条")
-        
-        # 发现高意向线索通知
+        # 发现高意向线索时通知
         if high_intent_leads > 0:
             await notification_service.send_to_boss(
                 title="🎯 发现高意向线索",
-                content=f"小猎刚刚发现 {high_intent_leads} 条高意向线索，请及时跟进！"
+                content=f"小猎刚刚发现 {high_intent_leads} 条高意向线索！\n"
+                        f"本次搜索关键词: {', '.join(keywords_used[:3])}...\n"
+                        f"请及时跟进！"
+            )
+        
+        # 每天早上8点和晚上20点发送汇总
+        current_hour = datetime.now().hour
+        if current_hour in [8, 20]:
+            stats = await lead_hunter_agent.process({"action": "get_stats"})
+            today_stats = stats.get("today", {})
+            
+            if today_stats.get("leads", 0) > 0:
+                await notification_service.send_to_boss(
+                    title="📊 小猎搜索日报",
+                    content=f"今日搜索统计:\n"
+                            f"• 搜索次数: {today_stats.get('searches', 0)}\n"
+                            f"• 新URL: {today_stats.get('unique_urls', 0)}\n"
+                            f"• 发现线索: {today_stats.get('leads', 0)}\n"
+                            f"• 高意向: {today_stats.get('high_intent', 0)}"
+                )
+        
+        return {
+            "total_leads": total_leads,
+            "high_intent_leads": high_intent_leads,
+            "new_urls": new_urls,
+            "keywords_count": len(keywords_used)
+        }
+        
+    except Exception as e:
+        logger.error(f"[小猎] 线索搜索任务失败: {e}")
+        return {"error": str(e)}
+
+
+async def lead_hunt_intensive_task():
+    """
+    加强线索搜索任务
+    在高峰时段（9-11点、14-17点、19-21点）执行更密集的搜索
+    """
+    logger.info("🔥 [小猎] 开始执行: 加强线索搜索")
+    
+    try:
+        from app.agents.lead_hunter import lead_hunter_agent
+        
+        # 加强模式：使用更多关键词和分析更多结果
+        result = await lead_hunter_agent.process({
+            "action": "smart_hunt",
+            "max_keywords": 8,      # 使用更多关键词
+            "max_results": 50       # 分析更多结果
+        })
+        
+        total_leads = result.get("total_leads", 0)
+        high_intent_leads = result.get("high_intent_leads", 0)
+        
+        logger.info(f"🔥 [小猎] 加强搜索完成: 线索 {total_leads} 条, 高意向 {high_intent_leads} 条")
+        
+        # 高意向线索立即通知
+        if high_intent_leads >= 2:
+            await notification_service.send_to_boss(
+                title="🔥 发现多条高意向线索！",
+                content=f"小猎在加强搜索中发现 {high_intent_leads} 条高意向线索，建议立即跟进！"
             )
         
         return {
             "total_leads": total_leads,
-            "high_intent_leads": high_intent_leads
+            "high_intent_leads": high_intent_leads,
+            "mode": "intensive"
         }
         
     except Exception as e:
-        logger.error(f"线索搜索任务失败: {e}")
+        logger.error(f"[小猎] 加强搜索任务失败: {e}")
+        return {"error": str(e)}
+
+
+async def lead_hunt_night_task():
+    """
+    夜间线索搜索任务
+    在凌晨时段（0-6点）执行轻量级搜索
+    """
+    logger.info("🌙 [小猎] 开始执行: 夜间轻量搜索")
+    
+    try:
+        from app.agents.lead_hunter import lead_hunter_agent
+        
+        # 夜间模式：减少搜索量，节省API调用
+        result = await lead_hunter_agent.process({
+            "action": "smart_hunt",
+            "max_keywords": 3,      # 减少关键词
+            "max_results": 15       # 减少分析量
+        })
+        
+        total_leads = result.get("total_leads", 0)
+        
+        logger.info(f"🌙 [小猎] 夜间搜索完成: 线索 {total_leads} 条")
+        
+        return {
+            "total_leads": total_leads,
+            "mode": "night"
+        }
+        
+    except Exception as e:
+        logger.error(f"[小猎] 夜间搜索任务失败: {e}")
         return {"error": str(e)}
 
 

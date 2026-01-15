@@ -115,17 +115,43 @@ async def init_scheduler():
     )
     logger.info("📅 注册任务: [系统] 重置每日统计 - 00:05")
     
-    # ==================== 小猎任务 ====================
+    # ==================== 小猎任务 (24小时智能搜索) ====================
     
-    # 线索搜索 - 每2小时（工作时间内）
+    # 导入加强搜索和夜间搜索任务
+    from app.scheduler.content_tasks import (
+        lead_hunt_intensive_task,
+        lead_hunt_night_task
+    )
+    
+    # 常规线索搜索 - 每小时执行（工作时间 7-23点）
     scheduler.add_job(
         lead_hunt_task,
-        CronTrigger(hour='8-22/2', minute=30),
-        id="lead_hunt",
-        name="[小猎] 线索搜索",
+        CronTrigger(hour='7-23', minute=15),
+        id="lead_hunt_regular",
+        name="[小猎] 常规线索搜索",
         replace_existing=True
     )
-    logger.info("📅 注册任务: [小猎] 线索搜索 - 每2小时(8:30-22:30)")
+    logger.info("📅 注册任务: [小猎] 常规线索搜索 - 每小时(7:15-23:15)")
+    
+    # 加强线索搜索 - 高峰时段（上午9-11点、下午14-17点、晚间19-21点）
+    scheduler.add_job(
+        lead_hunt_intensive_task,
+        CronTrigger(hour='9,10,14,15,16,19,20', minute=45),
+        id="lead_hunt_intensive",
+        name="[小猎] 加强线索搜索",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小猎] 加强线索搜索 - 高峰时段(9/10/14/15/16/19/20点)")
+    
+    # 夜间轻量搜索 - 凌晨时段（0-6点，每2小时）
+    scheduler.add_job(
+        lead_hunt_night_task,
+        CronTrigger(hour='0,2,4,6', minute=30),
+        id="lead_hunt_night",
+        name="[小猎] 夜间轻量搜索",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小猎] 夜间轻量搜索 - 凌晨(0/2/4/6点)")
     
     # ==================== 小析任务 ====================
     

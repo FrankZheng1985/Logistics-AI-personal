@@ -1074,12 +1074,32 @@ export default function Dashboard() {
     return `${Math.floor(diff / 86400)}天前`
   }
   
-  const handleMarkRead = (id: string) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
+  const handleMarkRead = async (id: string) => {
+    try {
+      // 调用后端API持久化已读状态
+      const res = await fetch(`/api/notifications/${id}/read`, { method: 'PUT' })
+      if (res.ok) {
+        setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
+      }
+    } catch (error) {
+      console.error('标记已读失败:', error)
+      // 即使API失败，也更新本地状态以保持UI响应
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
+    }
   }
   
-  const handleClearAll = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })))
+  const handleClearAll = async () => {
+    try {
+      // 调用后端API标记所有为已读
+      const res = await fetch('/api/notifications/read-all', { method: 'PUT' })
+      if (res.ok) {
+        setNotifications(prev => prev.map(n => ({ ...n, read: true })))
+      }
+    } catch (error) {
+      console.error('标记全部已读失败:', error)
+      // 即使API失败，也更新本地状态
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })))
+    }
   }
   
   return (

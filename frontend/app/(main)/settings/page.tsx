@@ -11,6 +11,10 @@ interface CompanyConfig {
   contact_wechat: string
   address: string
   advantages: string[]
+  products?: Array<{ name: string; description: string; features: string[] }>
+  service_routes?: Array<{ from_location: string; to_location: string; transport: string; time: string; price_ref: string }>
+  faq?: Array<{ question: string; answer: string }>
+  price_policy?: string
 }
 
 interface ApiConfig {
@@ -73,14 +77,29 @@ export default function SettingsPage() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const res = await fetch('/api/settings')
-        if (res.ok) {
-          const data = await res.json()
-          
-          // 合并公司配置
-          if (data.company && Object.keys(data.company).length > 0) {
-            setCompanyConfig(prev => ({ ...prev, ...data.company }))
-          }
+        // 从公司配置API获取公司信息（与Dashboard弹窗使用相同的API）
+        const companyRes = await fetch('/api/company/config')
+        if (companyRes.ok) {
+          const companyData = await companyRes.json()
+          setCompanyConfig({
+            company_name: companyData.company_name || '',
+            company_intro: companyData.company_intro || '',
+            contact_phone: companyData.contact_phone || '',
+            contact_email: companyData.contact_email || '',
+            contact_wechat: companyData.contact_wechat || '',
+            address: companyData.address || '',
+            advantages: companyData.advantages || ['专业服务', '时效保证', '价格透明'],
+            products: companyData.products || [],
+            service_routes: companyData.service_routes || [],
+            faq: companyData.faq || [],
+            price_policy: companyData.price_policy || ''
+          })
+        }
+        
+        // 获取通知和AI配置（从system_settings）
+        const settingsRes = await fetch('/api/settings')
+        if (settingsRes.ok) {
+          const data = await settingsRes.json()
           
           // 合并通知配置
           if (data.notification && Object.keys(data.notification).length > 0) {
@@ -109,9 +128,9 @@ export default function SettingsPage() {
   const handleSave = async () => {
     setIsSaving(true)
     try {
-      // 保存公司设置
+      // 保存公司设置 - 使用与Dashboard弹窗相同的API
       if (activeTab === 'company') {
-        const res = await fetch('/api/settings/company', {
+        const res = await fetch('/api/company/config', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(companyConfig)
