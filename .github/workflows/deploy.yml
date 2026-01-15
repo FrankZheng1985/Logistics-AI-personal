@@ -39,9 +39,17 @@ jobs:
             export DOCKER_BUILDKIT=1
             export COMPOSE_DOCKER_CLI_BUILD=1
             
-            # 拉取最新代码
+            # 配置 GitHub 镜像代理（解决国内服务器访问 GitHub 慢的问题）
+            echo "🌐 配置 GitHub 镜像代理..."
+            git config --global url.'https://gitclone.com/github.com/'.insteadOf 'https://github.com/' 2>/dev/null || true
+            
+            # 拉取最新代码（带重试）
             echo "📥 拉取最新代码..."
-            git pull origin main
+            for i in 1 2 3; do
+              git pull origin main && break
+              echo "⚠️ 第 $i 次拉取失败，重试中..."
+              sleep 5
+            done
             
             # 检查哪些文件有变化，智能决定是否需要重建
             BACKEND_CHANGED=$(git diff HEAD~1 --name-only | grep -E '^backend/' | wc -l || echo 0)
