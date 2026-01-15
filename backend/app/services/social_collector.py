@@ -76,9 +76,13 @@ class SocialMediaCollector:
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
-                    '--disable-gpu'
+                    '--disable-gpu',
+                    '--disable-software-rasterizer',
+                    '--disable-extensions',
+                    '--single-process'
                 ]
             )
+            logger.info("[小采] Playwright 浏览器已启动")
         return self.browser
     
     async def close_browser(self):
@@ -280,8 +284,9 @@ class SocialMediaCollector:
             page = await context.new_page()
             search_url = self.PLATFORMS["xiaohongshu"]["search_url"].format(keyword=keyword)
             
-            await page.goto(search_url, wait_until="networkidle", timeout=30000)
-            await asyncio.sleep(2)  # 等待动态加载
+            logger.info(f"[小采] 正在访问小红书: {search_url}")
+            await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+            await asyncio.sleep(5)  # 等待动态加载
             
             # 解析搜索结果
             notes = await page.query_selector_all('section.note-item')
