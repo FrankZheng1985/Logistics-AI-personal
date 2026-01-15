@@ -66,7 +66,7 @@ class Lead(Base):
     
     # 线索来源
     source: Mapped[LeadSource] = mapped_column(
-        Enum(LeadSource, name='lead_source', create_type=False),
+        Enum(LeadSource, name='lead_source', create_type=False, values_callable=lambda x: [e.value for e in x]),
         default=LeadSource.OTHER
     )
     source_url: Mapped[Optional[str]] = mapped_column(Text)
@@ -75,11 +75,11 @@ class Lead(Base):
     
     # 状态和意向
     status: Mapped[LeadStatus] = mapped_column(
-        Enum(LeadStatus, name='lead_status', create_type=False),
+        Enum(LeadStatus, name='lead_status', create_type=False, values_callable=lambda x: [e.value for e in x]),
         default=LeadStatus.NEW
     )
     intent_level: Mapped[LeadIntentLevel] = mapped_column(
-        Enum(LeadIntentLevel, name='lead_intent_level', create_type=False),
+        Enum(LeadIntentLevel, name='lead_intent_level', create_type=False, values_callable=lambda x: [e.value for e in x]),
         default=LeadIntentLevel.UNKNOWN
     )
     intent_score: Mapped[int] = mapped_column(Integer, default=0)

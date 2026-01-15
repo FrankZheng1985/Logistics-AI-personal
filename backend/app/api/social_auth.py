@@ -1,5 +1,6 @@
 """
 社交媒体平台登录管理API
+支持Cookie登录和扫码登录
 """
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -8,6 +9,7 @@ from loguru import logger
 
 from app.models.database import AsyncSessionLocal
 from app.services.social_collector import social_collector
+from app.services.qrcode_login import qrcode_login_service
 from sqlalchemy import text
 
 router = APIRouter(prefix="/social-auth", tags=["社交媒体登录"])
@@ -168,4 +170,85 @@ async def get_default_keywords():
     """获取默认搜索关键词"""
     return {
         "keywords": social_collector.SEARCH_KEYWORDS
+    }
+
+
+# ========== 扫码登录相关接口 ==========
+
+class QRLoginRequest(BaseModel):
+    platform: str  # douyin, bilibili, weixin_video
+
+
+@router.post("/qrcode/start")
+async def start_qr_login(request: QRLoginRequest):
+    """
+    开始扫码登录会话
+    返回session_id和二维码图片（base64）
+    """
+    try:
+        result = await qrcode_login_service.start_login(request.platform)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"启动扫码登录失败: {e}")
+        raise HTTPException(status_code=500, detail=f"启动登录失败: {str(e)}")
+
+
+@router.get("/qrcode/status/{session_id}")
+async def check_qr_login_status(session_id: str):
+    """检查扫码登录状态"""
+    try:
+        result = await qrcode_login_service.check_login_status(session_id)
+        return result
+    except Exception as e:
+        logger.error(f"检查登录状态失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/qrcode/refresh/{session_id}")
+async def refresh_qrcode(session_id: str):
+    """刷新二维码"""
+    try:
+        result = await qrcode_login_service.refresh_qrcode(session_id)
+        return result
+    except Exception as e:
+        logger.error(f"刷新二维码失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/qrcode/cancel/{session_id}")
+async def cancel_qr_login(session_id: str):
+    """取消扫码登录会话"""
+    try:
+        success = await qrcode_login_service.cancel_login(session_id)
+        return {"success": success}
+    except Exception as e:
+        logger.error(f"取消登录失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/qrcode/platforms")
+async def get_qr_supported_platforms():
+    """获取支持扫码登录的平台列表"""
+    return {
+        "platforms": [
+            {
+                "platform": "douyin",
+                "name": "抖音",
+                "description": "使用抖音App扫码登录"
+            },
+            {
+                "platform": "bilibili", 
+                "name": "B站",
+                "description": "使用哔哩哔哩App扫码登录"
+            },
+            {
+                "platform": "weixin_video",
+                "name": "微信视频号",
+                "description": "使用微信扫码登录"
+            }
+        ]
     }

@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FolderOpen, Upload, Video, Music, Image, Grid, List, Play, Download, X, Loader2, Trash2, Sparkles, LogIn, LogOut, Check, AlertCircle, ExternalLink } from 'lucide-react'
+import { FolderOpen, Upload, Video, Music, Image, Grid, List, Play, Download, X, Loader2, Trash2, Sparkles, LogIn, LogOut, Check, AlertCircle, ExternalLink, QrCode, RefreshCw, Smartphone } from 'lucide-react'
 
 interface Asset {
   id: string
@@ -256,26 +256,296 @@ function PlayModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
   )
 }
 
+// 扫码登录弹窗
+function QRCodeLoginModal({ 
+  platform, 
+  platformName,
+  onClose, 
+  onSuccess 
+}: { 
+  platform: string
+  platformName: string
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [qrImage, setQrImage] = useState<string | null>(null)
+  const [status, setStatus] = useState<'loading' | 'waiting' | 'success' | 'error' | 'timeout'>('loading')
+  const [message, setMessage] = useState('')
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  // 开始扫码登录
+  const startLogin = useCallback(async () => {
+    setStatus('loading')
+    setMessage('正在加载二维码...')
+    
+    try {
+      const res = await fetch('/api/social-auth/qrcode/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform })
+      })
+      
+      if (res.ok) {
+        const data = await res.json()
+        setSessionId(data.session_id)
+        setQrImage(data.qr_image)
+        setStatus('waiting')
+        setMessage(data.message || `请使用 ${platformName} App 扫描二维码`)
+        
+        // 开始轮询检查登录状态
+        startPolling(data.session_id)
+      } else {
+        const error = await res.json()
+        setStatus('error')
+        setMessage(error.detail || '获取二维码失败')
+      }
+    } catch (error) {
+      console.error('启动登录失败:', error)
+      setStatus('error')
+      setMessage('网络错误，请重试')
+    }
+  }, [platform, platformName])
+
+  // 轮询检查登录状态
+  const startPolling = (sid: string) => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+    }
+    
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/social-auth/qrcode/status/${sid}`)
+        if (res.ok) {
+          const data = await res.json()
+          
+          if (data.status === 'success') {
+            setStatus('success')
+            setMessage(data.message || '登录成功！')
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current)
+            }
+            // 2秒后关闭弹窗
+            setTimeout(() => {
+              onSuccess()
+              onClose()
+            }, 2000)
+          } else if (data.status === 'timeout' || data.status === 'expired') {
+            setStatus('timeout')
+            setMessage(data.message || '二维码已过期')
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current)
+            }
+          } else if (data.status === 'error') {
+            setStatus('error')
+            setMessage(data.message || '登录失败')
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current)
+            }
+          }
+        }
+      } catch (error) {
+        console.error('检查状态失败:', error)
+      }
+    }, 2000)  // 每2秒检查一次
+  }
+
+  // 刷新二维码
+  const refreshQR = async () => {
+    if (!sessionId) {
+      startLogin()
+      return
+    }
+    
+    setStatus('loading')
+    setMessage('正在刷新二维码...')
+    
+    try {
+      const res = await fetch(`/api/social-auth/qrcode/refresh/${sessionId}`, {
+        method: 'POST'
+      })
+      
+      if (res.ok) {
+        const data = await res.json()
+        if (data.qr_image) {
+          setQrImage(data.qr_image)
+          setStatus('waiting')
+          setMessage(`请使用 ${platformName} App 扫描二维码`)
+          startPolling(sessionId)
+        } else {
+          // 会话已过期，重新开始
+          startLogin()
+        }
+      }
+    } catch (error) {
+      console.error('刷新失败:', error)
+      startLogin()
+    }
+  }
+
+  // 组件挂载时开始登录
+  useEffect(() => {
+    startLogin()
+    
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+      }
+      // 取消会话
+      if (sessionId) {
+        fetch(`/api/social-auth/qrcode/cancel/${sessionId}`, { method: 'POST' }).catch(() => {})
+      }
+    }
+  }, [])
+
+  // 状态颜色
+  const statusColors = {
+    loading: 'text-gray-400',
+    waiting: 'text-cyber-blue',
+    success: 'text-green-400',
+    error: 'text-red-400',
+    timeout: 'text-yellow-500'
+  }
+
+  const statusIcons = {
+    loading: Loader2,
+    waiting: Smartphone,
+    success: Check,
+    error: AlertCircle,
+    timeout: RefreshCw
+  }
+
+  const StatusIcon = statusIcons[status]
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.9, y: 20 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.9, y: 20 }}
+        className="bg-dark-purple/90 backdrop-blur-xl border border-white/10 rounded-xl w-full max-w-md mx-4"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-6 border-b border-white/10">
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            <QrCode className="w-5 h-5 text-cyber-purple" />
+            {platformName} 扫码登录
+          </h2>
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+
+        <div className="p-6 flex flex-col items-center">
+          {/* 二维码区域 */}
+          <div className="w-64 h-64 bg-white rounded-xl flex items-center justify-center relative overflow-hidden">
+            {status === 'loading' ? (
+              <Loader2 className="w-12 h-12 text-gray-400 animate-spin" />
+            ) : qrImage ? (
+              <>
+                <img 
+                  src={`data:image/png;base64,${qrImage}`} 
+                  alt="扫码登录"
+                  className="w-full h-full object-contain"
+                />
+                {status === 'timeout' && (
+                  <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center">
+                    <p className="text-white text-sm mb-2">二维码已过期</p>
+                    <button
+                      onClick={refreshQR}
+                      className="px-4 py-2 bg-cyber-blue rounded-lg text-white text-sm flex items-center gap-2"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      点击刷新
+                    </button>
+                  </div>
+                )}
+                {status === 'success' && (
+                  <div className="absolute inset-0 bg-green-500/90 flex flex-col items-center justify-center">
+                    <Check className="w-16 h-16 text-white mb-2" />
+                    <p className="text-white font-medium">登录成功！</p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-center p-4">
+                <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-2" />
+                <p className="text-gray-600 text-sm">加载失败</p>
+              </div>
+            )}
+          </div>
+
+          {/* 状态提示 */}
+          <div className={`flex items-center gap-2 mt-6 ${statusColors[status]}`}>
+            <StatusIcon className={`w-5 h-5 ${status === 'loading' ? 'animate-spin' : ''}`} />
+            <span>{message}</span>
+          </div>
+
+          {/* 操作按钮 */}
+          {(status === 'error' || status === 'timeout') && (
+            <button
+              onClick={status === 'timeout' ? refreshQR : startLogin}
+              className="mt-4 px-6 py-2.5 bg-gradient-to-r from-cyber-blue to-cyber-purple rounded-lg text-white font-medium hover:opacity-90 transition-opacity flex items-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              重新获取二维码
+            </button>
+          )}
+
+          {/* 使用说明 */}
+          <div className="mt-6 text-gray-500 text-sm text-center space-y-1">
+            <p>1. 打开 {platformName} App</p>
+            <p>2. 使用扫一扫功能扫描二维码</p>
+            <p>3. 在手机上确认登录</p>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
+
 // 社交平台登录管理面板
 function SocialPlatformPanel({ 
   platforms, 
   onCollect, 
-  collecting 
+  collecting,
+  onRefresh
 }: { 
   platforms: SocialPlatform[]
   onCollect: (platforms: string[]) => void
   collecting: boolean
+  onRefresh: () => void
 }) {
-  const [showLoginModal, setShowLoginModal] = useState<string | null>(null)
+  const [showLoginModal, setShowLoginModal] = useState<{platform: string, name: string} | null>(null)
 
-  const handleLogout = async (platform: string) => {
-    if (!confirm(`确定要退出 ${platform} 登录吗？`)) return
+  const handleLogout = async (platform: string, name: string) => {
+    if (!confirm(`确定要退出 ${name} 登录吗？`)) return
     try {
       await fetch(`/api/social-auth/logout/${platform}`, { method: 'POST' })
-      window.location.reload()
+      onRefresh()
     } catch (error) {
       console.error('退出失败:', error)
     }
+  }
+
+  // 判断平台是否支持扫码登录
+  const supportsQRLogin = (platform: string) => {
+    return ['douyin', 'bilibili', 'weixin_video'].includes(platform)
+  }
+
+  const PLATFORM_ICONS_EXTENDED: Record<string, string> = {
+    xiaohongshu: '📕',
+    douyin: '🎵',
+    bilibili: '📺',
+    weixin_video: '📹',
+    pexels: '📷',
+    pixabay: '🖼️'
   }
 
   return (
@@ -286,7 +556,7 @@ function SocialPlatformPanel({
           AI素材采集
         </h2>
         <button
-          onClick={() => onCollect(['pexels', 'pixabay', 'bilibili'])}
+          onClick={() => onCollect(['pexels', 'pixabay'])}
           disabled={collecting}
           className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-cyber-purple to-pink-500 rounded-lg text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
         >
@@ -304,11 +574,11 @@ function SocialPlatformPanel({
         </button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {/* Pexels - 已启用 */}
         <div className="bg-deep-space/50 rounded-lg p-4">
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-2xl">{PLATFORM_ICONS.pexels}</span>
+            <span className="text-2xl">{PLATFORM_ICONS_EXTENDED.pexels}</span>
             <span className="text-white font-medium">Pexels</span>
           </div>
           <div className="flex items-center gap-1 text-green-400 text-sm mb-2">
@@ -321,7 +591,7 @@ function SocialPlatformPanel({
         {/* Pixabay - 已启用 */}
         <div className="bg-deep-space/50 rounded-lg p-4">
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-2xl">{PLATFORM_ICONS.pixabay}</span>
+            <span className="text-2xl">{PLATFORM_ICONS_EXTENDED.pixabay}</span>
             <span className="text-white font-medium">Pixabay</span>
           </div>
           <div className="flex items-center gap-1 text-green-400 text-sm mb-2">
@@ -335,7 +605,7 @@ function SocialPlatformPanel({
         {platforms.map(p => (
           <div key={p.platform} className="bg-deep-space/50 rounded-lg p-4">
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-2xl">{PLATFORM_ICONS[p.platform] || '📱'}</span>
+              <span className="text-2xl">{PLATFORM_ICONS_EXTENDED[p.platform] || '📱'}</span>
               <span className="text-white font-medium">{p.name}</span>
             </div>
             
@@ -348,7 +618,7 @@ function SocialPlatformPanel({
                 <div className="flex items-center justify-between">
                   <span className="text-gray-500 text-xs">采集 {p.total_collected} 个</span>
                   <button
-                    onClick={() => handleLogout(p.platform)}
+                    onClick={() => handleLogout(p.platform, p.name)}
                     className="text-gray-500 hover:text-red-400 text-xs"
                   >
                     退出
@@ -361,19 +631,27 @@ function SocialPlatformPanel({
                   <AlertCircle className="w-4 h-4" />
                   未登录
                 </div>
-                <a
-                  href={
-                    p.platform === 'xiaohongshu' ? 'https://www.xiaohongshu.com' :
-                    p.platform === 'douyin' ? 'https://www.douyin.com' :
-                    p.platform === 'bilibili' ? 'https://www.bilibili.com' : '#'
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-cyber-blue hover:underline text-xs"
-                >
-                  <ExternalLink className="w-3 h-3" />
-                  前往登录
-                </a>
+                {supportsQRLogin(p.platform) ? (
+                  <button
+                    onClick={() => setShowLoginModal({ platform: p.platform, name: p.name })}
+                    className="flex items-center gap-1 text-cyber-blue hover:text-cyber-purple text-xs transition-colors"
+                  >
+                    <QrCode className="w-3 h-3" />
+                    扫码登录
+                  </button>
+                ) : (
+                  <a
+                    href={
+                      p.platform === 'xiaohongshu' ? 'https://www.xiaohongshu.com' : '#'
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-cyber-blue hover:underline text-xs"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    手动登录
+                  </a>
+                )}
               </>
             )}
           </div>
@@ -381,8 +659,20 @@ function SocialPlatformPanel({
       </div>
 
       <p className="text-gray-500 text-xs mt-4">
-        💡 提示：Pexels 和 Pixabay 已自动启用，可直接采集免版权素材。小红书、抖音、B站需要登录后才能采集（开发中）。
+        💡 提示：Pexels 和 Pixabay 已自动启用。抖音、B站、微信视频号支持<span className="text-cyber-blue">扫码登录</span>，小红书需手动获取Cookie。
       </p>
+
+      {/* 扫码登录弹窗 */}
+      <AnimatePresence>
+        {showLoginModal && (
+          <QRCodeLoginModal
+            platform={showLoginModal.platform}
+            platformName={showLoginModal.name}
+            onClose={() => setShowLoginModal(null)}
+            onSuccess={onRefresh}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }
@@ -531,6 +821,7 @@ export default function AssetsPage() {
         platforms={socialPlatforms}
         onCollect={handleAICollect}
         collecting={collecting}
+        onRefresh={fetchSocialPlatforms}
       />
 
       {/* 分类和视图切换 */}
