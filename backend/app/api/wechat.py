@@ -1,5 +1,9 @@
 """
 企业微信回调API
+支持：
+1. 外部客户消息 - 小销自动回复
+2. 内部员工消息 - 小销协助模式
+3. 群聊消息 - 小析2分析并存入知识库
 """
 import asyncio
 from collections import OrderedDict
@@ -10,6 +14,8 @@ from loguru import logger
 from app.services.wechat import wechat_service
 from app.services.conversation_service import conversation_service
 from app.agents.sales_agent import SalesAgent
+from app.agents.analyst2 import analyst2_agent
+from app.services.knowledge_service import knowledge_service
 
 router = APIRouter(prefix="/wechat", tags=["企业微信"])
 
@@ -195,6 +201,171 @@ async def process_internal_message(message: dict):
         logger.error(traceback.format_exc())
 
 
+async def process_group_message(message: dict):
+    """
+    处理企业微信群消息 - 小析2分析并存入知识库
+    注意：小析2只分析不回复
+    """
+    try:
+        from app.models.database import AsyncSessionLocal
+        from sqlalchemy import text
+        
+        chat_id = message.get("ChatId", "")  # 企业微信群ID
+        user_id = message.get("FromUserName", "")
+        content = message.get("Content", "")
+        msg_id = message.get("MsgId", "")
+        
+        # 获取群名称（从缓存或API）
+        group_name = await wechat_service.get_group_name(chat_id)
+        
+        # 获取发送者名称
+        sender_name = await wechat_service.get_user_name(user_id)
+        
+        logger.info(f"[群消息] 群:{group_name} 发送者:{sender_name} 内容:{content[:50]}...")
+        
+        # 调用小析2分析消息
+        analysis = await analyst2_agent.process({
+            "group_id": chat_id,
+            "group_name": group_name,
+            "sender_name": sender_name,
+            "content": content,
+            "message_type": "text"
+        })
+        
+        # 保存消息和分析结果到数据库
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                text("""
+                    INSERT INTO wechat_messages 
+                    (group_id, sender_id, sender_name, content, is_valuable, 
+                     analysis_result, created_at)
+                    VALUES (:group_id, :sender_id, :sender_name, :content, :is_valuable,
+                            :analysis_result, NOW())
+                    ON CONFLICT DO NOTHING
+                """),
+                {
+                    "group_id": chat_id,
+                    "sender_id": user_id,
+                    "sender_name": sender_name,
+                    "content": content,
+                    "is_valuable": analysis.get("is_valuable", False),
+                    "analysis_result": analysis
+                }
+            )
+            await db.commit()
+        
+        # 如果是有价值的信息，根据类别处理
+        if analysis.get("is_valuable"):
+            category = analysis.get("category", "")
+            summary = analysis.get("summary", "")
+            
+            logger.info(f"[群消息] 发现有价值信息: {category} - {summary}")
+            
+            # 记录小析2的任务完成
+            await conversation_service.record_agent_task("analyst2", success=True)
+            
+            if category == "lead":
+                # 线索类 - 创建线索记录
+                await _create_lead_from_group(analysis, chat_id, content)
+                
+            elif category == "intel":
+                # 情报类 - 存入知识库
+                await _save_intel_to_knowledge(analysis, group_name, content)
+                
+            elif category == "knowledge":
+                # 知识类 - 存入知识库
+                await _save_knowledge_from_group(analysis, group_name, content)
+        
+    except Exception as e:
+        logger.error(f"[群消息] 处理失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
+async def _create_lead_from_group(analysis: dict, group_id: str, content: str):
+    """从群消息创建线索"""
+    try:
+        from app.models.database import AsyncSessionLocal
+        from sqlalchemy import text
+        import uuid
+        
+        key_info = analysis.get("key_info", {})
+        contact_info = key_info.get("contact_info", {})
+        
+        async with AsyncSessionLocal() as db:
+            lead_id = str(uuid.uuid4())
+            
+            await db.execute(
+                text("""
+                    INSERT INTO leads 
+                    (id, source, source_url, title, content, contact_info, 
+                     status, quality_score, created_at)
+                    VALUES (:id, 'wechat_group', :source_url, :title, :content, 
+                            :contact_info, 'new', :quality_score, NOW())
+                """),
+                {
+                    "id": lead_id,
+                    "source_url": f"wechat://group/{group_id}",
+                    "title": analysis.get("summary", "微信群线索")[:100],
+                    "content": content,
+                    "contact_info": contact_info,
+                    "quality_score": analysis.get("confidence", 50)
+                }
+            )
+            await db.commit()
+            
+            logger.info(f"[群消息] 已创建线索: {lead_id}")
+            
+    except Exception as e:
+        logger.error(f"[群消息] 创建线索失败: {e}")
+
+
+async def _save_intel_to_knowledge(analysis: dict, group_name: str, content: str):
+    """将情报存入知识库"""
+    try:
+        key_info = analysis.get("key_info", {})
+        
+        # 提取关键词
+        keywords = []
+        if key_info.get("price_info"):
+            keywords.append("运价")
+        if key_info.get("policy_info"):
+            keywords.append("政策")
+        
+        await knowledge_service.add_knowledge(
+            category="market_intel",
+            title=f"[群情报] {analysis.get('summary', '行业动态')[:50]}",
+            content=content,
+            summary=analysis.get("summary"),
+            keywords=keywords + analysis.get("keyword_matches", []),
+            source=f"企业微信群: {group_name}"
+        )
+        
+        logger.info(f"[群消息] 情报已存入知识库")
+        
+    except Exception as e:
+        logger.error(f"[群消息] 保存情报失败: {e}")
+
+
+async def _save_knowledge_from_group(analysis: dict, group_name: str, content: str):
+    """将知识存入知识库"""
+    try:
+        await knowledge_service.add_knowledge(
+            category="case",  # 案例经验
+            title=f"[群分享] {analysis.get('summary', '经验分享')[:50]}",
+            content=content,
+            summary=analysis.get("summary"),
+            keywords=analysis.get("keyword_matches", []),
+            source=f"企业微信群: {group_name}",
+            experience_level="intermediate"
+        )
+        
+        logger.info(f"[群消息] 知识已存入知识库")
+        
+    except Exception as e:
+        logger.error(f"[群消息] 保存知识失败: {e}")
+
+
 @router.post("/callback")
 async def receive_message(
     request: Request,
@@ -227,6 +398,7 @@ async def receive_message(
             msg_id = message.get("MsgId")
             user_id = message.get("FromUserName")
             content = message.get("Content")
+            chat_id = message.get("ChatId")  # 群聊ID（如果是群消息）
             
             # 消息去重检查
             if msg_id and is_message_processed(msg_id):
@@ -237,17 +409,22 @@ async def receive_message(
             if msg_id:
                 mark_message_processed(msg_id)
             
-            # 判断用户类型
-            user_type = wechat_service.get_user_type(user_id)
-            logger.info(f"收到用户 {user_id} ({user_type}) 的消息: {content} (MsgId={msg_id})")
-            
-            # 根据用户类型使用不同的处理方式
-            if user_type == "external":
-                # 外部客户 - 使用销售客服模式
-                background_tasks.add_task(process_external_message, message)
+            # 判断消息类型：群消息 vs 私聊消息
+            if chat_id:
+                # 群消息 - 交给小析2分析（不回复）
+                logger.info(f"收到群消息: 群ID={chat_id}, 用户={user_id}, 内容={content[:30]}...")
+                background_tasks.add_task(process_group_message, message)
             else:
-                # 内部员工 - 使用同事协助模式
-                background_tasks.add_task(process_internal_message, message)
+                # 私聊消息 - 根据用户类型处理
+                user_type = wechat_service.get_user_type(user_id)
+                logger.info(f"收到私聊消息: 用户={user_id} ({user_type}), 内容={content} (MsgId={msg_id})")
+                
+                if user_type == "external":
+                    # 外部客户 - 使用销售客服模式
+                    background_tasks.add_task(process_external_message, message)
+                else:
+                    # 内部员工 - 使用同事协助模式
+                    background_tasks.add_task(process_internal_message, message)
         
         # 立即返回success，避免企业微信重试
         return PlainTextResponse(content="success")

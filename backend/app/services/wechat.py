@@ -166,7 +166,9 @@ class WeChatService:
         
         # 解析解密后的XML
         msg_root = ET.fromstring(decrypted_xml)
-        return {
+        
+        # 提取消息字段（包括群聊ID ChatId）
+        result = {
             "ToUserName": msg_root.find("ToUserName").text if msg_root.find("ToUserName") is not None else None,
             "FromUserName": msg_root.find("FromUserName").text if msg_root.find("FromUserName") is not None else None,
             "CreateTime": msg_root.find("CreateTime").text if msg_root.find("CreateTime") is not None else None,
@@ -174,7 +176,15 @@ class WeChatService:
             "Content": msg_root.find("Content").text if msg_root.find("Content") is not None else None,
             "MsgId": msg_root.find("MsgId").text if msg_root.find("MsgId") is not None else None,
             "AgentID": msg_root.find("AgentID").text if msg_root.find("AgentID") is not None else None,
+            # 群聊消息特有字段
+            "ChatId": msg_root.find("ChatId").text if msg_root.find("ChatId") is not None else None,
         }
+        
+        # 记录是否为群消息
+        if result.get("ChatId"):
+            logger.info(f"📢 检测到群消息: ChatId={result['ChatId']}")
+        
+        return result
     
     async def get_access_token(self) -> str:
         """获取access_token"""
@@ -260,6 +270,148 @@ class WeChatService:
                 json=payload
             )
             return response.json()
+    
+    # 群名称缓存
+    _group_name_cache: Dict[str, str] = {}
+    _user_name_cache: Dict[str, str] = {}
+    
+    async def get_group_name(self, chat_id: str) -> str:
+        """
+        获取企业微信群名称
+        
+        Args:
+            chat_id: 群聊ID
+            
+        Returns:
+            群名称，获取失败返回群ID
+        """
+        if not chat_id:
+            return "未知群"
+        
+        # 检查缓存
+        if chat_id in self._group_name_cache:
+            return self._group_name_cache[chat_id]
+        
+        try:
+            if not self.is_configured:
+                return chat_id
+            
+            access_token = await self.get_access_token()
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.base_url}/appchat/get",
+                    params={
+                        "access_token": access_token,
+                        "chatid": chat_id
+                    }
+                )
+                data = response.json()
+                
+                if data.get("errcode") == 0:
+                    chat_info = data.get("chat_info", {})
+                    group_name = chat_info.get("name", chat_id)
+                    self._group_name_cache[chat_id] = group_name
+                    return group_name
+                else:
+                    logger.warning(f"获取群名称失败: {data}")
+                    return chat_id
+                    
+        except Exception as e:
+            logger.error(f"获取群名称异常: {e}")
+            return chat_id
+    
+    async def get_user_name(self, user_id: str) -> str:
+        """
+        获取企业微信用户名称
+        
+        Args:
+            user_id: 用户ID
+            
+        Returns:
+            用户名称，获取失败返回用户ID
+        """
+        if not user_id:
+            return "未知用户"
+        
+        # 检查缓存
+        if user_id in self._user_name_cache:
+            return self._user_name_cache[user_id]
+        
+        try:
+            if not self.is_configured:
+                return user_id
+            
+            access_token = await self.get_access_token()
+            
+            # 判断是内部用户还是外部联系人
+            if self.is_external_user(user_id):
+                # 外部联系人
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        f"{self.base_url}/externalcontact/get",
+                        params={
+                            "access_token": access_token,
+                            "external_userid": user_id
+                        }
+                    )
+                    data = response.json()
+                    
+                    if data.get("errcode") == 0:
+                        contact_info = data.get("external_contact", {})
+                        user_name = contact_info.get("name", user_id)
+                        self._user_name_cache[user_id] = user_name
+                        return user_name
+            else:
+                # 内部员工
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        f"{self.base_url}/user/get",
+                        params={
+                            "access_token": access_token,
+                            "userid": user_id
+                        }
+                    )
+                    data = response.json()
+                    
+                    if data.get("errcode") == 0:
+                        user_name = data.get("name", user_id)
+                        self._user_name_cache[user_id] = user_name
+                        return user_name
+            
+            return user_id
+            
+        except Exception as e:
+            logger.error(f"获取用户名称异常: {e}")
+            return user_id
+    
+    async def get_group_chat_list(self) -> list:
+        """
+        获取应用可见的群聊列表
+        """
+        try:
+            if not self.is_configured:
+                return []
+            
+            access_token = await self.get_access_token()
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.base_url}/appchat/get_list",
+                    params={"access_token": access_token},
+                    json={}
+                )
+                data = response.json()
+                
+                if data.get("errcode") == 0:
+                    return data.get("chat_id_list", [])
+                else:
+                    logger.warning(f"获取群聊列表失败: {data}")
+                    return []
+                    
+        except Exception as e:
+            logger.error(f"获取群聊列表异常: {e}")
+            return []
 
 
 # 创建单例
