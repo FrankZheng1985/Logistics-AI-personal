@@ -76,15 +76,15 @@ async def verify_callback(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-async def process_wechat_message(message: dict):
+async def process_external_message(message: dict):
     """
-    后台异步处理企业微信消息
+    处理外部客户消息 - 使用销售客服模式
     """
     try:
         user_id = message.get("FromUserName")
         content = message.get("Content")
         
-        logger.info(f"[后台处理] 开始处理用户 {user_id} 的消息: {content}")
+        logger.info(f"[外部客户] 开始处理用户 {user_id} 的消息: {content}")
         
         # 1. 获取或创建客户记录
         customer = await conversation_service.get_or_create_customer(user_id)
@@ -110,7 +110,7 @@ async def process_wechat_message(message: dict):
             response = await sales_agent.process({
                 "customer_id": user_id,
                 "message": content,
-                "context": {}
+                "context": {"user_type": "external"}
             })
             
             reply_content = response.get("reply", "感谢您的咨询，我们会尽快回复您！")
@@ -130,10 +130,10 @@ async def process_wechat_message(message: dict):
             # 6. 记录AI员工任务完成
             await conversation_service.record_agent_task("sales", success=True)
             
-            logger.info(f"[后台处理] 已回复用户 {user_id}: {reply_content[:50]}...")
+            logger.info(f"[外部客户] 已回复用户 {user_id}: {reply_content[:50]}...")
             
         except Exception as e:
-            logger.error(f"[后台处理] AI回复失败: {e}")
+            logger.error(f"[外部客户] AI回复失败: {e}")
             import traceback
             logger.error(traceback.format_exc())
             # 发送默认回复
@@ -148,7 +148,49 @@ async def process_wechat_message(message: dict):
             await wechat_service.send_text_message([user_id], default_reply)
             
     except Exception as e:
-        logger.error(f"[后台处理] 处理消息失败: {e}")
+        logger.error(f"[外部客户] 处理消息失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
+async def process_internal_message(message: dict):
+    """
+    处理内部员工消息 - 使用同事协助模式
+    """
+    try:
+        user_id = message.get("FromUserName")
+        content = message.get("Content")
+        
+        logger.info(f"[内部同事] 开始处理同事 {user_id} 的消息: {content}")
+        
+        # 使用AI回复，但使用同事模式
+        try:
+            sales_agent = SalesAgent()
+            
+            # 生成AI回复 - 传递内部用户标识
+            response = await sales_agent.process({
+                "customer_id": user_id,
+                "message": content,
+                "context": {"user_type": "internal"}
+            })
+            
+            reply_content = response.get("reply", "收到，我来处理一下~")
+            
+            # 发送回复给同事
+            await wechat_service.send_text_message([user_id], reply_content)
+            
+            logger.info(f"[内部同事] 已回复同事 {user_id}: {reply_content[:50]}...")
+            
+        except Exception as e:
+            logger.error(f"[内部同事] AI回复失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # 发送默认回复
+            default_reply = "收到，稍等我看看~"
+            await wechat_service.send_text_message([user_id], default_reply)
+            
+    except Exception as e:
+        logger.error(f"[内部同事] 处理消息失败: {e}")
         import traceback
         logger.error(traceback.format_exc())
 
@@ -199,12 +241,13 @@ async def receive_message(
             user_type = wechat_service.get_user_type(user_id)
             logger.info(f"收到用户 {user_id} ({user_type}) 的消息: {content} (MsgId={msg_id})")
             
-            # 只处理外部客户的消息，内部员工不自动回复
+            # 根据用户类型使用不同的处理方式
             if user_type == "external":
-                # 在后台异步处理消息，立即返回success
-                background_tasks.add_task(process_wechat_message, message)
+                # 外部客户 - 使用销售客服模式
+                background_tasks.add_task(process_external_message, message)
             else:
-                logger.info(f"⏭️ 跳过内部员工消息: 用户={user_id}")
+                # 内部员工 - 使用同事协助模式
+                background_tasks.add_task(process_internal_message, message)
         
         # 立即返回success，避免企业微信重试
         return PlainTextResponse(content="success")

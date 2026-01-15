@@ -80,6 +80,9 @@ services:
       - KELING_ACCESS_KEY=${KELING_ACCESS_KEY}
       - KELING_SECRET_KEY=${KELING_SECRET_KEY}
       - KELING_API_URL=${KELING_API_URL:-https://api.klingai.com}
+      # 素材采集API（小采使用）
+      - PEXELS_API_KEY=${PEXELS_API_KEY}
+      - PIXABAY_API_KEY=${PIXABAY_API_KEY}
       # 企业微信配置
       - WECHAT_CORP_ID=${WECHAT_CORP_ID}
       - WECHAT_AGENT_ID=${WECHAT_AGENT_ID}
