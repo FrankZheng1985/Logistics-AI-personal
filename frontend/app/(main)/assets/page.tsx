@@ -1224,10 +1224,11 @@ export default function AssetsPage() {
             <select
               value={pageSize}
               onChange={(e) => {
-                setPageSize(Number(e.target.value))
+                const newSize = Number(e.target.value)
+                setPageSize(newSize)
                 setCurrentPage(1)
                 setLoading(true)
-                setTimeout(() => fetchAssets(1), 0)
+                fetchAssets(1, newSize)
               }}
               className="px-3 py-1.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white text-sm focus:border-cyber-blue focus:outline-none"
             >
