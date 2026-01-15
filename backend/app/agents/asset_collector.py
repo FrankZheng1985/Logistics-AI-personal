@@ -20,7 +20,34 @@ class AssetCollectorAgent(BaseAgent):
     """素材采集员 - 从社交媒体收集物流相关素材"""
     
     agent_type = AgentType.ASSET_COLLECTOR
-    agent_name = "小采"
+    name = "小采"
+    description = "负责从社交媒体和素材网站自动收集物流相关视频、图片和音频素材"
+    enable_logistics_expertise = False  # 素材采集不需要物流专业知识
+    
+    def _build_system_prompt(self) -> str:
+        """构建系统提示词"""
+        return """你是小采，一位专业的素材采集员。
+你的职责是从各种平台搜索和采集高质量的物流相关素材（视频、图片、音频）。
+
+工作原则：
+1. 只采集与物流、仓储、运输相关的素材
+2. 优先选择高清、专业的素材
+3. 确保素材版权合规
+4. 自动去重，避免重复采集
+"""
+    
+    async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """处理采集任务"""
+        platforms = input_data.get("platforms", ["pexels", "pixabay"])
+        keywords = input_data.get("keywords", self.SEARCH_KEYWORDS[:3])
+        
+        assets = await self.run_collection_task(platforms=platforms, keywords=keywords)
+        
+        return {
+            "status": "success",
+            "found": len(assets),
+            "assets": assets
+        }
     
     # 支持的平台
     PLATFORMS = {
