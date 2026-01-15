@@ -94,6 +94,8 @@ services:
       - COS_SECRET_KEY=${COS_SECRET_KEY}
       - COS_BUCKET=${COS_BUCKET}
       - COS_REGION=${COS_REGION:-ap-guangzhou}
+      # 搜索 API（线索狩猎使用）
+      - SERPER_API_KEY=${SERPER_API_KEY}
       # JWT 配置
       - JWT_SECRET=${JWT_SECRET:-your-production-secret-key}
       # 生产环境配置
