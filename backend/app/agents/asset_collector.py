@@ -338,3 +338,4 @@ class AssetCollectorAgent(BaseAgent):
 
 # 创建全局实例
 asset_collector = AssetCollectorAgent()
+
