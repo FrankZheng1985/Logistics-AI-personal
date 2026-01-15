@@ -381,7 +381,7 @@ function SocialPlatformPanel({
       </div>
 
       <p className="text-gray-500 text-xs mt-4">
-        💡 提示：Pexels 和 Pixabay 已自动启用。小红书、抖音需要登录后才能采集（功能开发中）。
+        💡 提示：Pexels 和 Pixabay 已自动启用，可直接采集免版权素材。小红书、抖音、B站需要登录后才能采集（开发中）。
       </p>
     </div>
   )
@@ -431,32 +431,22 @@ export default function AssetsPage() {
   const handleAICollect = async (platforms: string[]) => {
     setCollecting(true)
     try {
-      // 先从Pexels和Pixabay采集
-      const res1 = await fetch('/api/assets/collect', {
+      // 从Pexels和Pixabay采集免版权素材
+      const res = await fetch('/api/assets/collect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          keywords: ['logistics warehouse', 'container shipping', 'cargo transport'],
+          keywords: ['logistics warehouse', 'container shipping', 'cargo transport', 'supply chain'],
           platforms: ['pexels', 'pixabay']
         })
       })
-      
-      // 再从B站采集（不需要登录）
-      const res2 = await fetch('/api/social-auth/collect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          platforms: ['bilibili'],
-          keywords: ['物流仓库', '跨境物流']
-        })
-      })
 
-      if (res1.ok || res2.ok) {
-        const data1 = res1.ok ? await res1.json() : { found: 0 }
-        const data2 = res2.ok ? await res2.json() : { total_found: 0 }
-        alert(`采集完成！共发现 ${(data1.found || 0) + (data2.total_found || 0)} 个素材`)
+      if (res.ok) {
+        const data = await res.json()
+        alert(`采集完成！共发现 ${data.found || 0} 个素材`)
         fetchAssets()
-        fetchSocialPlatforms()
+      } else {
+        alert('采集失败，请重试')
       }
     } catch (error) {
       console.error('采集失败:', error)
