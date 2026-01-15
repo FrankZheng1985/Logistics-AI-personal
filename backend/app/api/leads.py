@@ -389,36 +389,84 @@ async def start_lead_hunting(
     在后台运行，搜索互联网上的潜在客户
     """
     from app.agents.lead_hunter import LeadHunterAgent
+    from app.core.config import settings
+    
+    # 检查API配置
+    if not getattr(settings, 'SERPER_API_KEY', None):
+        raise HTTPException(
+            status_code=400,
+            detail="搜索API未配置。请在系统设置中配置 SERPER_API_KEY 以启用线索搜索功能。您可以在 https://serper.dev 注册获取API密钥。"
+        )
     
     async def hunt_leads():
         try:
-            hunter = LeadHunterAgent()
-            results = await hunter.process({"action": "hunt"})
-            
-            # 保存找到的线索
-            for lead_data in results.get("leads_found", []):
-                lead = Lead(
-                    name=lead_data.get("contact_info", {}).get("name"),
-                    company=lead_data.get("contact_info", {}).get("company"),
-                    phone=lead_data.get("contact_info", {}).get("phone"),
-                    email=lead_data.get("contact_info", {}).get("email"),
-                    wechat=lead_data.get("contact_info", {}).get("wechat"),
-                    source=LeadSource(lead_data.get("source", "other")),
-                    source_url=lead_data.get("url"),
-                    source_content=lead_data.get("content"),
-                    intent_level=LeadIntentLevel(lead_data.get("intent_level", "unknown")),
-                    ai_confidence=lead_data.get("confidence", 0),
-                    ai_summary=lead_data.get("summary"),
-                    ai_suggestion=lead_data.get("follow_up_suggestion"),
-                    needs=lead_data.get("needs", [])
-                )
-                db.add(lead)
-            
-            await db.commit()
-            logger.info(f"线索狩猎完成，找到 {results.get('total_leads', 0)} 条线索")
-            
+            # 创建新的数据库会话
+            from app.models import AsyncSessionLocal
+            async with AsyncSessionLocal() as session:
+                hunter = LeadHunterAgent()
+                results = await hunter.process({"action": "hunt"})
+                
+                # 检查是否有错误
+                if results.get("error"):
+                    logger.error(f"线索狩猎失败: {results.get('error')}")
+                    return
+                
+                # 保存找到的线索
+                leads_saved = 0
+                for lead_data in results.get("leads_found", []):
+                    try:
+                        # 映射source到LeadSource枚举
+                        source_str = lead_data.get("source", "other")
+                        source_map = {
+                            "google": LeadSource.GOOGLE,
+                            "weibo": LeadSource.WEIBO,
+                            "zhihu": LeadSource.ZHIHU,
+                            "tieba": LeadSource.TIEBA,
+                            "wechat": LeadSource.WECHAT,
+                            "manual": LeadSource.MANUAL,
+                        }
+                        source = source_map.get(source_str, LeadSource.OTHER)
+                        
+                        # 映射intent_level
+                        intent_str = lead_data.get("intent_level", "unknown")
+                        intent_map = {
+                            "high": LeadIntentLevel.HIGH,
+                            "medium": LeadIntentLevel.MEDIUM,
+                            "low": LeadIntentLevel.LOW,
+                        }
+                        intent_level = intent_map.get(intent_str, LeadIntentLevel.UNKNOWN)
+                        
+                        # 获取联系信息
+                        contact_info = lead_data.get("contact_info", {})
+                        
+                        lead = Lead(
+                            name=contact_info.get("name") or lead_data.get("title", "")[:50],
+                            company=contact_info.get("company"),
+                            phone=contact_info.get("phone"),
+                            email=contact_info.get("email"),
+                            wechat=contact_info.get("wechat"),
+                            source=source,
+                            source_url=lead_data.get("url"),
+                            source_content=lead_data.get("content", "")[:2000],  # 限制长度
+                            intent_level=intent_level,
+                            ai_confidence=lead_data.get("confidence", 0),
+                            ai_summary=lead_data.get("summary"),
+                            ai_suggestion=lead_data.get("follow_up_suggestion"),
+                            needs=lead_data.get("needs", [])
+                        )
+                        session.add(lead)
+                        leads_saved += 1
+                    except Exception as e:
+                        logger.error(f"保存线索失败: {e}")
+                        continue
+                
+                await session.commit()
+                logger.info(f"线索狩猎完成，找到 {results.get('total_leads', 0)} 条线索，成功保存 {leads_saved} 条")
+                
         except Exception as e:
             logger.error(f"线索狩猎失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     background_tasks.add_task(hunt_leads)
     

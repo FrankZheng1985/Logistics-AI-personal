@@ -46,3 +46,6 @@ imageio==2.33.1
 imageio-ffmpeg==0.4.9
 numpy>=1.21.0
 Pillow>=9.0.0
+
+# 浏览器自动化（社交媒体采集）
+playwright==1.41.0
