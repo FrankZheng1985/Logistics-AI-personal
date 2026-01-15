@@ -287,22 +287,25 @@ function QRCodeLoginModal({
         const data = await res.json()
         const url = data.login_url
         if (url) {
-          // 使用 window.open 打开新窗口
-          const newWindow = window.open(url, '_blank', 'width=1200,height=800,scrollbars=yes')
-          if (!newWindow) {
-            // 如果弹窗被阻止，显示提示
-            alert(`请允许弹窗，或手动打开链接：\n${url}`)
-            // 复制链接到剪贴板
-            navigator.clipboard?.writeText(url)
-          }
           setLoginUrl(url)
+          // 使用 window.open 打开新窗口
+          const newWindow = window.open(url, '_blank')
+          if (!newWindow || newWindow.closed) {
+            // 如果弹窗被阻止，复制链接到剪贴板
+            try {
+              await navigator.clipboard.writeText(url)
+              setMessage('链接已复制！请手动在浏览器中粘贴打开')
+            } catch {
+              setMessage('请手动复制下方链接打开')
+            }
+          }
         }
       } else {
-        alert('获取登录链接失败，请重试')
+        setMessage('获取登录链接失败，请重试')
       }
     } catch (error) {
       console.error('获取登录URL失败:', error)
-      alert('网络错误，请重试')
+      setMessage('网络错误，请重试')
     } finally {
       setLoading(false)
     }
@@ -402,6 +405,22 @@ function QRCodeLoginModal({
                 <p className="text-gray-500 text-sm mt-3 text-center">
                   将在新窗口中打开官方登录页面
                 </p>
+                {loginUrl && (
+                  <div className="mt-4 p-3 bg-cyber-blue/10 rounded-lg">
+                    <p className="text-xs text-gray-400 mb-2">如果弹窗被阻止，请手动打开：</p>
+                    <a 
+                      href={loginUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-xs text-cyber-blue hover:underline break-all"
+                    >
+                      {loginUrl}
+                    </a>
+                  </div>
+                )}
+                {message && (
+                  <p className="text-xs text-yellow-400 mt-2 text-center">{message}</p>
+                )}
               </div>
 
               <div className="bg-deep-space/50 rounded-xl p-6">
