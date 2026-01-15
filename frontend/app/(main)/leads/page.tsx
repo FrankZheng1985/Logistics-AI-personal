@@ -471,7 +471,8 @@ export default function LeadsPage() {
   const [filter, setFilter] = useState({
     status: '',
     intent_level: '',
-    source: ''
+    source: '',
+    include_converted: false  // 默认不显示已转化的线索
   })
 
   // 加载线索列表
@@ -481,6 +482,10 @@ export default function LeadsPage() {
       if (filter.status) params.append('status', filter.status)
       if (filter.intent_level) params.append('intent_level', filter.intent_level)
       if (filter.source) params.append('source', filter.source)
+      // 如果筛选"已转化"状态或勾选了包含历史，则传递include_converted
+      if (filter.status === 'converted' || filter.include_converted) {
+        params.append('include_converted', 'true')
+      }
       
       const response = await fetch(`/api/leads?${params.toString()}`)
       if (response.ok) {
@@ -626,17 +631,17 @@ export default function LeadsPage() {
       />
 
       {/* 过滤器 */}
-      <div className="flex gap-3 mb-6">
+      <div className="flex flex-wrap gap-3 mb-6 items-center">
         <select
           value={filter.status}
           onChange={(e) => setFilter(prev => ({ ...prev, status: e.target.value }))}
           className="px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyber-blue/50 focus:outline-none"
         >
-          <option value="">所有状态</option>
+          <option value="">待处理线索</option>
           <option value="new">新线索</option>
           <option value="contacted">已联系</option>
           <option value="qualified">已确认</option>
-          <option value="converted">已转化</option>
+          <option value="converted">已转化(历史)</option>
           <option value="invalid">无效</option>
         </select>
 
@@ -662,6 +667,13 @@ export default function LeadsPage() {
           <option value="zhihu">知乎</option>
           <option value="manual">手动添加</option>
         </select>
+
+        {/* 显示当前筛选状态提示 */}
+        {!filter.status && !filter.include_converted && (
+          <span className="text-gray-500 text-sm ml-2">
+            💡 已转化线索已隐藏
+          </span>
+        )}
       </div>
 
       {/* 线索列表 */}

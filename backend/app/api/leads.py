@@ -48,16 +48,27 @@ async def list_leads(
     intent_level: Optional[LeadIntentLevel] = None,
     source: Optional[LeadSource] = None,
     search: Optional[str] = None,
+    include_converted: bool = Query(False, description="是否包含已转化的线索"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db)
 ):
-    """获取线索列表"""
+    """获取线索列表
+    
+    默认不显示已转化(converted)的线索，如需查看历史转化记录：
+    - 设置 include_converted=true 或
+    - 设置 status=converted
+    """
     query = select(Lead)
     
     # 过滤条件
     if status:
+        # 如果明确指定了状态，按指定状态过滤
         query = query.where(Lead.status == status)
+    elif not include_converted:
+        # 如果没有指定状态且不包含已转化，则排除已转化和无效的线索
+        query = query.where(Lead.status.notin_([LeadStatus.CONVERTED, LeadStatus.INVALID]))
+    
     if intent_level:
         query = query.where(Lead.intent_level == intent_level)
     if source:
