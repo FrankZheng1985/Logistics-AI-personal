@@ -272,31 +272,39 @@ function QRCodeLoginModal({
   const [loginUrl, setLoginUrl] = useState('')
   const [cookieStr, setCookieStr] = useState('')
   const [message, setMessage] = useState('')
+  const [loading, setLoading] = useState(false)
 
-  // 获取登录URL
-  useEffect(() => {
-    const getLoginUrl = async () => {
-      try {
-        const res = await fetch('/api/social-auth/qrcode/start', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ platform })
-        })
-        if (res.ok) {
-          const data = await res.json()
-          setLoginUrl(data.login_url)
+  // 打开登录页面 - 点击时获取URL并打开
+  const openLoginPage = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/social-auth/qrcode/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const url = data.login_url
+        if (url) {
+          // 使用 window.open 打开新窗口
+          const newWindow = window.open(url, '_blank', 'width=1200,height=800,scrollbars=yes')
+          if (!newWindow) {
+            // 如果弹窗被阻止，显示提示
+            alert(`请允许弹窗，或手动打开链接：\n${url}`)
+            // 复制链接到剪贴板
+            navigator.clipboard?.writeText(url)
+          }
+          setLoginUrl(url)
         }
-      } catch (error) {
-        console.error('获取登录URL失败:', error)
+      } else {
+        alert('获取登录链接失败，请重试')
       }
-    }
-    getLoginUrl()
-  }, [platform])
-
-  // 打开登录页面
-  const openLoginPage = () => {
-    if (loginUrl) {
-      window.open(loginUrl, '_blank', 'width=1200,height=800')
+    } catch (error) {
+      console.error('获取登录URL失败:', error)
+      alert('网络错误，请重试')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -376,10 +384,20 @@ function QRCodeLoginModal({
                 </h3>
                 <button
                   onClick={openLoginPage}
-                  className="w-full py-3 bg-gradient-to-r from-cyber-blue to-cyber-purple rounded-lg text-white font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                  disabled={loading}
+                  className="w-full py-3 bg-gradient-to-r from-cyber-blue to-cyber-purple rounded-lg text-white font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2 disabled:opacity-50"
                 >
-                  <ExternalLink className="w-5 h-5" />
-                  打开 {platformName} 登录
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      正在打开...
+                    </>
+                  ) : (
+                    <>
+                      <ExternalLink className="w-5 h-5" />
+                      打开 {platformName} 登录
+                    </>
+                  )}
                 </button>
                 <p className="text-gray-500 text-sm mt-3 text-center">
                   将在新窗口中打开官方登录页面
