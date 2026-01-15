@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Optional, List
 from uuid import UUID
+from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
 from loguru import logger
 
@@ -284,4 +285,113 @@ async def delete_video(
     return {
         "message": "视频已删除",
         "video_id": str(video_id)
+    }
+
+
+@router.post("/{video_id}/cancel")
+async def cancel_video(
+    video_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """取消视频生成（将生成中的视频标记为失败）"""
+    result = await db.execute(
+        select(Video).where(Video.id == video_id)
+    )
+    video = result.scalar_one_or_none()
+    
+    if not video:
+        raise HTTPException(status_code=404, detail="视频不存在")
+    
+    if video.status != VideoStatus.GENERATING:
+        return {
+            "video_id": str(video_id),
+            "status": video.status.value,
+            "message": "视频不在生成中状态，无需取消"
+        }
+    
+    video.status = VideoStatus.FAILED
+    await db.commit()
+    
+    logger.info(f"视频生成已取消: {video.title}")
+    
+    return {
+        "video_id": str(video_id),
+        "status": "failed",
+        "message": "视频生成已取消"
+    }
+
+
+@router.post("/cleanup-stuck")
+async def cleanup_stuck_videos(
+    timeout_minutes: int = Query(30, ge=5, le=1440, description="超时时间（分钟），默认30分钟"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    清理卡住的视频
+    
+    将超过指定时间仍在"生成中"状态的视频标记为失败。
+    默认超时时间为30分钟。
+    """
+    cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=timeout_minutes)
+    
+    # 查找超时的视频
+    result = await db.execute(
+        select(Video).where(
+            Video.status == VideoStatus.GENERATING,
+            Video.created_at < cutoff_time
+        )
+    )
+    stuck_videos = result.scalars().all()
+    
+    cleaned_count = 0
+    cleaned_videos = []
+    
+    for video in stuck_videos:
+        video.status = VideoStatus.FAILED
+        cleaned_count += 1
+        cleaned_videos.append({
+            "id": str(video.id),
+            "title": video.title,
+            "created_at": video.created_at.isoformat()
+        })
+        logger.info(f"已将超时视频标记为失败: {video.title}")
+    
+    await db.commit()
+    
+    return {
+        "cleaned_count": cleaned_count,
+        "timeout_minutes": timeout_minutes,
+        "cleaned_videos": cleaned_videos,
+        "message": f"已清理 {cleaned_count} 个卡住的视频"
+    }
+
+
+@router.get("/stats")
+async def get_video_stats(
+    db: AsyncSession = Depends(get_db)
+):
+    """获取视频统计数据"""
+    # 统计各状态的视频数量
+    total_query = select(func.count()).select_from(Video)
+    total_result = await db.execute(total_query)
+    total = total_result.scalar()
+    
+    completed_query = select(func.count()).select_from(Video).where(Video.status == VideoStatus.COMPLETED)
+    completed_result = await db.execute(completed_query)
+    completed = completed_result.scalar()
+    
+    generating_query = select(func.count()).select_from(Video).where(Video.status == VideoStatus.GENERATING)
+    generating_result = await db.execute(generating_query)
+    generating = generating_result.scalar()
+    
+    failed_query = select(func.count()).select_from(Video).where(Video.status == VideoStatus.FAILED)
+    failed_result = await db.execute(failed_query)
+    failed = failed_result.scalar()
+    
+    return {
+        "total": total,
+        "completed": completed,
+        "generating": generating,
+        "failed": failed,
+        "draft": total - completed - generating - failed
     }
