@@ -256,7 +256,7 @@ function PlayModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
   )
 }
 
-// 扫码登录弹窗
+// 扫码登录弹窗 - 跳转官方页面方案
 function QRCodeLoginModal({ 
   platform, 
   platformName,
@@ -268,154 +268,77 @@ function QRCodeLoginModal({
   onClose: () => void
   onSuccess: () => void
 }) {
-  const [sessionId, setSessionId] = useState<string | null>(null)
-  const [qrImage, setQrImage] = useState<string | null>(null)
-  const [status, setStatus] = useState<'loading' | 'waiting' | 'success' | 'error' | 'timeout'>('loading')
+  const [step, setStep] = useState<'guide' | 'paste' | 'verifying' | 'success' | 'error'>('guide')
+  const [loginUrl, setLoginUrl] = useState('')
+  const [cookieStr, setCookieStr] = useState('')
   const [message, setMessage] = useState('')
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
-  // 开始扫码登录
-  const startLogin = useCallback(async () => {
-    setStatus('loading')
-    setMessage('正在加载二维码...')
-    
-    try {
-      const res = await fetch('/api/social-auth/qrcode/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform })
-      })
-      
-      if (res.ok) {
-        const data = await res.json()
-        setSessionId(data.session_id)
-        setQrImage(data.qr_image)
-        setStatus('waiting')
-        setMessage(data.message || `请使用 ${platformName} App 扫描二维码`)
-        
-        // 开始轮询检查登录状态
-        startPolling(data.session_id)
-      } else {
-        const error = await res.json()
-        setStatus('error')
-        setMessage(error.detail || '获取二维码失败')
-      }
-    } catch (error) {
-      console.error('启动登录失败:', error)
-      setStatus('error')
-      setMessage('网络错误，请重试')
-    }
-  }, [platform, platformName])
-
-  // 轮询检查登录状态
-  const startPolling = (sid: string) => {
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current)
-    }
-    
-    pollIntervalRef.current = setInterval(async () => {
+  // 获取登录URL
+  useEffect(() => {
+    const getLoginUrl = async () => {
       try {
-        const res = await fetch(`/api/social-auth/qrcode/status/${sid}`)
+        const res = await fetch('/api/social-auth/qrcode/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ platform })
+        })
         if (res.ok) {
           const data = await res.json()
-          
-          if (data.status === 'success') {
-            setStatus('success')
-            setMessage(data.message || '登录成功！')
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current)
-            }
-            // 2秒后关闭弹窗
-            setTimeout(() => {
-              onSuccess()
-              onClose()
-            }, 2000)
-          } else if (data.status === 'timeout' || data.status === 'expired') {
-            setStatus('timeout')
-            setMessage(data.message || '二维码已过期')
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current)
-            }
-          } else if (data.status === 'error') {
-            setStatus('error')
-            setMessage(data.message || '登录失败')
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current)
-            }
-          }
+          setLoginUrl(data.login_url)
         }
       } catch (error) {
-        console.error('检查状态失败:', error)
+        console.error('获取登录URL失败:', error)
       }
-    }, 2000)  // 每2秒检查一次
+    }
+    getLoginUrl()
+  }, [platform])
+
+  // 打开登录页面
+  const openLoginPage = () => {
+    if (loginUrl) {
+      window.open(loginUrl, '_blank', 'width=1200,height=800')
+    }
   }
 
-  // 刷新二维码
-  const refreshQR = async () => {
-    if (!sessionId) {
-      startLogin()
+  // 验证Cookie
+  const verifyCookies = async () => {
+    if (!cookieStr.trim()) {
+      setMessage('请粘贴Cookie')
       return
     }
-    
-    setStatus('loading')
-    setMessage('正在刷新二维码...')
-    
+
+    setStep('verifying')
+    setMessage('正在验证...')
+
     try {
-      const res = await fetch(`/api/social-auth/qrcode/refresh/${sessionId}`, {
-        method: 'POST'
+      const res = await fetch('/api/social-auth/qrcode/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          platform,
+          cookies_str: cookieStr
+        })
       })
-      
-      if (res.ok) {
-        const data = await res.json()
-        if (data.qr_image) {
-          setQrImage(data.qr_image)
-          setStatus('waiting')
-          setMessage(`请使用 ${platformName} App 扫描二维码`)
-          startPolling(sessionId)
-        } else {
-          // 会话已过期，重新开始
-          startLogin()
-        }
+
+      const data = await res.json()
+
+      if (data.status === 'success') {
+        setStep('success')
+        setMessage(data.message || '登录成功！')
+        setTimeout(() => {
+          onSuccess()
+          onClose()
+        }, 1500)
+      } else {
+        setStep('error')
+        setMessage(data.message || '验证失败')
       }
     } catch (error) {
-      console.error('刷新失败:', error)
-      startLogin()
+      console.error('验证失败:', error)
+      setStep('error')
+      setMessage('网络错误，请重试')
     }
   }
-
-  // 组件挂载时开始登录
-  useEffect(() => {
-    startLogin()
-    
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-      }
-      // 取消会话
-      if (sessionId) {
-        fetch(`/api/social-auth/qrcode/cancel/${sessionId}`, { method: 'POST' }).catch(() => {})
-      }
-    }
-  }, [])
-
-  // 状态颜色
-  const statusColors = {
-    loading: 'text-gray-400',
-    waiting: 'text-cyber-blue',
-    success: 'text-green-400',
-    error: 'text-red-400',
-    timeout: 'text-yellow-500'
-  }
-
-  const statusIcons = {
-    loading: Loader2,
-    waiting: Smartphone,
-    success: Check,
-    error: AlertCircle,
-    timeout: RefreshCw
-  }
-
-  const StatusIcon = statusIcons[status]
 
   return (
     <motion.div
@@ -429,81 +352,147 @@ function QRCodeLoginModal({
         initial={{ scale: 0.9, y: 20 }}
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.9, y: 20 }}
-        className="bg-dark-purple/90 backdrop-blur-xl border border-white/10 rounded-xl w-full max-w-md mx-4"
+        className="bg-dark-purple/90 backdrop-blur-xl border border-white/10 rounded-xl w-full max-w-lg mx-4"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-6 border-b border-white/10">
           <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <QrCode className="w-5 h-5 text-cyber-purple" />
-            {platformName} 扫码登录
+            {platformName} 登录
           </h2>
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
             <X className="w-5 h-5 text-gray-400" />
           </button>
         </div>
 
-        <div className="p-6 flex flex-col items-center">
-          {/* 二维码区域 */}
-          <div className="w-64 h-64 bg-white rounded-xl flex items-center justify-center relative overflow-hidden">
-            {status === 'loading' ? (
-              <Loader2 className="w-12 h-12 text-gray-400 animate-spin" />
-            ) : qrImage ? (
-              <>
-                <img 
-                  src={`data:image/png;base64,${qrImage}`} 
-                  alt="扫码登录"
-                  className="w-full h-full object-contain"
-                />
-                {status === 'timeout' && (
-                  <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center">
-                    <p className="text-white text-sm mb-2">二维码已过期</p>
-                    <button
-                      onClick={refreshQR}
-                      className="px-4 py-2 bg-cyber-blue rounded-lg text-white text-sm flex items-center gap-2"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                      点击刷新
-                    </button>
-                  </div>
-                )}
-                {status === 'success' && (
-                  <div className="absolute inset-0 bg-green-500/90 flex flex-col items-center justify-center">
-                    <Check className="w-16 h-16 text-white mb-2" />
-                    <p className="text-white font-medium">登录成功！</p>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="text-center p-4">
-                <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-2" />
-                <p className="text-gray-600 text-sm">加载失败</p>
+        <div className="p-6">
+          {/* 步骤1: 引导 */}
+          {step === 'guide' && (
+            <div className="space-y-6">
+              <div className="bg-deep-space/50 rounded-xl p-6">
+                <h3 className="text-white font-medium mb-4 flex items-center gap-2">
+                  <span className="w-6 h-6 bg-cyber-blue rounded-full flex items-center justify-center text-sm">1</span>
+                  打开 {platformName} 登录页面
+                </h3>
+                <button
+                  onClick={openLoginPage}
+                  className="w-full py-3 bg-gradient-to-r from-cyber-blue to-cyber-purple rounded-lg text-white font-medium hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                >
+                  <ExternalLink className="w-5 h-5" />
+                  打开 {platformName} 登录
+                </button>
+                <p className="text-gray-500 text-sm mt-3 text-center">
+                  将在新窗口中打开官方登录页面
+                </p>
               </div>
-            )}
-          </div>
 
-          {/* 状态提示 */}
-          <div className={`flex items-center gap-2 mt-6 ${statusColors[status]}`}>
-            <StatusIcon className={`w-5 h-5 ${status === 'loading' ? 'animate-spin' : ''}`} />
-            <span>{message}</span>
-          </div>
+              <div className="bg-deep-space/50 rounded-xl p-6">
+                <h3 className="text-white font-medium mb-3 flex items-center gap-2">
+                  <span className="w-6 h-6 bg-gray-600 rounded-full flex items-center justify-center text-sm">2</span>
+                  用 {platformName} App 扫码登录
+                </h3>
+                <p className="text-gray-400 text-sm">
+                  打开手机 {platformName} App，使用扫一扫功能扫描页面上的二维码完成登录
+                </p>
+              </div>
 
-          {/* 操作按钮 */}
-          {(status === 'error' || status === 'timeout') && (
-            <button
-              onClick={status === 'timeout' ? refreshQR : startLogin}
-              className="mt-4 px-6 py-2.5 bg-gradient-to-r from-cyber-blue to-cyber-purple rounded-lg text-white font-medium hover:opacity-90 transition-opacity flex items-center gap-2"
-            >
-              <RefreshCw className="w-4 h-4" />
-              重新获取二维码
-            </button>
+              <div className="bg-deep-space/50 rounded-xl p-6">
+                <h3 className="text-white font-medium mb-3 flex items-center gap-2">
+                  <span className="w-6 h-6 bg-gray-600 rounded-full flex items-center justify-center text-sm">3</span>
+                  复制 Cookie 并粘贴
+                </h3>
+                <p className="text-gray-400 text-sm mb-3">
+                  登录成功后，按 F12 打开开发者工具 → Application → Cookies → 复制所有Cookie
+                </p>
+                <button
+                  onClick={() => setStep('paste')}
+                  className="w-full py-2.5 border border-cyber-blue text-cyber-blue rounded-lg hover:bg-cyber-blue/10 transition-colors"
+                >
+                  我已完成登录，去粘贴Cookie
+                </button>
+              </div>
+            </div>
           )}
 
-          {/* 使用说明 */}
-          <div className="mt-6 text-gray-500 text-sm text-center space-y-1">
-            <p>1. 打开 {platformName} App</p>
-            <p>2. 使用扫一扫功能扫描二维码</p>
-            <p>3. 在手机上确认登录</p>
-          </div>
+          {/* 步骤2: 粘贴Cookie */}
+          {step === 'paste' && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-gray-300 text-sm mb-2">
+                  粘贴从浏览器复制的Cookie
+                </label>
+                <textarea
+                  value={cookieStr}
+                  onChange={e => setCookieStr(e.target.value)}
+                  placeholder={`从 ${platformName} 页面的开发者工具中复制Cookie粘贴到这里...\n\n支持格式：\n1. name=value; name2=value2\n2. 从开发者工具直接复制的表格格式`}
+                  className="w-full h-48 px-4 py-3 bg-deep-space/50 border border-gray-700 rounded-lg text-white text-sm focus:border-cyber-blue focus:outline-none resize-none font-mono"
+                />
+              </div>
+
+              {message && (
+                <p className="text-red-400 text-sm">{message}</p>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setStep('guide')}
+                  className="flex-1 py-2.5 border border-gray-600 text-gray-400 rounded-lg hover:text-white hover:border-gray-500 transition-colors"
+                >
+                  返回
+                </button>
+                <button
+                  onClick={verifyCookies}
+                  className="flex-1 py-2.5 bg-gradient-to-r from-cyber-blue to-cyber-purple rounded-lg text-white font-medium hover:opacity-90 transition-opacity"
+                >
+                  验证并保存
+                </button>
+              </div>
+
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                <p className="text-yellow-400 text-sm">
+                  💡 如何获取Cookie：<br/>
+                  1. 登录成功后，按 F12 打开开发者工具<br/>
+                  2. 点击 Application（应用）标签<br/>
+                  3. 左侧展开 Cookies → 选择当前网站<br/>
+                  4. 全选右侧表格内容（Ctrl+A）并复制（Ctrl+C）
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* 验证中 */}
+          {step === 'verifying' && (
+            <div className="flex flex-col items-center py-12">
+              <Loader2 className="w-12 h-12 text-cyber-blue animate-spin mb-4" />
+              <p className="text-gray-400">{message}</p>
+            </div>
+          )}
+
+          {/* 成功 */}
+          {step === 'success' && (
+            <div className="flex flex-col items-center py-12">
+              <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mb-4">
+                <Check className="w-10 h-10 text-white" />
+              </div>
+              <p className="text-green-400 font-medium text-lg">{message}</p>
+            </div>
+          )}
+
+          {/* 失败 */}
+          {step === 'error' && (
+            <div className="flex flex-col items-center py-12">
+              <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mb-4">
+                <AlertCircle className="w-10 h-10 text-red-400" />
+              </div>
+              <p className="text-red-400 mb-4">{message}</p>
+              <button
+                onClick={() => setStep('paste')}
+                className="px-6 py-2.5 bg-gradient-to-r from-cyber-blue to-cyber-purple rounded-lg text-white font-medium hover:opacity-90 transition-opacity"
+              >
+                重试
+              </button>
+            </div>
+          )}
         </div>
       </motion.div>
     </motion.div>

@@ -179,22 +179,44 @@ class QRLoginRequest(BaseModel):
     platform: str  # douyin, bilibili, weixin_video
 
 
+class SaveCookieStringRequest(BaseModel):
+    platform: str
+    cookies_str: str  # 用户从浏览器复制的Cookie字符串
+
+
 @router.post("/qrcode/start")
 async def start_qr_login(request: QRLoginRequest):
     """
-    开始扫码登录会话
-    返回session_id和二维码图片（base64）
+    开始扫码登录会话 - 返回官方登录页面URL
+    前端直接跳转到官方页面，用户扫码后点击"我已完成"
     """
     try:
-        result = await qrcode_login_service.start_login(request.platform)
+        result = qrcode_login_service.get_login_url(request.platform)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
-        logger.error(f"启动扫码登录失败: {e}")
-        raise HTTPException(status_code=500, detail=f"启动登录失败: {str(e)}")
+        logger.error(f"获取登录URL失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/qrcode/verify")
+async def verify_cookies(request: SaveCookieStringRequest):
+    """
+    验证并保存用户提供的Cookie
+    用户在官方页面登录后，复制Cookie并提交
+    """
+    try:
+        result = await qrcode_login_service.verify_and_save_cookies(
+            request.platform, 
+            request.cookies_str
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"验证Cookie失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/qrcode/status/{session_id}")
