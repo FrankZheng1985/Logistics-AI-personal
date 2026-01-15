@@ -25,11 +25,12 @@ from sqlalchemy import text
 class QRCodeLoginService:
     """二维码扫码登录服务 - 跳转官方页面方案"""
     
-    # 平台配置
+    # 平台配置 - 使用能正常显示登录二维码的页面
     PLATFORMS = {
         "douyin": {
             "name": "抖音",
-            "login_url": "https://www.douyin.com/passport/web/login/?redirect_url=https://www.douyin.com/",
+            # 使用抖音创作者平台，会自动弹出登录二维码
+            "login_url": "https://creator.douyin.com/",
             "home_url": "https://www.douyin.com/",
             "cookie_domain": ".douyin.com",
             "login_check_url": "https://www.douyin.com/user/self",
@@ -37,7 +38,8 @@ class QRCodeLoginService:
         },
         "bilibili": {
             "name": "B站",
-            "login_url": "https://passport.bilibili.com/login",
+            # B站主站，点击右上角登录
+            "login_url": "https://www.bilibili.com/",
             "home_url": "https://www.bilibili.com/",
             "cookie_domain": ".bilibili.com",
             "login_check_url": "https://api.bilibili.com/x/web-interface/nav",
@@ -45,6 +47,7 @@ class QRCodeLoginService:
         },
         "weixin_video": {
             "name": "微信视频号",
+            # 微信视频号创作者平台
             "login_url": "https://channels.weixin.qq.com/platform/login",
             "home_url": "https://channels.weixin.qq.com/platform",
             "cookie_domain": ".qq.com",
