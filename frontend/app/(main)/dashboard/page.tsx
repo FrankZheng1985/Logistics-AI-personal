@@ -54,11 +54,20 @@ function NotificationsModal({
 }: { 
   isOpen: boolean
   onClose: () => void
-  notifications: Array<{ id: string; title: string; content: string; time: string; read: boolean }>
+  notifications: Array<{ id: string; title: string; content: string; time: string; read: boolean; action_url?: string }>
   onMarkRead: (id: string) => void
   onClearAll: () => void
 }) {
   if (!isOpen) return null
+  
+  const handleNotificationClick = (notif: { id: string; action_url?: string; read: boolean }) => {
+    onMarkRead(notif.id)
+    // 如果有跳转链接，则跳转
+    if (notif.action_url) {
+      onClose()
+      window.location.href = notif.action_url
+    }
+  }
   
   return (
     <motion.div 
@@ -106,7 +115,7 @@ function NotificationsModal({
             notifications.map((notif) => (
               <div 
                 key={notif.id}
-                onClick={() => onMarkRead(notif.id)}
+                onClick={() => handleNotificationClick(notif)}
                 className={`p-4 border-b border-white/5 cursor-pointer transition-colors hover:bg-white/5 ${
                   !notif.read ? 'bg-cyber-blue/5' : ''
                 }`}
@@ -115,11 +124,19 @@ function NotificationsModal({
                   <div className={`w-2 h-2 mt-2 rounded-full ${notif.read ? 'bg-gray-600' : 'bg-cyber-blue animate-pulse'}`} />
                   <div className="flex-1">
                     <p className="font-medium text-sm">{notif.title}</p>
-                    <p className="text-gray-400 text-xs mt-1">{notif.content}</p>
-                    <p className="text-gray-500 text-xs mt-2">{notif.time}</p>
+                    <p className="text-gray-400 text-xs mt-1 line-clamp-2">{notif.content}</p>
+                    <div className="flex items-center gap-2 mt-2">
+                      <p className="text-gray-500 text-xs">{notif.time}</p>
+                      {notif.action_url && (
+                        <span className="text-cyber-blue text-xs hover:underline">查看详情 →</span>
+                      )}
+                    </div>
                   </div>
                   {!notif.read && (
-                    <button className="p-1 hover:bg-cyber-blue/20 rounded transition-colors">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onMarkRead(notif.id) }}
+                      className="p-1 hover:bg-cyber-blue/20 rounded transition-colors"
+                    >
                       <Check className="w-4 h-4 text-cyber-blue" />
                     </button>
                   )}
@@ -954,7 +971,7 @@ export default function Dashboard() {
   // 通知和设置状态
   const [showNotifications, setShowNotifications] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [notifications, setNotifications] = useState<Array<{ id: string; title: string; content: string; time: string; read: boolean }>>([])
+  const [notifications, setNotifications] = useState<Array<{ id: string; title: string; content: string; time: string; read: boolean; action_url?: string }>>([])
   const [mounted, setMounted] = useState(false)
   
   // 客户端挂载后初始化通知（从真实API获取）
@@ -963,7 +980,7 @@ export default function Dashboard() {
     // 获取真实通知
     const fetchNotifications = async () => {
       try {
-        const res = await fetch('/api/notifications?limit=5')
+        const res = await fetch('/api/notifications?limit=10')
         if (res.ok) {
           const data = await res.json()
           if (data.items && data.items.length > 0) {
@@ -972,7 +989,8 @@ export default function Dashboard() {
               title: n.title,
               content: n.content,
               time: formatTime(n.created_at),
-              read: n.is_read
+              read: n.is_read,
+              action_url: n.action_url
             })))
           }
         }

@@ -200,7 +200,8 @@ class NotificationService:
 跟进次数: {follow_count}
 视频生成: {videos_generated}
             """.strip(),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
+            "action_url": f"/reports/{date_str}"  # 添加跳转链接
         }
         
         results = {
@@ -208,13 +209,15 @@ class NotificationService:
             "channels": {}
         }
         
-        # 1. 系统通知
-        await self._save_system_notification(
+        # 1. 系统通知（带去重检查）
+        system_result = await self._save_system_notification_with_dedup(
             notification_type="daily_summary",
             title=notification["title"],
-            content=notification["content"]
+            content=notification["content"],
+            action_url=notification["action_url"],
+            dedup_key=f"daily_summary_{date_str}"  # 按日期去重
         )
-        results["channels"]["system"] = {"status": "saved"}
+        results["channels"]["system"] = system_result
         
         # 2. 邮件通知
         if self.email_enabled:
@@ -292,22 +295,81 @@ class NotificationService:
         title: str,
         content: str,
         customer_id: Optional[str] = None,
-        task_id: Optional[str] = None
+        task_id: Optional[str] = None,
+        action_url: Optional[str] = None
     ) -> Dict[str, str]:
         """保存系统通知到数据库"""
         try:
             async with async_session_maker() as db:
                 await db.execute(
                     text("""
-                        INSERT INTO notifications (type, title, content, customer_id, task_id, created_at)
-                        VALUES (:type, :title, :content, :customer_id, :task_id, NOW())
+                        INSERT INTO notifications (type, title, content, customer_id, task_id, action_url, created_at)
+                        VALUES (:type, :title, :content, :customer_id, :task_id, :action_url, NOW())
                     """),
                     {
                         "type": notification_type,
                         "title": title,
                         "content": content,
                         "customer_id": customer_id,
-                        "task_id": task_id
+                        "task_id": task_id,
+                        "action_url": action_url
+                    }
+                )
+                await db.commit()
+                return {"status": "saved"}
+        except Exception as e:
+            logger.error(f"保存系统通知失败: {e}")
+            return {"status": "error", "message": str(e)}
+    
+    async def _save_system_notification_with_dedup(
+        self, 
+        notification_type: str,
+        title: str,
+        content: str,
+        dedup_key: str,
+        customer_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        action_url: Optional[str] = None
+    ) -> Dict[str, str]:
+        """
+        保存系统通知到数据库（带去重）
+        如果当天已存在相同 dedup_key 的通知，则跳过
+        """
+        try:
+            async with async_session_maker() as db:
+                # 检查今天是否已存在相同的通知
+                result = await db.execute(
+                    text("""
+                        SELECT id FROM notifications 
+                        WHERE type = :type 
+                        AND title = :title
+                        AND DATE(created_at) = CURRENT_DATE
+                        LIMIT 1
+                    """),
+                    {
+                        "type": notification_type,
+                        "title": title
+                    }
+                )
+                existing = result.fetchone()
+                
+                if existing:
+                    logger.info(f"通知已存在，跳过重复: {title}")
+                    return {"status": "skipped", "message": "通知已存在"}
+                
+                # 不存在则创建
+                await db.execute(
+                    text("""
+                        INSERT INTO notifications (type, title, content, customer_id, task_id, action_url, created_at)
+                        VALUES (:type, :title, :content, :customer_id, :task_id, :action_url, NOW())
+                    """),
+                    {
+                        "type": notification_type,
+                        "title": title,
+                        "content": content,
+                        "customer_id": customer_id,
+                        "task_id": task_id,
+                        "action_url": action_url
                     }
                 )
                 await db.commit()

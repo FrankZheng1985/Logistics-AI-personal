@@ -431,6 +431,70 @@ async def get_market_intel_report(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/daily/latest")
+async def get_latest_daily_report():
+    """
+    获取最新的每日报告
+    """
+    try:
+        from app.services.report_generator import report_generator
+        
+        report = await report_generator.get_latest_report("daily")
+        
+        if not report:
+            # 如果没有报告，立即生成一份
+            report = await report_generator.generate_daily_report()
+        
+        return report
+    except Exception as e:
+        logger.error(f"获取最新报告失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/daily/{date}")
+async def get_daily_report_by_date(date: str):
+    """
+    根据日期获取每日报告
+    日期格式: YYYY-MM-DD
+    """
+    try:
+        async with async_session_maker() as db:
+            result = await db.execute(
+                text("""
+                    SELECT report_date, agent_stats, system_health, 
+                           business_metrics, summary, highlights, issues,
+                           recommendations, generation_time_ms, created_at
+                    FROM daily_reports
+                    WHERE report_date = :date AND report_type = 'daily'
+                    LIMIT 1
+                """),
+                {"date": date}
+            )
+            
+            row = result.fetchone()
+            if row:
+                return {
+                    "report_date": str(row[0]),
+                    "report_type": "daily",
+                    "agent_stats": row[1],
+                    "system_health": row[2],
+                    "business_metrics": row[3],
+                    "summary": row[4],
+                    "highlights": row[5],
+                    "issues": row[6],
+                    "recommendations": row[7],
+                    "generation_time_ms": row[8],
+                    "created_at": row[9].isoformat() if row[9] else None
+                }
+            
+            raise HTTPException(status_code=404, detail="报告不存在")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取报告失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/knowledge")
 async def get_knowledge_report():
     """

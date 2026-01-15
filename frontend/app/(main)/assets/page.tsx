@@ -257,6 +257,44 @@ function PlayModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
 }
 
 // 扫码登录弹窗 - 跳转官方页面方案
+// 平台特定配置
+const PLATFORM_LOGIN_CONFIG: Record<string, {
+  loginPageName: string
+  scanMethod: string
+  cookieDomain: string
+  keyCookies: string[]
+  cookieHint: string
+}> = {
+  douyin: {
+    loginPageName: '抖音创作者中心',
+    scanMethod: '打开抖音App → 点击左上角扫一扫',
+    cookieDomain: '.douyin.com 或 creator.douyin.com',
+    keyCookies: ['sessionid', 'passport_csrf_token', 'sid_guard'],
+    cookieHint: '选择 https://creator.douyin.com 下的Cookies'
+  },
+  bilibili: {
+    loginPageName: 'B站主页',
+    scanMethod: '打开B站App → 扫一扫',
+    cookieDomain: '.bilibili.com',
+    keyCookies: ['SESSDATA', 'bili_jct', 'DedeUserID'],
+    cookieHint: '选择 .bilibili.com 下的Cookies'
+  },
+  weixin_video: {
+    loginPageName: '微信视频号助手',
+    scanMethod: '打开微信 → 扫一扫',
+    cookieDomain: '.qq.com 或 channels.weixin.qq.com',
+    keyCookies: ['wxuin', 'wxsid', 'pass_ticket'],
+    cookieHint: '选择 channels.weixin.qq.com 下的Cookies'
+  },
+  xiaohongshu: {
+    loginPageName: '小红书创作者中心',
+    scanMethod: '打开小红书App → 扫一扫',
+    cookieDomain: '.xiaohongshu.com',
+    keyCookies: ['web_session', 'a1', 'webId'],
+    cookieHint: '选择 .xiaohongshu.com 下的Cookies'
+  }
+}
+
 function QRCodeLoginModal({ 
   platform, 
   platformName,
@@ -273,6 +311,15 @@ function QRCodeLoginModal({
   const [cookieStr, setCookieStr] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
+  
+  // 获取平台配置
+  const config = PLATFORM_LOGIN_CONFIG[platform] || {
+    loginPageName: `${platformName}官网`,
+    scanMethod: `打开${platformName}App扫码`,
+    cookieDomain: '当前网站',
+    keyCookies: ['session'],
+    cookieHint: '选择当前网站的Cookies'
+  }
 
   // 打开登录页面 - 点击时获取URL并打开
   const openLoginPage = async () => {
@@ -383,7 +430,7 @@ function QRCodeLoginModal({
               <div className="bg-deep-space/50 rounded-xl p-6">
                 <h3 className="text-white font-medium mb-4 flex items-center gap-2">
                   <span className="w-6 h-6 bg-cyber-blue rounded-full flex items-center justify-center text-sm">1</span>
-                  打开 {platformName} 登录页面
+                  打开 {config.loginPageName}
                 </h3>
                 <button
                   onClick={openLoginPage}
@@ -398,12 +445,12 @@ function QRCodeLoginModal({
                   ) : (
                     <>
                       <ExternalLink className="w-5 h-5" />
-                      打开 {platformName} 登录
+                      打开 {config.loginPageName}
                     </>
                   )}
                 </button>
                 <p className="text-gray-500 text-sm mt-3 text-center">
-                  将在新窗口中打开官方登录页面
+                  将在新窗口中打开 <span className="text-cyber-blue">{config.loginPageName}</span>
                 </p>
                 {loginUrl && (
                   <div className="mt-4 p-3 bg-cyber-blue/10 rounded-lg">
@@ -426,10 +473,11 @@ function QRCodeLoginModal({
               <div className="bg-deep-space/50 rounded-xl p-6">
                 <h3 className="text-white font-medium mb-3 flex items-center gap-2">
                   <span className="w-6 h-6 bg-gray-600 rounded-full flex items-center justify-center text-sm">2</span>
-                  用 {platformName} App 扫码登录
+                  扫码登录
                 </h3>
                 <p className="text-gray-400 text-sm">
-                  打开手机 {platformName} App，使用扫一扫功能扫描页面上的二维码完成登录
+                  <span className="text-cyber-blue">{config.scanMethod}</span>
+                  <br />扫描页面上的二维码完成登录
                 </p>
               </div>
 
@@ -438,9 +486,18 @@ function QRCodeLoginModal({
                   <span className="w-6 h-6 bg-gray-600 rounded-full flex items-center justify-center text-sm">3</span>
                   复制 Cookie 并粘贴
                 </h3>
-                <p className="text-gray-400 text-sm mb-3">
-                  登录成功后，按 F12 打开开发者工具 → Application → Cookies → 复制所有Cookie
-                </p>
+                <div className="text-gray-400 text-sm mb-3 space-y-2">
+                  <p>登录成功后：</p>
+                  <ol className="list-decimal list-inside space-y-1 text-xs">
+                    <li>按 <span className="text-white bg-gray-700 px-1 rounded">F12</span> 打开开发者工具</li>
+                    <li>点击 <span className="text-white">Application</span>（应用）标签</li>
+                    <li>左侧展开 <span className="text-white">Cookies</span> → <span className="text-cyber-blue">{config.cookieHint}</span></li>
+                    <li>右侧表格 <span className="text-white">Ctrl+A</span> 全选 → <span className="text-white">Ctrl+C</span> 复制</li>
+                  </ol>
+                  <p className="text-xs text-yellow-400 mt-2">
+                    💡 关键Cookie: <span className="text-white">{config.keyCookies.join(', ')}</span>
+                  </p>
+                </div>
                 <button
                   onClick={() => setStep('paste')}
                   className="w-full py-2.5 border border-cyber-blue text-cyber-blue rounded-lg hover:bg-cyber-blue/10 transition-colors"
@@ -461,7 +518,7 @@ function QRCodeLoginModal({
                 <textarea
                   value={cookieStr}
                   onChange={e => setCookieStr(e.target.value)}
-                  placeholder={`从 ${platformName} 页面的开发者工具中复制Cookie粘贴到这里...\n\n支持格式：\n1. name=value; name2=value2\n2. 从开发者工具直接复制的表格格式`}
+                  placeholder={`从 ${config.loginPageName} 页面的开发者工具中复制Cookie粘贴到这里...\n\n支持格式：\n1. name=value; name2=value2\n2. 从开发者工具直接复制的表格格式`}
                   className="w-full h-48 px-4 py-3 bg-deep-space/50 border border-gray-700 rounded-lg text-white text-sm focus:border-cyber-blue focus:outline-none resize-none font-mono"
                 />
               </div>
@@ -487,11 +544,17 @@ function QRCodeLoginModal({
 
               <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
                 <p className="text-yellow-400 text-sm">
-                  💡 如何获取Cookie：<br/>
-                  1. 登录成功后，按 F12 打开开发者工具<br/>
-                  2. 点击 Application（应用）标签<br/>
-                  3. 左侧展开 Cookies → 选择当前网站<br/>
-                  4. 全选右侧表格内容（Ctrl+A）并复制（Ctrl+C）
+                  💡 {platformName} Cookie 获取指南：
+                </p>
+                <ol className="text-yellow-400/80 text-xs mt-2 space-y-1 list-decimal list-inside">
+                  <li>在 <span className="text-white">{config.loginPageName}</span> 登录成功后</li>
+                  <li>按 <span className="text-white bg-gray-700 px-1 rounded">F12</span> 打开开发者工具</li>
+                  <li>点击 <span className="text-white">Application</span>（应用）标签</li>
+                  <li>左侧 Cookies → 选择 <span className="text-cyan-400">{config.cookieDomain}</span></li>
+                  <li>右侧表格 <span className="text-white">Ctrl+A</span> 全选 → <span className="text-white">Ctrl+C</span> 复制</li>
+                </ol>
+                <p className="text-xs text-gray-400 mt-3">
+                  🔑 确保包含: <span className="text-green-400">{config.keyCookies.join(', ')}</span>
                 </p>
               </div>
             </div>
