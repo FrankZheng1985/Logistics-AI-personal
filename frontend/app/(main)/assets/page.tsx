@@ -280,10 +280,10 @@ const PLATFORM_LOGIN_CONFIG: Record<string, {
     cookieHint: '选择 .bilibili.com 下的Cookies'
   },
   weixin_video: {
-    loginPageName: '微信视频号助手',
+    loginPageName: '微信视频号',
     scanMethod: '打开微信 → 扫一扫',
     cookieDomain: '.qq.com 或 channels.weixin.qq.com',
-    keyCookies: ['wxuin', 'wxsid', 'pass_ticket'],
+    keyCookies: ['uin', 'skey', 'wxuin'],
     cookieHint: '选择 channels.weixin.qq.com 下的Cookies'
   },
   xiaohongshu: {

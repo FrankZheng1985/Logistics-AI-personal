@@ -47,12 +47,12 @@ class QRCodeLoginService:
         },
         "weixin_video": {
             "name": "微信视频号",
-            # 微信视频号创作者平台
-            "login_url": "https://channels.weixin.qq.com/platform/login",
-            "home_url": "https://channels.weixin.qq.com/platform",
+            # 微信视频号主页 - 普通登录浏览素材
+            "login_url": "https://channels.weixin.qq.com/",
+            "home_url": "https://channels.weixin.qq.com/",
             "cookie_domain": ".qq.com",
-            "login_check_url": "https://channels.weixin.qq.com/platform",
-            "login_indicators": ["uin", "skey"]
+            "login_check_url": "https://channels.weixin.qq.com/",
+            "login_indicators": ["uin", "skey", "wxuin"]
         }
     }
     

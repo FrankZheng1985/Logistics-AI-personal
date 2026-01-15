@@ -484,6 +484,48 @@ class NotificationService:
             logger.error(f"标记所有通知已读失败: {e}")
             return 0
     
+    async def create_notification(
+        self,
+        title: str,
+        content: str,
+        notification_type: str = "system",
+        priority: str = "medium",
+        related_id: Optional[str] = None,
+        related_type: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        创建系统通知
+        
+        Args:
+            title: 通知标题
+            content: 通知内容
+            notification_type: 通知类型
+            priority: 优先级 (high/medium/low)
+            related_id: 关联ID (客户ID、任务ID等)
+            related_type: 关联类型 (customer/task/lead等)
+        """
+        try:
+            async with async_session_maker() as db:
+                await db.execute(
+                    text("""
+                        INSERT INTO notifications (type, title, content, customer_id, priority, created_at)
+                        VALUES (:type, :title, :content, :customer_id, :priority, NOW())
+                    """),
+                    {
+                        "type": notification_type,
+                        "title": title,
+                        "content": content,
+                        "customer_id": related_id if related_type == "customer" else None,
+                        "priority": priority
+                    }
+                )
+                await db.commit()
+                logger.info(f"📢 通知已创建: {title}")
+                return {"status": "saved", "title": title}
+        except Exception as e:
+            logger.error(f"创建通知失败: {e}")
+            return {"status": "error", "message": str(e)}
+    
     async def send_to_boss(
         self,
         title: str,

@@ -350,6 +350,87 @@ async def convert_lead_to_customer(
     
     logger.info(f"线索 {lead.name} 转化为客户 {customer.id}")
     
+    # ==================== 自动触发首次跟进 ====================
+    try:
+        from app.agents.follow_agent import follow_agent
+        from app.services.notification import notification_service
+        from sqlalchemy import text
+        
+        # 1. 生成首次跟进内容
+        follow_result = await follow_agent.process({
+            "customer_info": {
+                "name": customer.name,
+                "company": customer.company,
+                "source": lead.source.value if lead.source else "unknown"
+            },
+            "intent_level": customer.intent_level.value if customer.intent_level else "B",
+            "last_contact": "首次联系",
+            "last_conversation": f"线索来源: {lead.ai_summary or '无'}",
+            "purpose": "首次跟进 - 新线索转化"
+        })
+        
+        follow_message = follow_result.get("follow_message", "")
+        next_follow_time = follow_result.get("next_follow_time")
+        
+        # 2. 创建首次跟进记录
+        if follow_message:
+            await db.execute(
+                text("""
+                    INSERT INTO follow_records 
+                    (customer_id, follow_type, channel, executor_type, executor_name, 
+                     content, intent_before, intent_after, created_at)
+                    VALUES (:customer_id, 'first_contact', 'system', 'follow', '小跟',
+                            :content, :intent_score, :intent_score, NOW())
+                """),
+                {
+                    "customer_id": str(customer.id),
+                    "content": f"[自动生成首次跟进]\n{follow_message}",
+                    "intent_score": customer.intent_score or 0
+                }
+            )
+            await db.commit()
+        
+        # 3. 更新客户下次跟进时间
+        if next_follow_time:
+            from datetime import datetime as dt
+            # 将字符串转换为 datetime 对象
+            if isinstance(next_follow_time, str):
+                try:
+                    next_follow_dt = dt.fromisoformat(next_follow_time.replace('Z', '+00:00'))
+                except:
+                    next_follow_dt = dt.now()
+            else:
+                next_follow_dt = next_follow_time
+            
+            await db.execute(
+                text("""
+                    UPDATE customers 
+                    SET next_follow_at = :next_follow_time
+                    WHERE id = :customer_id
+                """),
+                {
+                    "customer_id": str(customer.id),
+                    "next_follow_time": next_follow_dt
+                }
+            )
+            await db.commit()
+        
+        # 4. 发送通知
+        await notification_service.create_notification(
+            title="🎯 新客户待跟进",
+            content=f"线索「{lead.name}」已转化为客户，小跟已生成首次跟进话术，请及时联系！",
+            notification_type="follow_reminder",
+            priority="high" if customer.intent_level and customer.intent_level.value == "A" else "medium",
+            related_id=str(customer.id),
+            related_type="customer"
+        )
+        
+        logger.info(f"✅ 已为新客户 {customer.name} 触发首次跟进流程")
+        
+    except Exception as e:
+        # 跟进触发失败不影响转化结果
+        logger.error(f"触发首次跟进失败: {e}")
+    
     return {
         "message": "转化成功",
         "customer_id": str(customer.id),
