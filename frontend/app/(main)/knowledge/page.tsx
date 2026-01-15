@@ -309,6 +309,23 @@ export default function KnowledgePage() {
     }
   }
 
+  // 获取知识库统计
+  const fetchStatistics = async () => {
+    try {
+      const res = await fetch('/api/knowledge/statistics')
+      if (res.ok) {
+        const data = await res.json()
+        const newStats: Record<string, number> = { all: data.total?.count || 0 }
+        data.by_type?.forEach((item: { type: string; count: number }) => {
+          newStats[item.type] = item.count
+        })
+        setStats(newStats)
+      }
+    } catch (error) {
+      console.error('获取统计失败:', error)
+    }
+  }
+
   // 获取知识列表
   const fetchKnowledge = useCallback(async () => {
     try {
@@ -319,18 +336,12 @@ export default function KnowledgePage() {
       if (searchQuery) {
         params.append('query', searchQuery)
       }
+      params.append('limit', '100') // 增加返回数量
       
       const res = await fetch(`/api/knowledge/?${params.toString()}`)
       if (res.ok) {
         const data = await res.json()
         setKnowledge(data.items || [])
-        
-        // 计算各类型数量
-        const newStats: Record<string, number> = { all: data.items?.length || 0 }
-        data.items?.forEach((item: KnowledgeItem) => {
-          newStats[item.knowledge_type] = (newStats[item.knowledge_type] || 0) + 1
-        })
-        setStats(newStats)
       }
     } catch (error) {
       console.error('获取知识列表失败:', error)
@@ -370,12 +381,20 @@ export default function KnowledgePage() {
 
   useEffect(() => {
     fetchTypes()
+    fetchStatistics()
   }, [])
 
   useEffect(() => {
     setLoading(true)
     fetchKnowledge()
   }, [fetchKnowledge])
+
+  // 数据变化后刷新统计
+  useEffect(() => {
+    if (!loading) {
+      fetchStatistics()
+    }
+  }, [knowledge, loading])
 
   // 构建分类列表
   const categories = [
