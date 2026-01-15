@@ -71,8 +71,15 @@ async def list_assets(
                 params["category"] = category
             
             # 统计总数
-            count_sql = f"SELECT COUNT(*) FROM ({sql}) AS sub"
-            count_result = await db.execute(text(count_sql.replace("SELECT id, name, type, category, duration, file_size, file_url, thumbnail_url, usage_count, created_at", "SELECT id")), params)
+            count_sql = "SELECT COUNT(*) FROM assets WHERE 1=1"
+            count_params = {}
+            if type:
+                count_sql += " AND type = :type"
+                count_params["type"] = type
+            if category:
+                count_sql += " AND category = :category"
+                count_params["category"] = category
+            count_result = await db.execute(text(count_sql), count_params)
             total = count_result.scalar() or 0
             
             # 分页查询
