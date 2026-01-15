@@ -72,15 +72,25 @@ jobs:
             
             if [ -n "$BUILD_SERVICES" ]; then
               echo "构建服务: $BUILD_SERVICES"
-              # 使用缓存构建（移除 --no-cache）
+              
+              # 先停止需要重建的服务，避免容器名称冲突
+              echo "🛑 停止需要重建的服务..."
+              docker-compose -f docker-compose.prod.yml stop $BUILD_SERVICES 2>/dev/null || true
+              docker-compose -f docker-compose.prod.yml rm -f $BUILD_SERVICES 2>/dev/null || true
+              
+              # 清理可能存在的孤立容器（名称冲突的根源）
+              echo "🧹 清理孤立容器..."
+              docker container prune -f 2>/dev/null || true
+              
+              # 使用缓存构建
               docker-compose -f docker-compose.prod.yml build $BUILD_SERVICES
             else
               echo "⏭️ 无需重建，只重启服务"
             fi
             
-            # 启动/重启服务
+            # 启动/重启服务（使用 --force-recreate 确保容器被正确重建）
             echo "🚀 启动服务..."
-            docker-compose -f docker-compose.prod.yml up -d
+            docker-compose -f docker-compose.prod.yml up -d --remove-orphans
             
             # 等待服务健康
             echo "⏳ 等待服务启动..."
