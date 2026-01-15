@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Bell, Check, AlertTriangle, User, Video, MessageSquare, Target, Trash2, CheckCircle } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { Bell, Check, AlertTriangle, User, Video, MessageSquare, Target, Trash2, CheckCircle, RefreshCw } from 'lucide-react'
 
 interface Notification {
   id: string
@@ -15,60 +15,6 @@ interface Notification {
   created_at: string
   action_url?: string
 }
-
-const mockNotifications: Notification[] = [
-  {
-    id: '1',
-    type: 'high_intent',
-    title: '🔥 发现高意向客户',
-    content: '客户 "张经理" 意向分数达到 85 分，询问了美国海运报价和时效，建议立即跟进',
-    customer_name: '张经理',
-    is_read: false,
-    priority: 'urgent',
-    created_at: new Date().toISOString(),
-    action_url: '/customers'
-  },
-  {
-    id: '2',
-    type: 'system_alert',
-    title: '⚠️ API状态异常',
-    content: '可灵AI视频接口响应时间超过5秒，可能影响视频生成速度',
-    is_read: false,
-    priority: 'high',
-    created_at: new Date(Date.now() - 1800000).toISOString(),
-    action_url: '/monitoring'
-  },
-  {
-    id: '3',
-    type: 'video_ready',
-    title: '✅ 视频生成完成',
-    content: '视频《FBA物流全流程解析》已生成完成，时长2分30秒',
-    is_read: false,
-    priority: 'normal',
-    created_at: new Date(Date.now() - 3600000).toISOString(),
-    action_url: '/videos'
-  },
-  {
-    id: '4',
-    type: 'lead_found',
-    title: '📍 发现新线索',
-    content: '小猎在微博发现 3 条高质量物流需求线索，已自动分析和入库',
-    is_read: true,
-    priority: 'normal',
-    created_at: new Date(Date.now() - 7200000).toISOString(),
-    action_url: '/leads'
-  },
-  {
-    id: '5',
-    type: 'task_complete',
-    title: '📝 日报已生成',
-    content: '小调已完成今日AI团队工作日报，请查阅',
-    is_read: true,
-    priority: 'low',
-    created_at: new Date(Date.now() - 86400000).toISOString(),
-    action_url: '/team/coordinator'
-  }
-]
 
 const typeIcons: Record<string, any> = {
   high_intent: User,
@@ -94,30 +40,83 @@ const priorityColors: Record<string, string> = {
 }
 
 export default function NotificationsPage() {
-  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications)
+  const [notifications, setNotifications] = useState<Notification[]>([])
   const [filter, setFilter] = useState<'all' | 'unread'>('all')
+  const [loading, setLoading] = useState(true)
+  const [unreadCount, setUnreadCount] = useState(0)
+
+  const fetchNotifications = useCallback(async () => {
+    try {
+      setLoading(true)
+      const params = new URLSearchParams()
+      if (filter === 'unread') {
+        params.append('is_read', 'false')
+      }
+      
+      const res = await fetch(`/api/notifications?${params}`)
+      if (res.ok) {
+        const data = await res.json()
+        setNotifications(data.items || [])
+        setUnreadCount(data.unread_count || 0)
+      }
+    } catch (error) {
+      console.error('获取通知失败:', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [filter])
+
+  useEffect(() => {
+    fetchNotifications()
+  }, [fetchNotifications])
 
   const filteredNotifications = notifications.filter(n => 
     filter === 'all' || !n.is_read
   )
 
-  const unreadCount = notifications.filter(n => !n.is_read).length
-
-  const markAsRead = (id: string) => {
-    setNotifications(prev => prev.map(n => 
-      n.id === id ? { ...n, is_read: true } : n
-    ))
+  const markAsRead = async (id: string) => {
+    try {
+      const res = await fetch(`/api/notifications/${id}/read`, { method: 'PUT' })
+      if (res.ok) {
+        setNotifications(prev => prev.map(n => 
+          n.id === id ? { ...n, is_read: true } : n
+        ))
+        setUnreadCount(prev => Math.max(0, prev - 1))
+      }
+    } catch (error) {
+      console.error('标记已读失败:', error)
+    }
   }
 
-  const markAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
+  const markAllAsRead = async () => {
+    try {
+      const res = await fetch('/api/notifications/read-all', { method: 'PUT' })
+      if (res.ok) {
+        setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
+        setUnreadCount(0)
+      }
+    } catch (error) {
+      console.error('标记全部已读失败:', error)
+    }
   }
 
-  const deleteNotification = (id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id))
+  const deleteNotification = async (id: string) => {
+    try {
+      const res = await fetch(`/api/notifications/${id}`, { method: 'DELETE' })
+      if (res.ok) {
+        const wasUnread = notifications.find(n => n.id === id)?.is_read === false
+        setNotifications(prev => prev.filter(n => n.id !== id))
+        if (wasUnread) {
+          setUnreadCount(prev => Math.max(0, prev - 1))
+        }
+      }
+    } catch (error) {
+      console.error('删除通知失败:', error)
+    }
   }
 
   const formatTime = (dateStr: string) => {
+    if (!dateStr) return ''
     const date = new Date(dateStr)
     const now = new Date()
     const diff = now.getTime() - date.getTime()
@@ -142,6 +141,13 @@ export default function NotificationsPage() {
           </p>
         </div>
         <div className="flex items-center gap-4">
+          <button
+            onClick={fetchNotifications}
+            className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+            title="刷新"
+          >
+            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
           <div className="flex bg-dark-purple/40 rounded-lg p-1">
             <button
               onClick={() => setFilter('all')}
@@ -178,23 +184,31 @@ export default function NotificationsPage() {
 
       {/* 通知列表 */}
       <div className="space-y-3">
-        {filteredNotifications.length === 0 ? (
+        {loading ? (
+          <div className="bg-dark-purple/40 rounded-xl p-12 text-center">
+            <RefreshCw className="w-8 h-8 text-cyber-blue mx-auto mb-4 animate-spin" />
+            <p className="text-gray-400">加载中...</p>
+          </div>
+        ) : filteredNotifications.length === 0 ? (
           <div className="bg-dark-purple/40 rounded-xl p-12 text-center">
             <Bell className="w-16 h-16 text-gray-600 mx-auto mb-4" />
             <p className="text-gray-400 text-lg">暂无通知</p>
+            <p className="text-gray-500 text-sm mt-2">
+              系统会在有重要事件时通知您
+            </p>
           </div>
         ) : (
           filteredNotifications.map(notification => {
-            const IconComponent = typeIcons[notification.type]
+            const IconComponent = typeIcons[notification.type] || Bell
             return (
               <div
                 key={notification.id}
-                className={`bg-dark-purple/40 rounded-xl p-5 border-l-4 ${priorityColors[notification.priority]} ${
+                className={`bg-dark-purple/40 rounded-xl p-5 border-l-4 ${priorityColors[notification.priority] || 'border-l-blue-500'} ${
                   !notification.is_read ? 'ring-1 ring-cyber-blue/30' : ''
                 }`}
               >
                 <div className="flex items-start gap-4">
-                  <div className={`p-3 rounded-lg ${typeColors[notification.type]}`}>
+                  <div className={`p-3 rounded-lg ${typeColors[notification.type] || 'text-gray-400 bg-gray-400/10'}`}>
                     <IconComponent className="w-5 h-5" />
                   </div>
                   <div className="flex-1 min-w-0">

@@ -132,8 +132,8 @@ export default function AgentDetailPage() {
       if (statsRes.ok) {
         const data = await statsRes.json()
         setStats({
-          tasks_today: data.tasks_completed_today || 0,
-          tasks_total: data.tasks_completed_total || 0,
+          tasks_today: data.tasks_today || 0,
+          tasks_total: data.total_tasks || 0,
           success_rate: data.success_rate || 100,
           avg_duration_ms: data.avg_task_duration_ms || 0,
           status: data.status || 'online',
@@ -141,39 +141,12 @@ export default function AgentDetailPage() {
         })
       }
       
-      // 获取工作日志（模拟数据，实际需要API）
-      // const logsRes = await fetch(`/api/agents/${agentType}/logs`)
-      // if (logsRes.ok) {
-      //   setWorkLogs(await logsRes.json())
-      // }
-      
-      // 模拟工作日志数据
-      setWorkLogs([
-        {
-          id: '1',
-          task_type: agentInfo.tasks[0] || '任务',
-          status: 'success',
-          started_at: new Date(Date.now() - 3600000).toISOString(),
-          completed_at: new Date(Date.now() - 3500000).toISOString(),
-          duration_ms: 100000
-        },
-        {
-          id: '2',
-          task_type: agentInfo.tasks[1] || '任务',
-          status: 'success',
-          started_at: new Date(Date.now() - 7200000).toISOString(),
-          completed_at: new Date(Date.now() - 7100000).toISOString(),
-          duration_ms: 100000
-        },
-        {
-          id: '3',
-          task_type: agentInfo.tasks[0] || '任务',
-          status: 'running',
-          started_at: new Date().toISOString(),
-          completed_at: null,
-          duration_ms: null
-        }
-      ])
+      // 获取工作日志（从真实API）
+      const logsRes = await fetch(`/api/agents/${agentType}/logs`)
+      if (logsRes.ok) {
+        const data = await logsRes.json()
+        setWorkLogs(data.logs || [])
+      }
       
     } catch (error) {
       console.error('获取数据失败:', error)

@@ -1,13 +1,15 @@
 """
 AI员工管理API
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 from uuid import UUID
 from datetime import datetime
+from loguru import logger
 
 from app.models import get_db, AIAgent, AgentType, AgentStatus
+from app.models.database import AsyncSessionLocal
 
 router = APIRouter()
 
@@ -167,3 +169,58 @@ async def update_agent_status_by_name(
         "new_status": new_status.value,
         "message": f"状态已更新为 {new_status.value}"
     }
+
+
+@router.get("/{agent_type}/logs")
+async def get_agent_logs(
+    agent_type: AgentType,
+    limit: int = Query(20, ge=1, le=100)
+):
+    """获取AI员工工作日志"""
+    try:
+        async with AsyncSessionLocal() as db:
+            # 先获取agent ID
+            result = await db.execute(
+                text("SELECT id FROM ai_agents WHERE agent_type = :agent_type"),
+                {"agent_type": agent_type.value}
+            )
+            agent_row = result.fetchone()
+            
+            if not agent_row:
+                return {"logs": []}
+            
+            agent_id = agent_row[0]
+            
+            # 获取工作日志
+            result = await db.execute(
+                text("""
+                    SELECT id, task_type, status, started_at, completed_at, 
+                           duration_ms, input_data, output_data, error_message
+                    FROM work_logs
+                    WHERE agent_id = :agent_id
+                    ORDER BY started_at DESC
+                    LIMIT :limit
+                """),
+                {"agent_id": agent_id, "limit": limit}
+            )
+            rows = result.fetchall()
+            
+            logs = [
+                {
+                    "id": str(row[0]),
+                    "task_type": row[1],
+                    "status": row[2],
+                    "started_at": row[3].isoformat() if row[3] else None,
+                    "completed_at": row[4].isoformat() if row[4] else None,
+                    "duration_ms": row[5],
+                    "input_data": row[6],
+                    "output_data": row[7],
+                    "error_message": row[8]
+                }
+                for row in rows
+            ]
+            
+            return {"logs": logs}
+    except Exception as e:
+        logger.error(f"获取工作日志失败: {e}")
+        return {"logs": []}
