@@ -125,6 +125,13 @@ class AssetCollectorAgent(BaseAgent):
                         best_file = max(video_files, key=lambda x: x.get("width", 0)) if video_files else None
                         
                         if best_file:
+                            # 估算文件大小（基于分辨率和时长）
+                            width = best_file.get("width", 1920)
+                            height = best_file.get("height", 1080)
+                            duration = video.get("duration", 10)
+                            # 估算：1080p 约 5MB/分钟，按分辨率比例调整
+                            estimated_size = int((width * height / (1920 * 1080)) * duration * 5 * 1024 * 1024 / 60)
+                            
                             results.append({
                                 "name": f"Pexels_{video['id']}",
                                 "platform": "pexels",
@@ -133,8 +140,9 @@ class AssetCollectorAgent(BaseAgent):
                                 "thumbnail_url": video.get("image"),
                                 "type": "video",
                                 "duration": video.get("duration"),
-                                "width": best_file.get("width"),
-                                "height": best_file.get("height"),
+                                "width": width,
+                                "height": height,
+                                "file_size": estimated_size,
                                 "tags": [keyword],
                                 "author": video.get("user", {}).get("name")
                             })
@@ -172,6 +180,14 @@ class AssetCollectorAgent(BaseAgent):
                         large = videos.get("large", {})
                         
                         if large.get("url"):
+                            # 估算文件大小
+                            width = large.get("width", 1920)
+                            height = large.get("height", 1080)
+                            duration = video.get("duration", 10)
+                            estimated_size = int((width * height / (1920 * 1080)) * duration * 5 * 1024 * 1024 / 60)
+                            # Pixabay 返回文件大小
+                            file_size = large.get("size", estimated_size)
+                            
                             results.append({
                                 "name": f"Pixabay_{video['id']}",
                                 "platform": "pixabay",
@@ -180,8 +196,9 @@ class AssetCollectorAgent(BaseAgent):
                                 "thumbnail_url": video.get("pictureId"),
                                 "type": "video",
                                 "duration": video.get("duration"),
-                                "width": large.get("width"),
-                                "height": large.get("height"),
+                                "width": width,
+                                "height": height,
+                                "file_size": file_size,
                                 "tags": video.get("tags", "").split(", "),
                                 "author": video.get("user")
                             })
@@ -206,11 +223,11 @@ class AssetCollectorAgent(BaseAgent):
                         logger.debug(f"[小采] 素材已存在，跳过: {asset.get('name')}")
                         continue
                     
-                    # 插入新素材
+                    # 插入新素材（包含文件大小）
                     await db.execute(
                         text("""
-                            INSERT INTO assets (name, type, category, file_url, thumbnail_url, duration)
-                            VALUES (:name, :type, :category, :file_url, :thumbnail_url, :duration)
+                            INSERT INTO assets (name, type, category, file_url, thumbnail_url, duration, file_size)
+                            VALUES (:name, :type, :category, :file_url, :thumbnail_url, :duration, :file_size)
                         """),
                         {
                             "name": asset.get("name"),
@@ -218,7 +235,8 @@ class AssetCollectorAgent(BaseAgent):
                             "category": asset.get("platform"),
                             "file_url": asset.get("file_url"),
                             "thumbnail_url": asset.get("thumbnail_url"),
-                            "duration": asset.get("duration")
+                            "duration": asset.get("duration"),
+                            "file_size": asset.get("file_size", 0)
                         }
                     )
                     saved_count += 1
