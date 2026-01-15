@@ -87,14 +87,15 @@ class SalesAgent(BaseAgent):
     
     async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        处理客户对话
+        处理对话
         
         Args:
             input_data: {
-                "customer_id": "客户ID",
-                "message": "客户消息",
+                "customer_id": "客户/同事ID",
+                "message": "消息内容",
                 "customer_info": "客户信息（可选）",
-                "chat_history": "对话历史（可选）"
+                "chat_history": "对话历史（可选）",
+                "context": {"user_type": "external/internal"}
             }
         
         Returns:
@@ -108,12 +109,34 @@ class SalesAgent(BaseAgent):
         message = input_data.get("message", "")
         customer_info = input_data.get("customer_info", "新客户，暂无信息")
         chat_history = input_data.get("chat_history", "无历史对话")
+        context = input_data.get("context", {})
+        user_type = context.get("user_type", "external")
         
         # 获取公司上下文信息
         company_context = await self._get_company_context()
         
-        # 构建对话提示，包含公司信息
-        chat_prompt = f"""你正在与一位潜在客户对话。
+        # 根据用户类型使用不同的提示
+        if user_type == "internal":
+            # 内部同事模式 - 轻松友好的同事语气
+            chat_prompt = f"""你是公司的AI助手"小销"，现在正在和公司内部的同事聊天。
+
+## 你所在公司的信息
+{company_context if company_context else "暂未配置公司信息"}
+
+## 同事的消息
+{message}
+
+请用轻松、友好的同事语气回复。特点：
+1. 语气亲切随和，像朋友聊天一样
+2. 可以用一些轻松的表情符号
+3. 如果同事问工作相关问题，尽力帮助解答
+4. 如果是闲聊，也可以简单回应
+5. 不需要太正式，但要专业
+6. 回复简洁，不要太长
+"""
+        else:
+            # 外部客户模式 - 专业的销售客服语气
+            chat_prompt = f"""你正在与一位潜在客户对话。
 
 ## 你所在公司的信息
 {company_context if company_context else "暂未配置公司信息"}
@@ -133,11 +156,15 @@ class SalesAgent(BaseAgent):
         # 生成回复
         reply = await self.think([{"role": "user", "content": chat_prompt}])
         
-        # 分析意向信号和收集的信息
-        intent_signals = self._analyze_intent_signals(message)
-        collected_info = self._extract_info(message)
+        # 分析意向信号和收集的信息（仅对外部客户）
+        intent_signals = []
+        collected_info = {}
+        if user_type == "external":
+            intent_signals = self._analyze_intent_signals(message)
+            collected_info = self._extract_info(message)
         
-        self.log(f"回复客户 {customer_id[:8]}...: {reply[:50]}...")
+        log_prefix = "同事" if user_type == "internal" else "客户"
+        self.log(f"回复{log_prefix} {customer_id[:8]}...: {reply[:50]}...")
         
         return {
             "reply": reply,
