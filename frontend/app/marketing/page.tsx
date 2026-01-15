@@ -96,7 +96,7 @@ export default function MarketingPage() {
 
       {/* 统计卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-dark-card rounded-xl p-5">
+        <div className="bg-dark-purple/40 rounded-xl p-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-blue-400/10 rounded-lg">
               <Mail className="w-5 h-5 text-blue-400" />
@@ -105,7 +105,7 @@ export default function MarketingPage() {
           </div>
           <p className="text-2xl font-bold text-white">{sequences.length}</p>
         </div>
-        <div className="bg-dark-card rounded-xl p-5">
+        <div className="bg-dark-purple/40 rounded-xl p-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-green-400/10 rounded-lg">
               <Play className="w-5 h-5 text-green-400" />
@@ -116,7 +116,7 @@ export default function MarketingPage() {
             {sequences.filter(s => s.status === 'active').length}
           </p>
         </div>
-        <div className="bg-dark-card rounded-xl p-5">
+        <div className="bg-dark-purple/40 rounded-xl p-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-purple-400/10 rounded-lg">
               <Users className="w-5 h-5 text-purple-400" />
@@ -127,7 +127,7 @@ export default function MarketingPage() {
             {sequences.reduce((sum, s) => sum + s.enrolled_count, 0)}
           </p>
         </div>
-        <div className="bg-dark-card rounded-xl p-5">
+        <div className="bg-dark-purple/40 rounded-xl p-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-cyan-400/10 rounded-lg">
               <TrendingUp className="w-5 h-5 text-cyan-400" />
@@ -145,7 +145,7 @@ export default function MarketingPage() {
         {sequences.map(sequence => (
           <div
             key={sequence.id}
-            className="bg-dark-card rounded-xl p-5 hover:ring-1 hover:ring-cyber-blue/50 transition-all"
+            className="bg-dark-purple/40 rounded-xl p-5 hover:ring-1 hover:ring-cyber-blue/50 transition-all"
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">

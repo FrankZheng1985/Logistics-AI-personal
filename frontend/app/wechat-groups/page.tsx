@@ -135,7 +135,7 @@ export default function WechatGroupsPage() {
 
       {/* 统计卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-dark-card rounded-xl p-5">
+        <div className="bg-dark-purple/40 rounded-xl p-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-blue-400/10 rounded-lg">
               <Users className="w-5 h-5 text-blue-400" />
@@ -144,7 +144,7 @@ export default function WechatGroupsPage() {
           </div>
           <p className="text-2xl font-bold text-white">{activeGroups}/{groups.length}</p>
         </div>
-        <div className="bg-dark-card rounded-xl p-5">
+        <div className="bg-dark-purple/40 rounded-xl p-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-green-400/10 rounded-lg">
               <Target className="w-5 h-5 text-green-400" />
@@ -153,7 +153,7 @@ export default function WechatGroupsPage() {
           </div>
           <p className="text-2xl font-bold text-white">{totalLeads}</p>
         </div>
-        <div className="bg-dark-card rounded-xl p-5">
+        <div className="bg-dark-purple/40 rounded-xl p-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-purple-400/10 rounded-lg">
               <TrendingUp className="w-5 h-5 text-purple-400" />
@@ -162,7 +162,7 @@ export default function WechatGroupsPage() {
           </div>
           <p className="text-2xl font-bold text-white">{totalIntel}</p>
         </div>
-        <div className="bg-dark-card rounded-xl p-5">
+        <div className="bg-dark-purple/40 rounded-xl p-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-cyan-400/10 rounded-lg">
               <MessageCircle className="w-5 h-5 text-cyan-400" />
@@ -177,13 +177,13 @@ export default function WechatGroupsPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* 群组列表 */}
-        <div className="bg-dark-card rounded-xl p-5">
+        <div className="bg-dark-purple/40 rounded-xl p-5">
           <h2 className="text-lg font-semibold text-white mb-4">监控群组</h2>
           <div className="space-y-3">
             {groups.map(group => (
               <div
                 key={group.id}
-                className="flex items-center justify-between p-4 bg-dark-bg rounded-lg hover:ring-1 hover:ring-cyber-blue/30 transition-all"
+                className="flex items-center justify-between p-4 bg-deep-space/50 rounded-lg hover:ring-1 hover:ring-cyber-blue/30 transition-all"
               >
                 <div className="flex items-center gap-3">
                   <div className={`p-2 rounded-lg ${group.is_monitoring ? 'bg-green-400/10' : 'bg-gray-400/10'}`}>
@@ -217,7 +217,7 @@ export default function WechatGroupsPage() {
         </div>
 
         {/* 最新提取信息 */}
-        <div className="bg-dark-card rounded-xl p-5">
+        <div className="bg-dark-purple/40 rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-white">最新提取信息</h2>
             <div className="relative">
@@ -227,7 +227,7 @@ export default function WechatGroupsPage() {
                 placeholder="搜索..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="pl-9 pr-4 py-2 bg-dark-bg border border-gray-700 rounded-lg text-white text-sm focus:border-cyber-blue focus:outline-none w-40"
+                className="pl-9 pr-4 py-2 bg-deep-space/50 border border-gray-700 rounded-lg text-white text-sm focus:border-cyber-blue focus:outline-none w-40"
               />
             </div>
           </div>
@@ -235,7 +235,7 @@ export default function WechatGroupsPage() {
             {messages.map(msg => (
               <div
                 key={msg.id}
-                className="p-4 bg-dark-bg rounded-lg"
+                className="p-4 bg-deep-space/50 rounded-lg"
               >
                 <div className="flex items-center gap-2 mb-2">
                   <span className={`px-2 py-0.5 text-xs rounded-full ${categoryColors[msg.category]}`}>

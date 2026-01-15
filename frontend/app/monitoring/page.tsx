@@ -148,7 +148,7 @@ export default function MonitoringPage() {
           <button
             onClick={refresh}
             disabled={isRefreshing}
-            className="flex items-center gap-2 px-4 py-2 bg-dark-card hover:bg-white/10 rounded-lg text-white transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 bg-dark-purple/40 hover:bg-white/10 rounded-lg text-white transition-colors disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
             刷新
@@ -175,7 +175,7 @@ export default function MonitoringPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* API状态 */}
-        <div className="bg-dark-card rounded-xl p-6">
+        <div className="bg-dark-purple/40 rounded-xl p-6">
           <div className="flex items-center gap-3 mb-6">
             <Server className="w-5 h-5 text-cyber-blue" />
             <h2 className="text-lg font-semibold text-white">API服务状态</h2>
@@ -184,7 +184,7 @@ export default function MonitoringPage() {
             {health.apis.map((api, index) => (
               <div
                 key={index}
-                className="flex items-center justify-between p-4 bg-dark-bg rounded-lg"
+                className="flex items-center justify-between p-4 bg-deep-space/50 rounded-lg"
               >
                 <div className="flex items-center gap-3">
                   <StatusIcon status={api.status} />
@@ -213,7 +213,7 @@ export default function MonitoringPage() {
         </div>
 
         {/* 证书状态 */}
-        <div className="bg-dark-card rounded-xl p-6">
+        <div className="bg-dark-purple/40 rounded-xl p-6">
           <div className="flex items-center gap-3 mb-6">
             <Shield className="w-5 h-5 text-cyber-blue" />
             <h2 className="text-lg font-semibold text-white">SSL证书状态</h2>
@@ -222,7 +222,7 @@ export default function MonitoringPage() {
             {health.certificates.map((cert, index) => (
               <div
                 key={index}
-                className="flex items-center justify-between p-4 bg-dark-bg rounded-lg"
+                className="flex items-center justify-between p-4 bg-deep-space/50 rounded-lg"
               >
                 <div className="flex items-center gap-3">
                   <StatusIcon status={cert.status} />
@@ -243,12 +243,12 @@ export default function MonitoringPage() {
         </div>
 
         {/* 数据库状态 */}
-        <div className="bg-dark-card rounded-xl p-6">
+        <div className="bg-dark-purple/40 rounded-xl p-6">
           <div className="flex items-center gap-3 mb-6">
             <Database className="w-5 h-5 text-cyber-blue" />
             <h2 className="text-lg font-semibold text-white">数据库状态</h2>
           </div>
-          <div className="flex items-center justify-between p-4 bg-dark-bg rounded-lg">
+          <div className="flex items-center justify-between p-4 bg-deep-space/50 rounded-lg">
             <div className="flex items-center gap-3">
               <StatusIcon status={health.database.status} />
               <div>
@@ -266,14 +266,14 @@ export default function MonitoringPage() {
         </div>
 
         {/* 响应时间趋势 */}
-        <div className="bg-dark-card rounded-xl p-6">
+        <div className="bg-dark-purple/40 rounded-xl p-6">
           <div className="flex items-center gap-3 mb-6">
             <Clock className="w-5 h-5 text-cyber-blue" />
             <h2 className="text-lg font-semibold text-white">响应时间概览</h2>
           </div>
           <div className="grid grid-cols-2 gap-4">
             {health.apis.map((api, index) => (
-              <div key={index} className="p-4 bg-dark-bg rounded-lg">
+              <div key={index} className="p-4 bg-deep-space/50 rounded-lg">
                 <p className="text-gray-400 text-sm mb-1">{api.name}</p>
                 <p className={`text-2xl font-bold ${api.response_time_ms && api.response_time_ms > 1000 ? 'text-yellow-400' : 'text-white'}`}>
                   {api.response_time_ms ?? '-'}

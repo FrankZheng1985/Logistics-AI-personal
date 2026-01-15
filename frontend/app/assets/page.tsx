@@ -90,7 +90,7 @@ export default function AssetsPage() {
               className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                 selectedCategory === cat.id
                   ? 'bg-cyber-blue text-white'
-                  : 'bg-dark-card text-gray-400 hover:text-white'
+                  : 'bg-dark-purple/40 text-gray-400 hover:text-white'
               }`}
             >
               <cat.icon className="w-4 h-4" />
@@ -98,7 +98,7 @@ export default function AssetsPage() {
             </button>
           ))}
         </div>
-        <div className="flex bg-dark-card rounded-lg p-1">
+        <div className="flex bg-dark-purple/40 rounded-lg p-1">
           <button
             onClick={() => setViewMode('grid')}
             className={`p-2 rounded ${viewMode === 'grid' ? 'bg-white/10 text-white' : 'text-gray-500'}`}
@@ -122,9 +122,9 @@ export default function AssetsPage() {
             return (
               <div
                 key={asset.id}
-                className="bg-dark-card rounded-xl overflow-hidden group cursor-pointer hover:ring-1 hover:ring-cyber-blue/50 transition-all"
+                className="bg-dark-purple/40 rounded-xl overflow-hidden group cursor-pointer hover:ring-1 hover:ring-cyber-blue/50 transition-all"
               >
-                <div className="aspect-video bg-dark-bg relative flex items-center justify-center">
+                <div className="aspect-video bg-deep-space/50 relative flex items-center justify-center">
                   <div className={`p-4 rounded-full ${typeColors[asset.type]}`}>
                     <TypeIcon className="w-8 h-8" />
                   </div>
@@ -154,9 +154,9 @@ export default function AssetsPage() {
           })}
         </div>
       ) : (
-        <div className="bg-dark-card rounded-xl overflow-hidden">
+        <div className="bg-dark-purple/40 rounded-xl overflow-hidden">
           <table className="w-full">
-            <thead className="bg-dark-bg">
+            <thead className="bg-deep-space/50">
               <tr>
                 <th className="px-4 py-3 text-left text-gray-400 text-sm font-medium">名称</th>
                 <th className="px-4 py-3 text-left text-gray-400 text-sm font-medium">类型</th>

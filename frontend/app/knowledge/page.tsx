@@ -128,10 +128,10 @@ export default function KnowledgePage() {
             placeholder="搜索知识..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 bg-dark-card border border-gray-700 rounded-xl text-white focus:border-cyber-blue focus:outline-none"
+            className="w-full pl-12 pr-4 py-3 bg-dark-purple/40 border border-gray-700 rounded-xl text-white focus:border-cyber-blue focus:outline-none"
           />
         </div>
-        <button className="flex items-center gap-2 px-4 py-3 bg-dark-card border border-gray-700 rounded-xl text-gray-400 hover:text-white transition-colors">
+        <button className="flex items-center gap-2 px-4 py-3 bg-dark-purple/40 border border-gray-700 rounded-xl text-gray-400 hover:text-white transition-colors">
           <Filter className="w-5 h-5" />
           筛选
         </button>
@@ -140,7 +140,7 @@ export default function KnowledgePage() {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* 分类侧边栏 */}
         <div className="lg:col-span-1">
-          <div className="bg-dark-card rounded-xl p-4">
+          <div className="bg-dark-purple/40 rounded-xl p-4">
             <h3 className="text-sm font-medium text-gray-400 mb-4">知识分类</h3>
             <div className="space-y-1">
               {categories.map(cat => (
@@ -164,7 +164,7 @@ export default function KnowledgePage() {
         {/* 知识列表 */}
         <div className="lg:col-span-3 space-y-4">
           {filteredKnowledge.length === 0 ? (
-            <div className="bg-dark-card rounded-xl p-12 text-center">
+            <div className="bg-dark-purple/40 rounded-xl p-12 text-center">
               <BookOpen className="w-16 h-16 text-gray-600 mx-auto mb-4" />
               <p className="text-gray-400 text-lg">暂无相关知识</p>
             </div>
@@ -172,7 +172,7 @@ export default function KnowledgePage() {
             filteredKnowledge.map(item => (
               <div
                 key={item.id}
-                className="bg-dark-card rounded-xl p-5 hover:ring-1 hover:ring-cyber-blue/50 transition-all cursor-pointer group"
+                className="bg-dark-purple/40 rounded-xl p-5 hover:ring-1 hover:ring-cyber-blue/50 transition-all cursor-pointer group"
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">

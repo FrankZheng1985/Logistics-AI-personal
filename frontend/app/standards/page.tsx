@@ -164,7 +164,7 @@ export default function StandardsPage() {
         {mockStandards.map(agent => (
           <div
             key={agent.agent_type}
-            className="bg-dark-card rounded-xl overflow-hidden"
+            className="bg-dark-purple/40 rounded-xl overflow-hidden"
           >
             {/* 标题栏 */}
             <button
@@ -192,7 +192,7 @@ export default function StandardsPage() {
               <div className="px-5 pb-5 pt-2 border-t border-gray-800">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {/* 质量标准 */}
-                  <div className="bg-dark-bg rounded-xl p-4">
+                  <div className="bg-deep-space/50 rounded-xl p-4">
                     <div className="flex items-center gap-2 mb-4">
                       <Award className="w-5 h-5 text-green-400" />
                       <h4 className="text-white font-medium">质量标准</h4>
@@ -210,7 +210,7 @@ export default function StandardsPage() {
                   </div>
 
                   {/* 效率标准 */}
-                  <div className="bg-dark-bg rounded-xl p-4">
+                  <div className="bg-deep-space/50 rounded-xl p-4">
                     <div className="flex items-center gap-2 mb-4">
                       <Zap className="w-5 h-5 text-yellow-400" />
                       <h4 className="text-white font-medium">效率标准</h4>
@@ -228,7 +228,7 @@ export default function StandardsPage() {
                   </div>
 
                   {/* 专业标准 */}
-                  <div className="bg-dark-bg rounded-xl p-4">
+                  <div className="bg-deep-space/50 rounded-xl p-4">
                     <div className="flex items-center gap-2 mb-4">
                       <ClipboardCheck className="w-5 h-5 text-blue-400" />
                       <h4 className="text-white font-medium">专业标准</h4>

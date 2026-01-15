@@ -142,7 +142,7 @@ export default function NotificationsPage() {
           </p>
         </div>
         <div className="flex items-center gap-4">
-          <div className="flex bg-dark-card rounded-lg p-1">
+          <div className="flex bg-dark-purple/40 rounded-lg p-1">
             <button
               onClick={() => setFilter('all')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
@@ -167,7 +167,7 @@ export default function NotificationsPage() {
           {unreadCount > 0 && (
             <button
               onClick={markAllAsRead}
-              className="flex items-center gap-2 px-4 py-2 bg-dark-card hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-dark-purple/40 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
             >
               <Check className="w-4 h-4" />
               全部已读
@@ -179,7 +179,7 @@ export default function NotificationsPage() {
       {/* 通知列表 */}
       <div className="space-y-3">
         {filteredNotifications.length === 0 ? (
-          <div className="bg-dark-card rounded-xl p-12 text-center">
+          <div className="bg-dark-purple/40 rounded-xl p-12 text-center">
             <Bell className="w-16 h-16 text-gray-600 mx-auto mb-4" />
             <p className="text-gray-400 text-lg">暂无通知</p>
           </div>
@@ -189,7 +189,7 @@ export default function NotificationsPage() {
             return (
               <div
                 key={notification.id}
-                className={`bg-dark-card rounded-xl p-5 border-l-4 ${priorityColors[notification.priority]} ${
+                className={`bg-dark-purple/40 rounded-xl p-5 border-l-4 ${priorityColors[notification.priority]} ${
                   !notification.is_read ? 'ring-1 ring-cyber-blue/30' : ''
                 }`}
               >

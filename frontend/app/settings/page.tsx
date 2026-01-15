@@ -91,7 +91,7 @@ export default function SettingsPage() {
       </div>
 
       {/* 标签页 */}
-      <div className="flex gap-2 bg-dark-card rounded-xl p-1.5">
+      <div className="flex gap-2 bg-dark-purple/40 rounded-xl p-1.5">
         {tabs.map(tab => (
           <button
             key={tab.id}
@@ -110,7 +110,7 @@ export default function SettingsPage() {
 
       {/* 公司信息 */}
       {activeTab === 'company' && (
-        <div className="bg-dark-card rounded-xl p-6 space-y-6">
+        <div className="bg-dark-purple/40 rounded-xl p-6 space-y-6">
           <h2 className="text-lg font-semibold text-white mb-4">公司基本信息</h2>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -120,7 +120,7 @@ export default function SettingsPage() {
                 type="text"
                 value={companyConfig.company_name}
                 onChange={e => setCompanyConfig(prev => ({ ...prev, company_name: e.target.value }))}
-                className="w-full px-4 py-2.5 bg-dark-bg border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
                 placeholder="请输入公司名称"
               />
             </div>
@@ -130,7 +130,7 @@ export default function SettingsPage() {
                 type="text"
                 value={companyConfig.contact_phone}
                 onChange={e => setCompanyConfig(prev => ({ ...prev, contact_phone: e.target.value }))}
-                className="w-full px-4 py-2.5 bg-dark-bg border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
                 placeholder="请输入联系电话"
               />
             </div>
@@ -140,7 +140,7 @@ export default function SettingsPage() {
                 type="email"
                 value={companyConfig.contact_email}
                 onChange={e => setCompanyConfig(prev => ({ ...prev, contact_email: e.target.value }))}
-                className="w-full px-4 py-2.5 bg-dark-bg border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
                 placeholder="请输入联系邮箱"
               />
             </div>
@@ -150,7 +150,7 @@ export default function SettingsPage() {
                 type="text"
                 value={companyConfig.contact_wechat}
                 onChange={e => setCompanyConfig(prev => ({ ...prev, contact_wechat: e.target.value }))}
-                className="w-full px-4 py-2.5 bg-dark-bg border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
                 placeholder="请输入微信号"
               />
             </div>
@@ -162,7 +162,7 @@ export default function SettingsPage() {
               type="text"
               value={companyConfig.address}
               onChange={e => setCompanyConfig(prev => ({ ...prev, address: e.target.value }))}
-              className="w-full px-4 py-2.5 bg-dark-bg border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+              className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
               placeholder="请输入公司地址"
             />
           </div>
@@ -173,7 +173,7 @@ export default function SettingsPage() {
               value={companyConfig.company_intro}
               onChange={e => setCompanyConfig(prev => ({ ...prev, company_intro: e.target.value }))}
               rows={4}
-              className="w-full px-4 py-2.5 bg-dark-bg border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none resize-none"
+              className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none resize-none"
               placeholder="请输入公司简介，这将用于AI员工在与客户沟通时介绍公司"
             />
           </div>
@@ -201,7 +201,7 @@ export default function SettingsPage() {
               <input
                 type="text"
                 placeholder="添加优势..."
-                className="px-3 py-1.5 bg-dark-bg border border-gray-700 rounded-full text-sm text-white focus:border-cyber-blue focus:outline-none w-32"
+                className="px-3 py-1.5 bg-deep-space/50 border border-gray-700 rounded-full text-sm text-white focus:border-cyber-blue focus:outline-none w-32"
                 onKeyDown={e => {
                   if (e.key === 'Enter' && e.currentTarget.value) {
                     setCompanyConfig(prev => ({
@@ -219,7 +219,7 @@ export default function SettingsPage() {
 
       {/* API配置 */}
       {activeTab === 'api' && (
-        <div className="bg-dark-card rounded-xl p-6 space-y-6">
+        <div className="bg-dark-purple/40 rounded-xl p-6 space-y-6">
           <h2 className="text-lg font-semibold text-white mb-4">API密钥配置</h2>
           <p className="text-gray-400 text-sm mb-6">
             请妥善保管您的API密钥，不要泄露给他人。密钥变更后需要重启服务生效。
@@ -239,7 +239,7 @@ export default function SettingsPage() {
                   type={showSecrets[item.key] ? 'text' : 'password'}
                   value={(apiConfig as any)[item.key]}
                   onChange={e => setApiConfig(prev => ({ ...prev, [item.key]: e.target.value }))}
-                  className="w-full px-4 py-2.5 bg-dark-bg border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none pr-12"
+                  className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none pr-12"
                   placeholder={`请输入${item.label}`}
                 />
                 <button
@@ -257,7 +257,7 @@ export default function SettingsPage() {
 
       {/* 通知设置 */}
       {activeTab === 'notification' && (
-        <div className="bg-dark-card rounded-xl p-6 space-y-6">
+        <div className="bg-dark-purple/40 rounded-xl p-6 space-y-6">
           <h2 className="text-lg font-semibold text-white mb-4">通知设置</h2>
 
           <div>
@@ -271,7 +271,7 @@ export default function SettingsPage() {
               type="number"
               value={notificationConfig.high_intent_threshold}
               onChange={e => setNotificationConfig(prev => ({ ...prev, high_intent_threshold: parseInt(e.target.value) }))}
-              className="w-32 px-4 py-2.5 bg-dark-bg border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+              className="w-32 px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
               min={0}
               max={100}
             />
@@ -285,7 +285,7 @@ export default function SettingsPage() {
                 type="checkbox"
                 checked={notificationConfig.enable_wechat_notify}
                 onChange={e => setNotificationConfig(prev => ({ ...prev, enable_wechat_notify: e.target.checked }))}
-                className="w-5 h-5 rounded bg-dark-bg border-gray-700 text-cyber-blue focus:ring-cyber-blue"
+                className="w-5 h-5 rounded bg-deep-space/50 border-gray-700 text-cyber-blue focus:ring-cyber-blue"
               />
               <span className="text-white">微信通知</span>
             </label>
@@ -294,7 +294,7 @@ export default function SettingsPage() {
                 type="checkbox"
                 checked={notificationConfig.enable_email_notify}
                 onChange={e => setNotificationConfig(prev => ({ ...prev, enable_email_notify: e.target.checked }))}
-                className="w-5 h-5 rounded bg-dark-bg border-gray-700 text-cyber-blue focus:ring-cyber-blue"
+                className="w-5 h-5 rounded bg-deep-space/50 border-gray-700 text-cyber-blue focus:ring-cyber-blue"
               />
               <span className="text-white">邮件通知</span>
             </label>
@@ -307,14 +307,14 @@ export default function SettingsPage() {
                 type="time"
                 value={notificationConfig.quiet_hours_start}
                 onChange={e => setNotificationConfig(prev => ({ ...prev, quiet_hours_start: e.target.value }))}
-                className="px-4 py-2.5 bg-dark-bg border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                className="px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
               />
               <span className="text-gray-400">至</span>
               <input
                 type="time"
                 value={notificationConfig.quiet_hours_end}
                 onChange={e => setNotificationConfig(prev => ({ ...prev, quiet_hours_end: e.target.value }))}
-                className="px-4 py-2.5 bg-dark-bg border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                className="px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
               />
             </div>
           </div>
@@ -323,12 +323,12 @@ export default function SettingsPage() {
 
       {/* 系统设置 */}
       {activeTab === 'system' && (
-        <div className="bg-dark-card rounded-xl p-6 space-y-6">
+        <div className="bg-dark-purple/40 rounded-xl p-6 space-y-6">
           <h2 className="text-lg font-semibold text-white mb-4">系统设置</h2>
 
           <div>
             <h3 className="text-sm font-medium text-gray-300 mb-4">默认语言</h3>
-            <select className="px-4 py-2.5 bg-dark-bg border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none">
+            <select className="px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none">
               <option value="zh-CN">中文 (简体)</option>
               <option value="en-US">English (US)</option>
             </select>
@@ -339,7 +339,7 @@ export default function SettingsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">主模型</label>
-                <select className="w-full px-4 py-2.5 bg-dark-bg border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none">
+                <select className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none">
                   <option value="qwen-max">通义千问 Max</option>
                   <option value="qwen-plus">通义千问 Plus</option>
                   <option value="qwen-turbo">通义千问 Turbo</option>
@@ -353,7 +353,7 @@ export default function SettingsPage() {
                   step={0.1}
                   min={0}
                   max={1}
-                  className="w-full px-4 py-2.5 bg-dark-bg border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                  className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
                 />
               </div>
             </div>
