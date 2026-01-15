@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
 import { MessageSquare, User, Bot, ArrowLeft, Send, Loader2, Search, UserCircle } from 'lucide-react'
@@ -42,7 +42,20 @@ const agentNames: Record<string, string> = {
   'follow': '小跟',
 }
 
+// 主页面组件需要包裹在 Suspense 中
 export default function ConversationsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-cyber-blue" />
+      </div>
+    }>
+      <ConversationsContent />
+    </Suspense>
+  )
+}
+
+function ConversationsContent() {
   const searchParams = useSearchParams()
   const customerIdFromUrl = searchParams.get('customer')
   
