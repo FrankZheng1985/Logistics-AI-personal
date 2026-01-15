@@ -59,6 +59,11 @@ services:
       - WECHAT_SECRET=${WECHAT_SECRET}
       - WECHAT_TOKEN=${WECHAT_TOKEN}
       - WECHAT_ENCODING_AES_KEY=${WECHAT_ENCODING_AES_KEY}
+      # 小析2企业微信配置
+      - WECHAT_ANALYST2_AGENT_ID=${WECHAT_ANALYST2_AGENT_ID}
+      - WECHAT_ANALYST2_SECRET=${WECHAT_ANALYST2_SECRET}
+      - WECHAT_ANALYST2_TOKEN=${WECHAT_ANALYST2_TOKEN}
+      - WECHAT_ANALYST2_ENCODING_AES_KEY=${WECHAT_ANALYST2_ENCODING_AES_KEY}
       - COS_SECRET_ID=${COS_SECRET_ID}
       - COS_SECRET_KEY=${COS_SECRET_KEY}
       - COS_BUCKET=${COS_BUCKET}
@@ -100,6 +105,7 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./ssl:/etc/nginx/ssl:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - backend
       - frontend

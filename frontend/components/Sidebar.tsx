@@ -36,7 +36,7 @@ const managementItems = [
   { href: '/monitoring', label: '系统监控', icon: Activity },
   { href: '/assets', label: '素材库', icon: FolderOpen },
   { href: '/marketing', label: '营销序列', icon: Mail },
-  { href: '/wechat-groups', label: '微信群监控', icon: MessageCircle },
+  { href: '/wechat-groups', label: '群消息监控', icon: MessageCircle },
   { href: '/settings/erp', label: 'ERP对接', icon: Database },
 ]
 

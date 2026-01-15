@@ -1,5 +1,5 @@
 """
-微信群监控API
+企业微信群监控API
 """
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
@@ -8,9 +8,10 @@ from datetime import datetime
 from loguru import logger
 
 from app.models.database import AsyncSessionLocal
+from app.services.wechat import wechat_service
 from sqlalchemy import text
 
-router = APIRouter(prefix="/wechat-groups", tags=["微信群监控"])
+router = APIRouter(prefix="/wechat-groups", tags=["企业微信群监控"])
 
 
 class WechatGroupCreate(BaseModel):
@@ -226,3 +227,119 @@ async def toggle_monitoring(group_id: str):
     except Exception as e:
         logger.error(f"切换监控状态失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sync")
+async def sync_wechat_groups():
+    """
+    从企业微信同步群聊列表
+    """
+    try:
+        # 获取企业微信群聊列表
+        chat_ids = await wechat_service.get_group_chat_list()
+        
+        if not chat_ids:
+            return {
+                "message": "未获取到群聊列表，请确保应用有群聊权限",
+                "synced_count": 0,
+                "chat_ids": []
+            }
+        
+        synced_count = 0
+        async with AsyncSessionLocal() as db:
+            for chat_id in chat_ids:
+                # 获取群名称
+                group_name = await wechat_service.get_group_name(chat_id)
+                
+                # 检查是否已存在
+                result = await db.execute(
+                    text("SELECT id FROM wechat_groups WHERE wechat_group_id = :chat_id"),
+                    {"chat_id": chat_id}
+                )
+                existing = result.fetchone()
+                
+                if not existing:
+                    # 插入新群组
+                    await db.execute(
+                        text("""
+                            INSERT INTO wechat_groups (name, wechat_group_id, is_monitoring)
+                            VALUES (:name, :chat_id, TRUE)
+                        """),
+                        {"name": group_name, "chat_id": chat_id}
+                    )
+                    synced_count += 1
+                else:
+                    # 更新群名称
+                    await db.execute(
+                        text("UPDATE wechat_groups SET name = :name WHERE wechat_group_id = :chat_id"),
+                        {"name": group_name, "chat_id": chat_id}
+                    )
+            
+            await db.commit()
+        
+        logger.info(f"✅ 同步企业微信群完成: 新增 {synced_count} 个群组")
+        return {
+            "message": f"同步完成，新增 {synced_count} 个群组",
+            "synced_count": synced_count,
+            "total_groups": len(chat_ids)
+        }
+        
+    except Exception as e:
+        logger.error(f"同步企业微信群失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/analysis-results")
+async def get_analysis_results(
+    category: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=200)
+):
+    """获取小析2分析结果"""
+    try:
+        async with AsyncSessionLocal() as db:
+            sql = """
+                SELECT gm.id, wg.name as group_name, gm.sender_name, gm.content,
+                       gm.category, gm.is_valuable, gm.analysis_summary, gm.created_at
+                FROM group_messages gm
+                LEFT JOIN wechat_groups wg ON gm.group_id = wg.id
+                WHERE gm.is_valuable = TRUE
+            """
+            params = {"limit": limit}
+            
+            if category:
+                sql += " AND gm.category = :category"
+                params["category"] = category
+            
+            sql += " ORDER BY gm.created_at DESC LIMIT :limit"
+            
+            result = await db.execute(text(sql), params)
+            rows = result.fetchall()
+            
+            results = []
+            for row in rows:
+                time_str = ""
+                if row[7]:
+                    diff = datetime.now() - row[7].replace(tzinfo=None)
+                    if diff.total_seconds() < 60:
+                        time_str = "刚刚"
+                    elif diff.total_seconds() < 3600:
+                        time_str = f"{int(diff.total_seconds() / 60)}分钟前"
+                    elif diff.total_seconds() < 86400:
+                        time_str = f"{int(diff.total_seconds() / 3600)}小时前"
+                    else:
+                        time_str = f"{int(diff.total_seconds() / 86400)}天前"
+                
+                results.append({
+                    "id": str(row[0]),
+                    "group_name": row[1] or "未知群",
+                    "sender": row[2] or "未知",
+                    "content": row[3][:100] + "..." if len(row[3] or "") > 100 else row[3],
+                    "category": row[4] or "unknown",
+                    "summary": row[6],
+                    "time": time_str
+                })
+            
+            return {"results": results}
+    except Exception as e:
+        logger.error(f"获取分析结果失败: {e}")
+        return {"results": []}
