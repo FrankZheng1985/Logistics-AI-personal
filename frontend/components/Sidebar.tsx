@@ -1,6 +1,5 @@
 'use client'
 
-import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { 
@@ -36,44 +35,12 @@ const managementItems = [
   { href: '/monitoring', label: '系统监控', icon: Activity },
   { href: '/assets', label: '素材库', icon: FolderOpen },
   { href: '/marketing', label: '营销序列', icon: Mail },
-  { href: '/wechat-groups', label: '群消息监控', icon: MessageCircle },
+  { href: '/wechat-groups', label: '微信群监控', icon: MessageCircle },
   { href: '/settings/erp', label: 'ERP对接', icon: Database },
 ]
 
 export default function Sidebar() {
   const pathname = usePathname()
-  const [unreadCount, setUnreadCount] = useState(0)
-  
-  // 获取未读通知数量
-  useEffect(() => {
-    const fetchUnreadCount = async () => {
-      try {
-        const res = await fetch('/api/notifications?limit=1')
-        if (res.ok) {
-          const data = await res.json()
-          setUnreadCount(data.unread_count || 0)
-        }
-      } catch (error) {
-        console.error('获取通知数量失败:', error)
-      }
-    }
-    
-    fetchUnreadCount()
-    // 每30秒刷新一次未读数量
-    const interval = setInterval(fetchUnreadCount, 30000)
-    
-    // 监听通知页面的更新事件，实时同步未读数量
-    const handleUnreadUpdate = (event: CustomEvent<{ count: number }>) => {
-      setUnreadCount(event.detail.count)
-    }
-    
-    window.addEventListener('notification-unread-update', handleUnreadUpdate as EventListener)
-    
-    return () => {
-      clearInterval(interval)
-      window.removeEventListener('notification-unread-update', handleUnreadUpdate as EventListener)
-    }
-  }, [])
   
   return (
     <aside className="w-64 h-screen fixed left-0 top-0 bg-dark-purple/50 border-r border-white/10 flex flex-col">
@@ -140,11 +107,7 @@ export default function Sidebar() {
         >
           <Bell className="w-5 h-5" />
           <span>通知</span>
-          {unreadCount > 0 && (
-            <span className="ml-auto px-2 py-0.5 bg-alert-red/20 text-alert-red text-xs rounded-full">
-              {unreadCount}
-            </span>
-          )}
+          <span className="ml-auto px-2 py-0.5 bg-alert-red/20 text-alert-red text-xs rounded-full">3</span>
         </Link>
         <Link
           href="/settings"

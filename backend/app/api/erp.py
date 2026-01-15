@@ -21,7 +21,7 @@ from app.services.erp_connector import (
     ERPPermissionError
 )
 
-router = APIRouter(prefix="/erp", tags=["ERP业务系统"])
+router = APIRouter(tags=["ERP业务系统"])
 
 
 # ========== 请求/响应模型 ==========
