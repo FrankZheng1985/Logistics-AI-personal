@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FolderOpen, Upload, Video, Music, Image, Grid, List, Play, Download, X, Loader2, Trash2, Sparkles, LogIn, LogOut, Check, AlertCircle, ExternalLink, QrCode, RefreshCw, Smartphone } from 'lucide-react'
+import { FolderOpen, Upload, Video, Music, Image, Grid, List, Play, Download, X, Loader2, Trash2, Sparkles, LogIn, LogOut, Check, AlertCircle, ExternalLink, QrCode, RefreshCw, Smartphone, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 
 interface Asset {
   id: string
@@ -775,18 +775,29 @@ export default function AssetsPage() {
   const [playingAsset, setPlayingAsset] = useState<Asset | null>(null)
   const [socialPlatforms, setSocialPlatforms] = useState<SocialPlatform[]>([])
   const [collecting, setCollecting] = useState(false)
+  
+  // 分页状态
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalItems, setTotalItems] = useState(0)
+  const [pageSize, setPageSize] = useState(20)
+  
+  const totalPages = Math.ceil(totalItems / pageSize)
 
-  const fetchAssets = async () => {
+  const fetchAssets = async (page: number = currentPage, size: number = pageSize) => {
     try {
       const params = new URLSearchParams()
       if (selectedCategory !== 'all') {
         params.append('type', selectedCategory)
       }
+      params.append('page', page.toString())
+      params.append('page_size', size.toString())
       
       const res = await fetch(`/api/assets?${params.toString()}`)
       if (res.ok) {
         const data = await res.json()
         setAssets(data.items || [])
+        setTotalItems(data.total || 0)
+        setCurrentPage(data.page || 1)
       }
     } catch (error) {
       console.error('获取素材列表失败:', error)
@@ -837,9 +848,17 @@ export default function AssetsPage() {
 
   useEffect(() => {
     setLoading(true)
-    fetchAssets()
+    setCurrentPage(1)
+    fetchAssets(1)
     fetchSocialPlatforms()
   }, [selectedCategory])
+
+  // 页码变化时重新获取数据
+  const handlePageChange = (page: number) => {
+    if (page < 1 || page > totalPages) return
+    setLoading(true)
+    fetchAssets(page)
+  }
 
   const handleDownload = (asset: Asset) => {
     if (!asset.file_url) {
@@ -1078,6 +1097,147 @@ export default function AssetsPage() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* 分页控件 */}
+      {totalItems > 0 && (
+        <div className="flex items-center justify-between bg-dark-purple/40 rounded-xl px-6 py-4">
+          {/* 左侧：统计信息 */}
+          <div className="text-gray-400 text-sm">
+            共 <span className="text-white font-medium">{totalItems}</span> 条素材，
+            当前第 <span className="text-white font-medium">{currentPage}</span> / <span className="text-white font-medium">{totalPages}</span> 页
+          </div>
+
+          {/* 中间：分页按钮 */}
+          <div className="flex items-center gap-2">
+            {/* 首页 */}
+            <button
+              onClick={() => handlePageChange(1)}
+              disabled={currentPage === 1}
+              className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              title="首页"
+            >
+              <ChevronsLeft className="w-4 h-4" />
+            </button>
+
+            {/* 上一页 */}
+            <button
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              title="上一页"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+
+            {/* 页码按钮 */}
+            <div className="flex items-center gap-1">
+              {(() => {
+                const pages = []
+                const maxVisible = 5
+                let start = Math.max(1, currentPage - Math.floor(maxVisible / 2))
+                let end = Math.min(totalPages, start + maxVisible - 1)
+                
+                if (end - start + 1 < maxVisible) {
+                  start = Math.max(1, end - maxVisible + 1)
+                }
+
+                if (start > 1) {
+                  pages.push(
+                    <button
+                      key={1}
+                      onClick={() => handlePageChange(1)}
+                      className="w-8 h-8 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-sm"
+                    >
+                      1
+                    </button>
+                  )
+                  if (start > 2) {
+                    pages.push(
+                      <span key="start-ellipsis" className="text-gray-500 px-1">...</span>
+                    )
+                  }
+                }
+
+                for (let i = start; i <= end; i++) {
+                  pages.push(
+                    <button
+                      key={i}
+                      onClick={() => handlePageChange(i)}
+                      className={`w-8 h-8 rounded-lg text-sm transition-colors ${
+                        currentPage === i
+                          ? 'bg-cyber-blue text-white font-medium'
+                          : 'text-gray-400 hover:text-white hover:bg-white/10'
+                      }`}
+                    >
+                      {i}
+                    </button>
+                  )
+                }
+
+                if (end < totalPages) {
+                  if (end < totalPages - 1) {
+                    pages.push(
+                      <span key="end-ellipsis" className="text-gray-500 px-1">...</span>
+                    )
+                  }
+                  pages.push(
+                    <button
+                      key={totalPages}
+                      onClick={() => handlePageChange(totalPages)}
+                      className="w-8 h-8 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-sm"
+                    >
+                      {totalPages}
+                    </button>
+                  )
+                }
+
+                return pages
+              })()}
+            </div>
+
+            {/* 下一页 */}
+            <button
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              title="下一页"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+
+            {/* 末页 */}
+            <button
+              onClick={() => handlePageChange(totalPages)}
+              disabled={currentPage === totalPages}
+              className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              title="末页"
+            >
+              <ChevronsRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* 右侧：每页条数选择 */}
+          <div className="flex items-center gap-2">
+            <span className="text-gray-400 text-sm">每页</span>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value))
+                setCurrentPage(1)
+                setLoading(true)
+                setTimeout(() => fetchAssets(1), 0)
+              }}
+              className="px-3 py-1.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white text-sm focus:border-cyber-blue focus:outline-none"
+            >
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+            <span className="text-gray-400 text-sm">条</span>
+          </div>
         </div>
       )}
 
