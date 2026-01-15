@@ -292,8 +292,29 @@ function SearchPanel({
 }
 
 // 线索卡片组件
-function LeadCard({ lead }: { lead: Lead }) {
-  const [expanded, setExpanded] = useState(false)
+function LeadCard({ lead, onConvert, onContact }: { 
+  lead: Lead
+  onConvert: (leadId: string) => void
+  onContact: (leadId: string) => void
+}) {
+  const [converting, setConverting] = useState(false)
+  const [contacting, setContacting] = useState(false)
+  
+  const handleConvert = async () => {
+    if (lead.status === 'converted') {
+      alert('该线索已转化为客户')
+      return
+    }
+    setConverting(true)
+    await onConvert(lead.id)
+    setConverting(false)
+  }
+  
+  const handleContact = async () => {
+    setContacting(true)
+    await onContact(lead.id)
+    setContacting(false)
+  }
   
   return (
     <motion.div
@@ -388,10 +409,24 @@ function LeadCard({ lead }: { lead: Lead }) {
           {new Date(lead.created_at).toLocaleString('zh-CN')}
         </span>
         <div className="flex gap-2">
-          <button className="px-3 py-1 text-xs glass-card hover:border-cyber-blue/50 transition-colors">
-            转为客户
+          <button 
+            onClick={handleConvert}
+            disabled={converting || lead.status === 'converted'}
+            className={`px-3 py-1 text-xs glass-card transition-colors flex items-center gap-1 ${
+              lead.status === 'converted' 
+                ? 'opacity-50 cursor-not-allowed' 
+                : 'hover:border-cyber-blue/50'
+            }`}
+          >
+            {converting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+            {lead.status === 'converted' ? '已转化' : '转为客户'}
           </button>
-          <button className="px-3 py-1 text-xs glass-card hover:border-cyber-green/50 transition-colors">
+          <button 
+            onClick={handleContact}
+            disabled={contacting}
+            className="px-3 py-1 text-xs glass-card hover:border-cyber-green/50 transition-colors flex items-center gap-1"
+          >
+            {contacting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
             联系
           </button>
         </div>
@@ -508,6 +543,50 @@ export default function LeadsPage() {
     }
   }
 
+  // 转化线索为客户
+  const handleConvertLead = async (leadId: string) => {
+    try {
+      const response = await fetch(`/api/leads/${leadId}/convert`, {
+        method: 'POST'
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        alert(`转化成功！客户ID: ${data.customer_id.slice(0, 8)}...`)
+        // 刷新列表
+        await Promise.all([fetchLeads(), fetchStats()])
+      } else {
+        const error = await response.json()
+        alert(error.detail || '转化失败，请重试')
+      }
+    } catch (error) {
+      console.error('转化失败:', error)
+      alert('转化失败，请检查网络连接')
+    }
+  }
+
+  // 联系线索
+  const handleContactLead = async (leadId: string) => {
+    try {
+      const response = await fetch(`/api/leads/${leadId}/contact`, {
+        method: 'POST'
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        alert(`联系记录已更新，这是第 ${data.contact_count} 次联系`)
+        // 刷新列表
+        await fetchLeads()
+      } else {
+        const error = await response.json()
+        alert(error.detail || '更新失败，请重试')
+      }
+    } catch (error) {
+      console.error('联系失败:', error)
+      alert('操作失败，请检查网络连接')
+    }
+  }
+
   return (
     <div className="min-h-screen p-6">
       {/* 头部 */}
@@ -593,7 +672,12 @@ export default function LeadsPage() {
       ) : leads.length > 0 ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {leads.map((lead) => (
-            <LeadCard key={lead.id} lead={lead} />
+            <LeadCard 
+              key={lead.id} 
+              lead={lead}
+              onConvert={handleConvertLead}
+              onContact={handleContactLead}
+            />
           ))}
         </div>
       ) : (

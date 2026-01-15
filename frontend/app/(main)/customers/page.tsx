@@ -174,7 +174,24 @@ function CustomerDetailModal({
             >
               查看对话记录
             </Link>
-            <button className="flex-1 py-3 glass-card hover:border-cyber-green/50 hover:text-cyber-green transition-colors text-center">
+            <button 
+              onClick={async () => {
+                try {
+                  const res = await fetch(`/api/customers/${customer.id}/mark-high-intent`, {
+                    method: 'POST'
+                  })
+                  if (res.ok) {
+                    alert('已标记为高意向客户！')
+                    onClose()
+                  } else {
+                    alert('操作失败，请重试')
+                  }
+                } catch (error) {
+                  alert('操作失败，请检查网络')
+                }
+              }}
+              className="flex-1 py-3 glass-card hover:border-cyber-green/50 hover:text-cyber-green transition-colors text-center"
+            >
               标记为高意向
             </button>
           </div>
@@ -290,9 +307,25 @@ function CustomerRow({
                   对话记录
                 </Link>
                 <button 
-                  onClick={(e) => {
+                  onClick={async (e) => {
                     e.stopPropagation()
-                    alert('功能开发中...')
+                    if (!confirm('确定要删除这个客户吗？')) {
+                      setShowMenu(false)
+                      return
+                    }
+                    try {
+                      const res = await fetch(`/api/customers/${customer.id}`, {
+                        method: 'DELETE'
+                      })
+                      if (res.ok) {
+                        alert('客户已删除')
+                        window.location.reload()
+                      } else {
+                        alert('删除失败，请重试')
+                      }
+                    } catch (error) {
+                      alert('删除失败，请检查网络')
+                    }
                     setShowMenu(false)
                   }}
                   className="w-full px-4 py-2 text-left hover:bg-white/10 transition-colors text-sm text-alert-red"

@@ -1038,14 +1038,12 @@ export default function Dashboard() {
           <StatCard 
             title="今日新客户" 
             value={stats.newCustomers}
-            change="+15%"
             icon={Users}
             color="cyber-blue"
           />
           <StatCard 
             title="高意向客户" 
             value={stats.highIntent}
-            change="+3 新增"
             icon={TrendingUp}
             color="cyber-green"
           />
@@ -1058,7 +1056,7 @@ export default function Dashboard() {
           <StatCard 
             title="视频生成" 
             value={stats.videos}
-            change="2 处理中"
+            change={stats.processing > 0 ? `${stats.processing} 处理中` : undefined}
             icon={Video}
             color="energy-orange"
           />

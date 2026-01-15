@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { FolderOpen, Upload, Video, Music, Image, Grid, List, Play, Download } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { FolderOpen, Upload, Video, Music, Image, Grid, List, Play, Download, X, Loader2, Trash2 } from 'lucide-react'
 
 interface Asset {
   id: string
@@ -9,25 +10,18 @@ interface Asset {
   type: 'video' | 'audio' | 'image'
   category: string
   duration?: number
-  thumbnail?: string
+  file_url?: string
+  thumbnail_url?: string
   file_size: number
   usage_count: number
+  created_at?: string
 }
 
 const categories = [
   { id: 'all', name: '全部', icon: FolderOpen },
-  { id: 'video_clip', name: '视频素材', icon: Video },
-  { id: 'bgm', name: '背景音乐', icon: Music },
+  { id: 'video', name: '视频素材', icon: Video },
+  { id: 'audio', name: '背景音乐', icon: Music },
   { id: 'image', name: '图片素材', icon: Image }
-]
-
-const mockAssets: Asset[] = [
-  { id: '1', name: '港口航拍01', type: 'video', category: 'port', duration: 15, file_size: 52428800, usage_count: 45 },
-  { id: '2', name: '仓库内景01', type: 'video', category: 'warehouse', duration: 12, file_size: 41943040, usage_count: 38 },
-  { id: '3', name: '商务专业BGM', type: 'audio', category: 'bgm_corporate', duration: 180, file_size: 5242880, usage_count: 124 },
-  { id: '4', name: '活力动感BGM', type: 'audio', category: 'bgm_upbeat', duration: 150, file_size: 4718592, usage_count: 89 },
-  { id: '5', name: '货车运输01', type: 'video', category: 'truck', duration: 10, file_size: 31457280, usage_count: 56 },
-  { id: '6', name: '飞机装货01', type: 'video', category: 'airplane', duration: 8, file_size: 25165824, usage_count: 34 }
 ]
 
 const formatFileSize = (bytes: number) => {
@@ -42,14 +36,269 @@ const formatDuration = (seconds: number) => {
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
+// 上传弹窗
+function UploadModal({ onClose, onUpload }: { onClose: () => void; onUpload: () => void }) {
+  const [uploading, setUploading] = useState(false)
+  const [file, setFile] = useState<File | null>(null)
+  const [name, setName] = useState('')
+  const [category, setCategory] = useState('general')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleUpload = async () => {
+    if (!file) {
+      alert('请选择文件')
+      return
+    }
+
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      if (name) formData.append('name', name)
+      formData.append('category', category)
+
+      const res = await fetch('/api/assets/upload', {
+        method: 'POST',
+        body: formData
+      })
+
+      if (res.ok) {
+        alert('上传成功！')
+        onUpload()
+        onClose()
+      } else {
+        const error = await res.json()
+        alert(error.detail || '上传失败，请重试')
+      }
+    } catch (error) {
+      console.error('上传失败:', error)
+      alert('上传失败，请检查网络')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.9, y: 20 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.9, y: 20 }}
+        className="bg-dark-purple/90 backdrop-blur-xl border border-white/10 rounded-xl w-full max-w-md mx-4"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-6 border-b border-white/10">
+          <h2 className="text-xl font-bold text-white">上传素材</h2>
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* 文件选择 */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">选择文件</label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*,audio/*,image/*"
+              onChange={e => {
+                const f = e.target.files?.[0]
+                if (f) {
+                  setFile(f)
+                  if (!name) setName(f.name.replace(/\.[^/.]+$/, ''))
+                }
+              }}
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full p-8 border-2 border-dashed border-gray-600 rounded-xl text-center hover:border-cyber-blue/50 transition-colors"
+            >
+              {file ? (
+                <div>
+                  <p className="text-white font-medium">{file.name}</p>
+                  <p className="text-gray-500 text-sm mt-1">{formatFileSize(file.size)}</p>
+                </div>
+              ) : (
+                <div>
+                  <Upload className="w-10 h-10 text-gray-500 mx-auto mb-2" />
+                  <p className="text-gray-400">点击选择文件</p>
+                  <p className="text-gray-500 text-sm mt-1">支持视频、音频、图片</p>
+                </div>
+              )}
+            </button>
+          </div>
+
+          {/* 素材名称 */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">素材名称</label>
+            <input
+              type="text"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              className="w-full px-4 py-3 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+              placeholder="输入素材名称"
+            />
+          </div>
+
+          {/* 分类 */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">分类</label>
+            <select
+              value={category}
+              onChange={e => setCategory(e.target.value)}
+              className="w-full px-4 py-3 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+            >
+              <option value="general">通用</option>
+              <option value="port">港口</option>
+              <option value="warehouse">仓库</option>
+              <option value="truck">货运</option>
+              <option value="airplane">航空</option>
+              <option value="bgm_corporate">商务BGM</option>
+              <option value="bgm_upbeat">动感BGM</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 p-6 border-t border-white/10">
+          <button
+            onClick={onClose}
+            className="px-6 py-2.5 text-gray-400 hover:text-white transition-colors"
+          >
+            取消
+          </button>
+          <button
+            onClick={handleUpload}
+            disabled={uploading || !file}
+            className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-cyber-blue to-cyber-purple rounded-lg text-white font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            {uploading && <Loader2 className="w-4 h-4 animate-spin" />}
+            {uploading ? '上传中...' : '上传'}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+// 播放弹窗
+function PlayModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.9, y: 20 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.9, y: 20 }}
+        className="w-full max-w-4xl mx-4"
+        onClick={e => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 p-2 text-white hover:text-cyber-blue transition-colors"
+        >
+          <X className="w-6 h-6" />
+        </button>
+
+        <div className="bg-dark-purple/90 backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden">
+          {asset.type === 'video' && asset.file_url && (
+            <video src={asset.file_url} controls autoPlay className="w-full aspect-video" />
+          )}
+          {asset.type === 'audio' && asset.file_url && (
+            <div className="p-12 flex items-center justify-center">
+              <audio src={asset.file_url} controls autoPlay className="w-full" />
+            </div>
+          )}
+          {asset.type === 'image' && asset.file_url && (
+            <img src={asset.file_url} alt={asset.name} className="w-full" />
+          )}
+          <div className="p-4">
+            <h3 className="text-lg font-medium text-white">{asset.name}</h3>
+            <p className="text-gray-400 text-sm mt-1">
+              {asset.category} · {formatFileSize(asset.file_size)} · 使用 {asset.usage_count} 次
+            </p>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
+
 export default function AssetsPage() {
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
-  const [assets] = useState<Asset[]>(mockAssets)
+  const [assets, setAssets] = useState<Asset[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showUploadModal, setShowUploadModal] = useState(false)
+  const [playingAsset, setPlayingAsset] = useState<Asset | null>(null)
 
-  const filteredAssets = assets.filter(
-    a => selectedCategory === 'all' || a.type === selectedCategory.replace('_clip', '')
-  )
+  const fetchAssets = async () => {
+    try {
+      const params = new URLSearchParams()
+      if (selectedCategory !== 'all') {
+        params.append('type', selectedCategory)
+      }
+      
+      const res = await fetch(`/api/assets?${params.toString()}`)
+      if (res.ok) {
+        const data = await res.json()
+        setAssets(data.items || [])
+      }
+    } catch (error) {
+      console.error('获取素材列表失败:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    setLoading(true)
+    fetchAssets()
+  }, [selectedCategory])
+
+  const handleDownload = (asset: Asset) => {
+    if (!asset.file_url) {
+      alert('文件不存在')
+      return
+    }
+    const a = document.createElement('a')
+    a.href = asset.file_url
+    a.download = asset.name
+    a.target = '_blank'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }
+
+  const handleDelete = async (assetId: string) => {
+    if (!confirm('确定要删除这个素材吗？')) return
+    
+    try {
+      const res = await fetch(`/api/assets/${assetId}`, { method: 'DELETE' })
+      if (res.ok) {
+        setAssets(prev => prev.filter(a => a.id !== assetId))
+      } else {
+        alert('删除失败，请重试')
+      }
+    } catch (error) {
+      console.error('删除失败:', error)
+      alert('删除失败，请检查网络')
+    }
+  }
+
+  const filteredAssets = assets
 
   const typeIcons = {
     video: Video,
@@ -74,7 +323,10 @@ export default function AssetsPage() {
           </h1>
           <p className="text-gray-400 mt-1">管理视频素材、背景音乐和图片资源</p>
         </div>
-        <button className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-cyber-blue to-cyber-purple rounded-lg text-white font-medium hover:opacity-90 transition-opacity">
+        <button 
+          onClick={() => setShowUploadModal(true)}
+          className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-cyber-blue to-cyber-purple rounded-lg text-white font-medium hover:opacity-90 transition-opacity"
+        >
           <Upload className="w-4 h-4" />
           上传素材
         </button>
@@ -115,30 +367,63 @@ export default function AssetsPage() {
       </div>
 
       {/* 素材列表 */}
-      {viewMode === 'grid' ? (
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-8 h-8 animate-spin text-cyber-blue" />
+        </div>
+      ) : filteredAssets.length === 0 ? (
+        <div className="bg-dark-purple/40 rounded-xl p-12 text-center">
+          <FolderOpen className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+          <p className="text-gray-400 text-lg mb-4">暂无素材</p>
+          <button
+            onClick={() => setShowUploadModal(true)}
+            className="text-cyber-blue hover:underline"
+          >
+            点击上传第一个素材
+          </button>
+        </div>
+      ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {filteredAssets.map(asset => {
             const TypeIcon = typeIcons[asset.type]
             return (
-              <div
+              <motion.div
                 key={asset.id}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
                 className="bg-dark-purple/40 rounded-xl overflow-hidden group cursor-pointer hover:ring-1 hover:ring-cyber-blue/50 transition-all"
               >
                 <div className="aspect-video bg-deep-space/50 relative flex items-center justify-center">
-                  <div className={`p-4 rounded-full ${typeColors[asset.type]}`}>
-                    <TypeIcon className="w-8 h-8" />
-                  </div>
+                  {asset.thumbnail_url ? (
+                    <img src={asset.thumbnail_url} alt={asset.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className={`p-4 rounded-full ${typeColors[asset.type]}`}>
+                      <TypeIcon className="w-8 h-8" />
+                    </div>
+                  )}
                   {asset.duration && (
                     <span className="absolute bottom-2 right-2 px-2 py-0.5 bg-black/70 text-white text-xs rounded">
                       {formatDuration(asset.duration)}
                     </span>
                   )}
                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                    <button className="p-2 bg-white/20 hover:bg-white/30 rounded-full text-white">
+                    <button 
+                      onClick={() => setPlayingAsset(asset)}
+                      className="p-2 bg-white/20 hover:bg-white/30 rounded-full text-white"
+                    >
                       <Play className="w-5 h-5" />
                     </button>
-                    <button className="p-2 bg-white/20 hover:bg-white/30 rounded-full text-white">
+                    <button 
+                      onClick={() => handleDownload(asset)}
+                      className="p-2 bg-white/20 hover:bg-white/30 rounded-full text-white"
+                    >
                       <Download className="w-5 h-5" />
+                    </button>
+                    <button 
+                      onClick={() => handleDelete(asset.id)}
+                      className="p-2 bg-white/20 hover:bg-red-500/50 rounded-full text-white"
+                    >
+                      <Trash2 className="w-5 h-5" />
                     </button>
                   </div>
                 </div>
@@ -149,7 +434,7 @@ export default function AssetsPage() {
                     <span className="text-gray-500 text-xs">使用 {asset.usage_count} 次</span>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             )
           })}
         </div>
@@ -186,9 +471,26 @@ export default function AssetsPage() {
                     <td className="px-4 py-3 text-gray-400 text-sm">{formatFileSize(asset.file_size)}</td>
                     <td className="px-4 py-3 text-gray-400 text-sm">{asset.usage_count}</td>
                     <td className="px-4 py-3 text-right">
-                      <button className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10">
-                        <Download className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button 
+                          onClick={() => setPlayingAsset(asset)}
+                          className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10"
+                        >
+                          <Play className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDownload(asset)}
+                          className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-white/10"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(asset.id)}
+                          className="p-2 text-gray-400 hover:text-red-400 rounded-lg hover:bg-white/10"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )
@@ -197,6 +499,26 @@ export default function AssetsPage() {
           </table>
         </div>
       )}
+
+      {/* 上传弹窗 */}
+      <AnimatePresence>
+        {showUploadModal && (
+          <UploadModal
+            onClose={() => setShowUploadModal(false)}
+            onUpload={fetchAssets}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* 播放弹窗 */}
+      <AnimatePresence>
+        {playingAsset && (
+          <PlayModal
+            asset={playingAsset}
+            onClose={() => setPlayingAsset(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

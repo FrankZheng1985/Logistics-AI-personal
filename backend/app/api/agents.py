@@ -108,3 +108,62 @@ async def reset_daily_stats(
         "agent": agent.name,
         "message": "每日统计已重置"
     }
+
+
+@router.put("/{agent_type}/status")
+async def update_agent_status(
+    agent_type: AgentType,
+    status: AgentStatus,
+    db: AsyncSession = Depends(get_db)
+):
+    """更新AI员工状态"""
+    result = await db.execute(
+        select(AIAgent).where(AIAgent.agent_type == agent_type)
+    )
+    agent = result.scalar_one_or_none()
+    
+    if not agent:
+        raise HTTPException(status_code=404, detail="AI员工不存在")
+    
+    old_status = agent.status
+    agent.status = status
+    await db.commit()
+    
+    return {
+        "agent": agent.name,
+        "old_status": old_status.value,
+        "new_status": status.value,
+        "message": f"状态已更新为 {status.value}"
+    }
+
+
+@router.post("/by-name/{agent_name}/status")
+async def update_agent_status_by_name(
+    agent_name: str,
+    status: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """通过名称更新AI员工状态"""
+    result = await db.execute(
+        select(AIAgent).where(AIAgent.name == agent_name)
+    )
+    agent = result.scalar_one_or_none()
+    
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"AI员工 {agent_name} 不存在")
+    
+    try:
+        new_status = AgentStatus(status)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"无效的状态: {status}")
+    
+    old_status = agent.status
+    agent.status = new_status
+    await db.commit()
+    
+    return {
+        "agent": agent.name,
+        "old_status": old_status.value,
+        "new_status": new_status.value,
+        "message": f"状态已更新为 {new_status.value}"
+    }

@@ -179,3 +179,59 @@ async def update_customer_intent(
         "delta": delta,
         "reason": reason
     }
+
+
+@router.post("/{customer_id}/mark-high-intent")
+async def mark_high_intent(
+    customer_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """标记为高意向客户"""
+    result = await db.execute(
+        select(Customer).where(Customer.id == customer_id)
+    )
+    customer = result.scalar_one_or_none()
+    
+    if not customer:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    
+    old_level = customer.intent_level
+    
+    # 直接设置为S级客户，分数提升到80+
+    customer.intent_level = IntentLevel.S
+    if customer.intent_score < 80:
+        customer.intent_score = 80
+    
+    await db.commit()
+    
+    return {
+        "message": "已标记为高意向客户",
+        "customer_id": str(customer_id),
+        "old_level": old_level.value,
+        "new_level": customer.intent_level.value,
+        "new_score": customer.intent_score
+    }
+
+
+@router.delete("/{customer_id}")
+async def delete_customer(
+    customer_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """删除客户（软删除）"""
+    result = await db.execute(
+        select(Customer).where(Customer.id == customer_id)
+    )
+    customer = result.scalar_one_or_none()
+    
+    if not customer:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    
+    # 软删除
+    customer.is_active = False
+    await db.commit()
+    
+    return {
+        "message": "客户已删除",
+        "customer_id": str(customer_id)
+    }

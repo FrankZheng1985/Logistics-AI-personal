@@ -1,136 +1,191 @@
 'use client'
 
-import { useState } from 'react'
-import { ClipboardCheck, Bot, Zap, Award, ChevronDown, ChevronUp, Edit2 } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { ClipboardCheck, Bot, Zap, Award, ChevronDown, ChevronUp, Edit2, X, Loader2, Save } from 'lucide-react'
 
 interface AgentStandard {
+  id: string
   agent_type: string
-  agent_name: string
-  standards: {
-    quality: Record<string, any>
-    efficiency: Record<string, any>
-    professional: Record<string, any>
-  }
+  standard_category: string
+  standard_name: string
+  standard_content: Record<string, any>
+  quality_metrics: Record<string, any>
+  version: number
+  is_active: boolean
 }
 
-const mockStandards: AgentStandard[] = [
-  {
-    agent_type: 'video_creator',
-    agent_name: '小影',
-    standards: {
-      quality: {
-        video_duration: { min: '1.5分钟', max: '5分钟' },
-        resolution: '1080p/4K',
-        requirements: ['无水印', '无AI生成痕迹', '画面稳定流畅', '色彩专业统一']
-      },
-      efficiency: {
-        short_video_time: '15分钟内',
-        long_video_time: '30分钟内',
-        max_retries: 3
-      },
-      professional: {
-        supported_languages: 10,
-        video_types: 5
-      }
-    }
-  },
-  {
-    agent_type: 'copywriter',
-    agent_name: '小文',
-    standards: {
-      quality: {
-        originality_rate: '≥95%',
-        grammar_error_rate: '0%',
-        requirements: ['原创度高', '无语法错误', '情感共鸣强', '行动号召明确']
-      },
-      efficiency: {
-        short_copy_time: '5分钟内',
-        long_copy_time: '15分钟内',
-        script_time: '20分钟内'
-      },
-      professional: {
-        writing_models: ['AIDA', 'PAS', 'BAB', '4P', 'QUEST'],
-        supported_languages: 8
-      }
-    }
-  },
-  {
-    agent_type: 'coordinator',
-    agent_name: '小调',
-    standards: {
-      quality: {
-        report_accuracy: '≥99%',
-        requirements: ['数据准确无误', '分析深入专业', '建议可执行']
-      },
-      efficiency: {
-        daily_report_time: '5分钟内',
-        task_dispatch_time: '3秒内'
-      },
-      professional: {
-        report_types: ['日报', '周报', '月报'],
-        monitoring_scope: ['API可用性', '证书有效期', '数据库状态']
-      }
-    }
-  },
-  {
-    agent_type: 'sales',
-    agent_name: '小销',
-    standards: {
-      quality: {
-        satisfaction_rate: '≥90%',
-        requirements: ['专业友好', '回复准确', '耐心细致', '善于引导']
-      },
-      efficiency: {
-        first_response: '3秒内',
-        avg_response: '10秒内',
-        resolution_rate: '≥85%'
-      },
-      professional: {
-        knowledge_areas: 6,
-        info_collection_targets: 6
-      }
-    }
-  },
-  {
-    agent_type: 'analyst',
-    agent_name: '小析',
-    standards: {
-      quality: {
-        intent_accuracy: '≥85%',
-        requirements: ['评分准确客观', '画像全面深入', '洞察有价值']
-      },
-      efficiency: {
-        real_time_analysis: '是',
-        profile_generation: '2分钟内'
-      },
-      professional: {
-        intent_levels: 4,
-        profile_dimensions: 5
-      }
-    }
-  },
-  {
-    agent_type: 'lead_hunter',
-    agent_name: '小猎',
-    standards: {
-      quality: {
-        min_quality_score: '≥60分',
-        requirements: ['真实有效需求', '非广告/竞争对手', '可追踪联系']
-      },
-      efficiency: {
-        daily_analysis: '≥50条',
-        response_time: '5秒内'
-      },
-      professional: {
-        search_sources: 4,
-        high_intent_signals: 8
-      }
+// AI员工名称映射
+const agentNames: Record<string, string> = {
+  'coordinator': '小调',
+  'sales': '小销',
+  'analyst': '小析',
+  'copywriter': '小文',
+  'video_creator': '小视',
+  'follow_up': '小跟',
+  'lead_hunter': '小猎',
+}
+
+// 编辑标准弹窗
+function EditStandardModal({
+  standard,
+  onClose,
+  onSave
+}: {
+  standard: AgentStandard
+  onClose: () => void
+  onSave: (id: string, data: any) => Promise<void>
+}) {
+  const [content, setContent] = useState(JSON.stringify(standard.standard_content, null, 2))
+  const [metrics, setMetrics] = useState(JSON.stringify(standard.quality_metrics, null, 2))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSave = async () => {
+    try {
+      const parsedContent = JSON.parse(content)
+      const parsedMetrics = JSON.parse(metrics)
+      
+      setSaving(true)
+      setError('')
+      
+      await onSave(standard.id, {
+        standard_content: parsedContent,
+        quality_metrics: parsedMetrics
+      })
+      
+      onClose()
+    } catch (e) {
+      setError('JSON格式错误，请检查输入')
+    } finally {
+      setSaving(false)
     }
   }
-]
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.9, y: 20 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.9, y: 20 }}
+        className="bg-dark-purple/90 backdrop-blur-xl border border-white/10 rounded-xl w-full max-w-4xl mx-4 max-h-[80vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-6 border-b border-white/10">
+          <div>
+            <h2 className="text-xl font-bold text-white">编辑工作标准</h2>
+            <p className="text-gray-400 text-sm mt-1">
+              {agentNames[standard.agent_type] || standard.agent_type} - {standard.standard_name} (v{standard.version})
+            </p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {error && (
+            <div className="p-4 bg-red-400/10 border border-red-400/30 rounded-lg text-red-400 text-sm">
+              {error}
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              <Award className="w-4 h-4 inline mr-2" />
+              标准内容 (JSON)
+            </label>
+            <textarea
+              value={content}
+              onChange={e => setContent(e.target.value)}
+              rows={10}
+              className="w-full px-4 py-3 bg-deep-space/50 border border-gray-700 rounded-lg text-white font-mono text-sm focus:border-cyber-blue focus:outline-none resize-none"
+              placeholder='{"key": "value"}'
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              <Zap className="w-4 h-4 inline mr-2" />
+              质量指标 (JSON)
+            </label>
+            <textarea
+              value={metrics}
+              onChange={e => setMetrics(e.target.value)}
+              rows={6}
+              className="w-full px-4 py-3 bg-deep-space/50 border border-gray-700 rounded-lg text-white font-mono text-sm focus:border-cyber-blue focus:outline-none resize-none"
+              placeholder='{"metric": "value"}'
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 p-6 border-t border-white/10">
+          <button
+            onClick={onClose}
+            className="px-6 py-2.5 text-gray-400 hover:text-white transition-colors"
+          >
+            取消
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-cyber-blue to-cyber-purple rounded-lg text-white font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {saving ? '保存中...' : '保存'}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
 
 export default function StandardsPage() {
-  const [expandedAgent, setExpandedAgent] = useState<string | null>('video_creator')
+  const [standards, setStandards] = useState<AgentStandard[]>([])
+  const [loading, setLoading] = useState(true)
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null)
+  const [editingStandard, setEditingStandard] = useState<AgentStandard | null>(null)
+
+  // 获取工作标准
+  const fetchStandards = async () => {
+    try {
+      const res = await fetch('/api/standards')
+      if (res.ok) {
+        const data = await res.json()
+        setStandards(data)
+        // 默认展开第一个
+        if (data.length > 0 && !expandedAgent) {
+          setExpandedAgent(data[0].agent_type)
+        }
+      }
+    } catch (error) {
+      console.error('获取工作标准失败:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 更新工作标准
+  const handleUpdateStandard = async (id: string, data: any) => {
+    const res = await fetch(`/api/standards/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    
+    if (!res.ok) throw new Error('更新失败')
+    await fetchStandards()
+  }
+
+  useEffect(() => {
+    fetchStandards()
+  }, [])
 
   const toggleExpand = (agentType: string) => {
     setExpandedAgent(prev => prev === agentType ? null : agentType)
@@ -140,10 +195,27 @@ export default function StandardsPage() {
     if (Array.isArray(value)) {
       return value.join('、')
     }
-    if (typeof value === 'object') {
-      return JSON.stringify(value)
+    if (typeof value === 'object' && value !== null) {
+      return Object.entries(value).map(([k, v]) => `${k}: ${v}`).join(', ')
     }
     return String(value)
+  }
+
+  // 按员工类型分组
+  const groupedStandards = standards.reduce((acc, s) => {
+    if (!acc[s.agent_type]) {
+      acc[s.agent_type] = []
+    }
+    acc[s.agent_type].push(s)
+    return acc
+  }, {} as Record<string, AgentStandard[]>)
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-cyber-blue" />
+      </div>
+    )
   }
 
   return (
@@ -160,103 +232,126 @@ export default function StandardsPage() {
       </div>
 
       {/* 标准卡片列表 */}
-      <div className="space-y-4">
-        {mockStandards.map(agent => (
-          <div
-            key={agent.agent_type}
-            className="bg-dark-purple/40 rounded-xl overflow-hidden"
-          >
-            {/* 标题栏 */}
-            <button
-              onClick={() => toggleExpand(agent.agent_type)}
-              className="w-full flex items-center justify-between p-5 hover:bg-white/5 transition-colors"
+      {standards.length === 0 ? (
+        <div className="bg-dark-purple/40 rounded-xl p-12 text-center">
+          <ClipboardCheck className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+          <p className="text-gray-400 text-lg">暂无工作标准数据</p>
+          <p className="text-gray-500 text-sm mt-2">系统启动后会自动创建默认标准</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {Object.entries(groupedStandards).map(([agentType, agentStandards]) => (
+            <div
+              key={agentType}
+              className="bg-dark-purple/40 rounded-xl overflow-hidden"
             >
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyber-blue to-cyber-purple flex items-center justify-center">
-                  <Bot className="w-6 h-6 text-white" />
+              {/* 标题栏 */}
+              <button
+                onClick={() => toggleExpand(agentType)}
+                className="w-full flex items-center justify-between p-5 hover:bg-white/5 transition-colors"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyber-blue to-cyber-purple flex items-center justify-center">
+                    <Bot className="w-6 h-6 text-white" />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="text-white font-semibold text-lg">
+                      {agentNames[agentType] || agentType}
+                    </h3>
+                    <p className="text-gray-400 text-sm">{agentType} · {agentStandards.length} 个标准</p>
+                  </div>
                 </div>
-                <div className="text-left">
-                  <h3 className="text-white font-semibold text-lg">{agent.agent_name}</h3>
-                  <p className="text-gray-400 text-sm">{agent.agent_type}</p>
-                </div>
-              </div>
-              {expandedAgent === agent.agent_type ? (
-                <ChevronUp className="w-5 h-5 text-gray-400" />
-              ) : (
-                <ChevronDown className="w-5 h-5 text-gray-400" />
-              )}
-            </button>
+                {expandedAgent === agentType ? (
+                  <ChevronUp className="w-5 h-5 text-gray-400" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-gray-400" />
+                )}
+              </button>
 
-            {/* 展开内容 */}
-            {expandedAgent === agent.agent_type && (
-              <div className="px-5 pb-5 pt-2 border-t border-gray-800">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {/* 质量标准 */}
-                  <div className="bg-deep-space/50 rounded-xl p-4">
-                    <div className="flex items-center gap-2 mb-4">
-                      <Award className="w-5 h-5 text-green-400" />
-                      <h4 className="text-white font-medium">质量标准</h4>
-                    </div>
-                    <div className="space-y-3">
-                      {Object.entries(agent.standards.quality).map(([key, value]) => (
-                        <div key={key}>
-                          <p className="text-gray-500 text-xs mb-1">
-                            {key.replace(/_/g, ' ')}
-                          </p>
-                          <p className="text-white text-sm">{renderValue(value)}</p>
+              {/* 展开内容 */}
+              <AnimatePresence>
+                {expandedAgent === agentType && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="px-5 pb-5 pt-2 border-t border-gray-800">
+                      {agentStandards.map(standard => (
+                        <div key={standard.id} className="mb-6 last:mb-0">
+                          <div className="flex items-center justify-between mb-4">
+                            <h4 className="text-white font-medium flex items-center gap-2">
+                              {standard.standard_name}
+                              <span className="text-xs text-gray-500">v{standard.version}</span>
+                            </h4>
+                            <button
+                              onClick={() => setEditingStandard(standard)}
+                              className="flex items-center gap-2 px-4 py-2 text-cyber-blue hover:bg-cyber-blue/10 rounded-lg transition-colors"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                              编辑标准
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* 标准内容 */}
+                            <div className="bg-deep-space/50 rounded-xl p-4">
+                              <div className="flex items-center gap-2 mb-4">
+                                <Award className="w-5 h-5 text-green-400" />
+                                <h4 className="text-white font-medium">标准内容</h4>
+                              </div>
+                              <div className="space-y-3">
+                                {Object.entries(standard.standard_content).map(([key, value]) => (
+                                  <div key={key}>
+                                    <p className="text-gray-500 text-xs mb-1">
+                                      {key.replace(/_/g, ' ')}
+                                    </p>
+                                    <p className="text-white text-sm">{renderValue(value)}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* 质量指标 */}
+                            <div className="bg-deep-space/50 rounded-xl p-4">
+                              <div className="flex items-center gap-2 mb-4">
+                                <Zap className="w-5 h-5 text-yellow-400" />
+                                <h4 className="text-white font-medium">质量指标</h4>
+                              </div>
+                              <div className="space-y-3">
+                                {Object.entries(standard.quality_metrics).map(([key, value]) => (
+                                  <div key={key}>
+                                    <p className="text-gray-500 text-xs mb-1">
+                                      {key.replace(/_/g, ' ')}
+                                    </p>
+                                    <p className="text-white text-sm">{renderValue(value)}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       ))}
                     </div>
-                  </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          ))}
+        </div>
+      )}
 
-                  {/* 效率标准 */}
-                  <div className="bg-deep-space/50 rounded-xl p-4">
-                    <div className="flex items-center gap-2 mb-4">
-                      <Zap className="w-5 h-5 text-yellow-400" />
-                      <h4 className="text-white font-medium">效率标准</h4>
-                    </div>
-                    <div className="space-y-3">
-                      {Object.entries(agent.standards.efficiency).map(([key, value]) => (
-                        <div key={key}>
-                          <p className="text-gray-500 text-xs mb-1">
-                            {key.replace(/_/g, ' ')}
-                          </p>
-                          <p className="text-white text-sm">{renderValue(value)}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* 专业标准 */}
-                  <div className="bg-deep-space/50 rounded-xl p-4">
-                    <div className="flex items-center gap-2 mb-4">
-                      <ClipboardCheck className="w-5 h-5 text-blue-400" />
-                      <h4 className="text-white font-medium">专业标准</h4>
-                    </div>
-                    <div className="space-y-3">
-                      {Object.entries(agent.standards.professional).map(([key, value]) => (
-                        <div key={key}>
-                          <p className="text-gray-500 text-xs mb-1">
-                            {key.replace(/_/g, ' ')}
-                          </p>
-                          <p className="text-white text-sm">{renderValue(value)}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 flex justify-end">
-                  <button className="flex items-center gap-2 px-4 py-2 text-cyber-blue hover:bg-cyber-blue/10 rounded-lg transition-colors">
-                    <Edit2 className="w-4 h-4" />
-                    编辑标准
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+      {/* 编辑弹窗 */}
+      <AnimatePresence>
+        {editingStandard && (
+          <EditStandardModal
+            standard={editingStandard}
+            onClose={() => setEditingStandard(null)}
+            onSave={handleUpdateStandard}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

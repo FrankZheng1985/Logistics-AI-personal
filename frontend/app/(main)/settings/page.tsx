@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { Settings, Building2, Key, Bell, Globe, Save, Eye, EyeOff } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Settings, Building2, Key, Bell, Globe, Save, Eye, EyeOff, Loader2 } from 'lucide-react'
 
 interface CompanyConfig {
   company_name: string
@@ -20,10 +20,24 @@ interface ApiConfig {
   serper_api_key: string
 }
 
+interface NotificationConfig {
+  high_intent_threshold: number
+  enable_wechat_notify: boolean
+  enable_email_notify: boolean
+  quiet_hours_start: string
+  quiet_hours_end: string
+}
+
+interface AIConfig {
+  model_name: string
+  temperature: number
+}
+
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'company' | 'api' | 'notification' | 'system'>('company')
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({})
   const [isSaving, setIsSaving] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
 
   const [companyConfig, setCompanyConfig] = useState<CompanyConfig>({
     company_name: '',
@@ -42,7 +56,7 @@ export default function SettingsPage() {
     serper_api_key: ''
   })
 
-  const [notificationConfig, setNotificationConfig] = useState({
+  const [notificationConfig, setNotificationConfig] = useState<NotificationConfig>({
     high_intent_threshold: 60,
     enable_wechat_notify: true,
     enable_email_notify: false,
@@ -50,16 +64,95 @@ export default function SettingsPage() {
     quiet_hours_end: '08:00'
   })
 
+  const [aiConfig, setAiConfig] = useState<AIConfig>({
+    model_name: 'qwen-max',
+    temperature: 0.7
+  })
+
+  // 加载设置
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const res = await fetch('/api/settings')
+        if (res.ok) {
+          const data = await res.json()
+          
+          // 合并公司配置
+          if (data.company && Object.keys(data.company).length > 0) {
+            setCompanyConfig(prev => ({ ...prev, ...data.company }))
+          }
+          
+          // 合并通知配置
+          if (data.notification && Object.keys(data.notification).length > 0) {
+            setNotificationConfig(prev => ({ ...prev, ...data.notification }))
+          }
+          
+          // 合并AI配置
+          if (data.ai && Object.keys(data.ai).length > 0) {
+            setAiConfig(prev => ({ ...prev, ...data.ai }))
+          }
+        }
+      } catch (error) {
+        console.error('加载设置失败:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchSettings()
+  }, [])
+
   const toggleSecretVisibility = (key: string) => {
     setShowSecrets(prev => ({ ...prev, [key]: !prev[key] }))
   }
 
   const handleSave = async () => {
     setIsSaving(true)
-    // 模拟保存
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    setIsSaving(false)
-    alert('设置已保存！')
+    try {
+      // 保存公司设置
+      if (activeTab === 'company') {
+        const res = await fetch('/api/settings/company', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(companyConfig)
+        })
+        if (!res.ok) throw new Error('保存公司设置失败')
+      }
+      
+      // 保存通知设置
+      if (activeTab === 'notification') {
+        const res = await fetch('/api/settings/notification', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(notificationConfig)
+        })
+        if (!res.ok) throw new Error('保存通知设置失败')
+      }
+      
+      // 保存AI设置
+      if (activeTab === 'system') {
+        const res = await fetch('/api/settings/ai', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(aiConfig)
+        })
+        if (!res.ok) throw new Error('保存AI设置失败')
+      }
+      
+      // API配置保存提示（敏感信息不存数据库，需要修改环境变量）
+      if (activeTab === 'api') {
+        alert('API密钥需要在服务器环境变量中配置，请联系管理员修改 .env 文件')
+        setIsSaving(false)
+        return
+      }
+      
+      alert('设置已保存！')
+    } catch (error) {
+      console.error('保存失败:', error)
+      alert('保存失败，请重试')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const tabs = [
@@ -68,6 +161,14 @@ export default function SettingsPage() {
     { id: 'notification', label: '通知设置', icon: Bell },
     { id: 'system', label: '系统设置', icon: Globe }
   ]
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-cyber-blue" />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -85,7 +186,7 @@ export default function SettingsPage() {
           disabled={isSaving}
           className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-cyber-blue to-cyber-purple rounded-lg text-white font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
         >
-          <Save className="w-4 h-4" />
+          {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           {isSaving ? '保存中...' : '保存设置'}
         </button>
       </div>
@@ -181,7 +282,7 @@ export default function SettingsPage() {
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">公司优势</label>
             <div className="flex flex-wrap gap-2">
-              {companyConfig.advantages.map((adv, index) => (
+              {companyConfig.advantages?.map((adv, index) => (
                 <span
                   key={index}
                   className="px-3 py-1.5 bg-cyber-blue/20 text-cyber-blue rounded-full text-sm flex items-center gap-2"
@@ -206,7 +307,7 @@ export default function SettingsPage() {
                   if (e.key === 'Enter' && e.currentTarget.value) {
                     setCompanyConfig(prev => ({
                       ...prev,
-                      advantages: [...prev.advantages, e.currentTarget.value]
+                      advantages: [...(prev.advantages || []), e.currentTarget.value]
                     }))
                     e.currentTarget.value = ''
                   }
@@ -221,9 +322,9 @@ export default function SettingsPage() {
       {activeTab === 'api' && (
         <div className="bg-dark-purple/40 rounded-xl p-6 space-y-6">
           <h2 className="text-lg font-semibold text-white mb-4">API密钥配置</h2>
-          <p className="text-gray-400 text-sm mb-6">
-            请妥善保管您的API密钥，不要泄露给他人。密钥变更后需要重启服务生效。
-          </p>
+          <div className="p-4 bg-yellow-400/10 border border-yellow-400/30 rounded-lg text-yellow-400 text-sm mb-6">
+            ⚠️ API密钥需要在服务器环境变量中配置，请联系管理员修改 .env 文件。此页面仅供查看和参考。
+          </div>
 
           {[
             { key: 'keling_access_key', label: '可灵AI Access Key', desc: '用于AI视频生成' },
@@ -339,17 +440,22 @@ export default function SettingsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">主模型</label>
-                <select className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none">
+                <select 
+                  value={aiConfig.model_name}
+                  onChange={e => setAiConfig(prev => ({ ...prev, model_name: e.target.value }))}
+                  className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                >
                   <option value="qwen-max">通义千问 Max</option>
                   <option value="qwen-plus">通义千问 Plus</option>
                   <option value="qwen-turbo">通义千问 Turbo</option>
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-gray-500 mb-1">创造性参数</label>
+                <label className="block text-xs text-gray-500 mb-1">创造性参数 (0-1)</label>
                 <input
                   type="number"
-                  defaultValue={0.7}
+                  value={aiConfig.temperature}
+                  onChange={e => setAiConfig(prev => ({ ...prev, temperature: parseFloat(e.target.value) }))}
                   step={0.1}
                   min={0}
                   max={1}

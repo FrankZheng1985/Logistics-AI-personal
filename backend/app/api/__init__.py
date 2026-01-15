@@ -5,7 +5,8 @@ from app.api import (
     customers, videos, chat, dashboard, agents, 
     wechat, company, leads, follow,
     reports, knowledge, webchat,
-    standards, monitoring
+    standards, monitoring, marketing,
+    assets, settings
 )
 
 router = APIRouter()
@@ -25,3 +26,6 @@ router.include_router(knowledge.router)
 router.include_router(webchat.router)
 router.include_router(standards.router, tags=["工作标准"])
 router.include_router(monitoring.router, tags=["系统监控"])
+router.include_router(marketing.router, prefix="/marketing", tags=["营销序列"])
+router.include_router(assets.router, tags=["素材库"])
+router.include_router(settings.router, tags=["系统设置"])

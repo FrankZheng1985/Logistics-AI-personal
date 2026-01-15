@@ -458,8 +458,15 @@ export default function TeamPage() {
   
   const handleToggleStatus = async (agentName: string, newStatus: 'online' | 'offline') => {
     try {
-      // 这里可以调用API更新状态
-      // await fetch(`/api/agents/${agentName}/status`, { method: 'PUT', body: JSON.stringify({ status: newStatus }) })
+      // 调用API更新状态
+      const response = await fetch(`/api/agents/by-name/${encodeURIComponent(agentName)}/status?status=${newStatus}`, {
+        method: 'POST'
+      })
+      
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.detail || '更新失败')
+      }
       
       // 本地更新状态
       setAgents(prev => prev.map(a => 

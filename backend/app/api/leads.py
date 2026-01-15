@@ -276,6 +276,109 @@ async def delete_lead(
     return {"message": "线索已删除"}
 
 
+@router.post("/{lead_id}/convert")
+async def convert_lead_to_customer(
+    lead_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """将线索转化为客户"""
+    from app.models import Customer, IntentLevel, CustomerSource
+    
+    # 获取线索
+    result = await db.execute(
+        select(Lead).where(Lead.id == lead_id)
+    )
+    lead = result.scalar_one_or_none()
+    
+    if not lead:
+        raise HTTPException(status_code=404, detail="线索不存在")
+    
+    if lead.status == LeadStatus.CONVERTED:
+        raise HTTPException(status_code=400, detail="该线索已转化为客户")
+    
+    # 映射意向等级
+    intent_level_map = {
+        LeadIntentLevel.HIGH: IntentLevel.A,
+        LeadIntentLevel.MEDIUM: IntentLevel.B,
+        LeadIntentLevel.LOW: IntentLevel.C,
+        LeadIntentLevel.UNKNOWN: IntentLevel.C,
+    }
+    
+    # 映射来源
+    source_map = {
+        LeadSource.GOOGLE: CustomerSource.WECHAT,
+        LeadSource.WEIBO: CustomerSource.WECHAT,
+        LeadSource.ZHIHU: CustomerSource.WECHAT,
+        LeadSource.TIEBA: CustomerSource.WECHAT,
+        LeadSource.WECHAT: CustomerSource.WECHAT,
+        LeadSource.MANUAL: CustomerSource.MANUAL,
+        LeadSource.OTHER: CustomerSource.OTHER,
+    }
+    
+    # 创建客户
+    customer = Customer(
+        name=lead.name or "未知客户",
+        company=lead.company,
+        phone=lead.phone,
+        email=lead.email,
+        wechat_id=lead.wechat,
+        source=source_map.get(lead.source, CustomerSource.OTHER),
+        intent_level=intent_level_map.get(lead.intent_level, IntentLevel.C),
+        intent_score=lead.intent_score,
+        tags=lead.tags or [],
+        profile={"from_lead": str(lead.id), "needs": lead.needs}
+    )
+    
+    db.add(customer)
+    
+    # 更新线索状态
+    lead.status = LeadStatus.CONVERTED
+    
+    await db.commit()
+    await db.refresh(customer)
+    
+    logger.info(f"线索 {lead.name} 转化为客户 {customer.id}")
+    
+    return {
+        "message": "转化成功",
+        "customer_id": str(customer.id),
+        "lead_id": str(lead.id)
+    }
+
+
+@router.post("/{lead_id}/contact")
+async def contact_lead(
+    lead_id: UUID,
+    message: str = "",
+    db: AsyncSession = Depends(get_db)
+):
+    """联系线索"""
+    result = await db.execute(
+        select(Lead).where(Lead.id == lead_id)
+    )
+    lead = result.scalar_one_or_none()
+    
+    if not lead:
+        raise HTTPException(status_code=404, detail="线索不存在")
+    
+    # 更新线索状态和联系记录
+    if lead.status == LeadStatus.NEW:
+        lead.status = LeadStatus.CONTACTED
+    
+    lead.last_contact_at = datetime.utcnow()
+    lead.contact_count = (lead.contact_count or 0) + 1
+    
+    await db.commit()
+    
+    logger.info(f"联系线索: {lead.name}, 第{lead.contact_count}次")
+    
+    return {
+        "message": "联系记录已更新",
+        "lead_id": str(lead.id),
+        "contact_count": lead.contact_count
+    }
+
+
 @router.post("/hunt")
 async def start_lead_hunting(
     background_tasks: BackgroundTasks,
