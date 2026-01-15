@@ -74,6 +74,11 @@ export default function NotificationsPage() {
     filter === 'all' || !n.is_read
   )
 
+  // 触发全局事件通知其他组件更新未读数量
+  const dispatchUnreadCountUpdate = (count: number) => {
+    window.dispatchEvent(new CustomEvent('notification-unread-update', { detail: { count } }))
+  }
+
   const markAsRead = async (id: string) => {
     try {
       const res = await fetch(`/api/notifications/${id}/read`, { method: 'PUT' })
@@ -81,7 +86,9 @@ export default function NotificationsPage() {
         setNotifications(prev => prev.map(n => 
           n.id === id ? { ...n, is_read: true } : n
         ))
-        setUnreadCount(prev => Math.max(0, prev - 1))
+        const newCount = Math.max(0, unreadCount - 1)
+        setUnreadCount(newCount)
+        dispatchUnreadCountUpdate(newCount)
       }
     } catch (error) {
       console.error('标记已读失败:', error)
@@ -94,6 +101,7 @@ export default function NotificationsPage() {
       if (res.ok) {
         setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
         setUnreadCount(0)
+        dispatchUnreadCountUpdate(0)
       }
     } catch (error) {
       console.error('标记全部已读失败:', error)
@@ -107,7 +115,9 @@ export default function NotificationsPage() {
         const wasUnread = notifications.find(n => n.id === id)?.is_read === false
         setNotifications(prev => prev.filter(n => n.id !== id))
         if (wasUnread) {
-          setUnreadCount(prev => Math.max(0, prev - 1))
+          const newCount = Math.max(0, unreadCount - 1)
+          setUnreadCount(newCount)
+          dispatchUnreadCountUpdate(newCount)
         }
       }
     } catch (error) {

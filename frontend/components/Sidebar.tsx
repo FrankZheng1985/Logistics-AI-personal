@@ -59,7 +59,18 @@ export default function Sidebar() {
     fetchUnreadCount()
     // 每30秒刷新一次未读数量
     const interval = setInterval(fetchUnreadCount, 30000)
-    return () => clearInterval(interval)
+    
+    // 监听通知页面的更新事件，实时同步未读数量
+    const handleUnreadUpdate = (event: CustomEvent<{ count: number }>) => {
+      setUnreadCount(event.detail.count)
+    }
+    
+    window.addEventListener('notification-unread-update', handleUnreadUpdate as EventListener)
+    
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('notification-unread-update', handleUnreadUpdate as EventListener)
+    }
   }, [])
   
   return (
