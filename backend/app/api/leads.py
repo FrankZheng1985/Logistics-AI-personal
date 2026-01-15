@@ -125,29 +125,33 @@ async def get_lead_stats(
     )
     today_count = today_result.scalar()
     
-    # 按状态统计
+    # 按状态统计 - 使用原生SQL避免枚举转换问题
+    from sqlalchemy import text
     status_stats = {}
     for status in LeadStatus:
         result = await db.execute(
-            select(func.count(Lead.id)).where(Lead.status == status)
+            text("SELECT count(id) FROM leads WHERE status = :status"),
+            {"status": status.value}
         )
-        status_stats[status.value] = result.scalar()
+        status_stats[status.value] = result.scalar() or 0
     
     # 按意向等级统计
     intent_stats = {}
     for level in LeadIntentLevel:
         result = await db.execute(
-            select(func.count(Lead.id)).where(Lead.intent_level == level)
+            text("SELECT count(id) FROM leads WHERE intent_level = :level"),
+            {"level": level.value}
         )
-        intent_stats[level.value] = result.scalar()
+        intent_stats[level.value] = result.scalar() or 0
     
     # 按来源统计
     source_stats = {}
     for src in LeadSource:
         result = await db.execute(
-            select(func.count(Lead.id)).where(Lead.source == src)
+            text("SELECT count(id) FROM leads WHERE source = :source"),
+            {"source": src.value}
         )
-        count = result.scalar()
+        count = result.scalar() or 0
         if count > 0:
             source_stats[src.value] = count
     
