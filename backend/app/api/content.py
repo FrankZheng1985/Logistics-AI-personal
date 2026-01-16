@@ -1,6 +1,7 @@
 """
 内容管理API
 包括：文案列表、发布、审核等
+支持：企业微信、小红书等渠道
 """
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException
@@ -8,6 +9,7 @@ from pydantic import BaseModel
 from loguru import logger
 
 from app.services.content_publisher import content_publisher
+from app.services.xiaohongshu_publisher import xiaohongshu_publisher
 
 router = APIRouter(prefix="/content", tags=["内容管理"])
 
@@ -254,3 +256,139 @@ async def quick_publish(
         response["publish_result"] = publish_result
     
     return response
+
+
+# ==================== 小红书发布 ====================
+
+class XhsPublishRequest(BaseModel):
+    """小红书发布请求"""
+    content_id: str
+    image_urls: Optional[List[str]] = None
+
+
+@router.post("/posts/{content_id}/publish-to-xhs")
+async def publish_to_xiaohongshu(content_id: str, image_urls: Optional[List[str]] = None):
+    """
+    发布文案到小红书
+    
+    如果已配置小红书API，会直接发布；
+    否则会发送格式化文案到企业微信，用户手动复制发布。
+    
+    Args:
+        content_id: 文案ID
+        image_urls: 配图URL列表（可选）
+    """
+    result = await xiaohongshu_publisher.publish(
+        content_id=content_id,
+        image_urls=image_urls
+    )
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=400,
+            detail=result.get("error", "发布失败")
+        )
+    
+    return result
+
+
+@router.post("/posts/{content_id}/format-for-xhs")
+async def format_for_xiaohongshu(content_id: str):
+    """
+    将文案格式化为小红书风格（预览）
+    
+    返回格式化后的标题、正文和话题标签
+    """
+    from sqlalchemy import text
+    from app.models.database import async_session_maker
+    
+    async with async_session_maker() as db:
+        result = await db.execute(
+            text("""
+                SELECT content, topic
+                FROM content_posts
+                WHERE id = :id
+            """),
+            {"id": content_id}
+        )
+        row = result.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="文案不存在")
+        
+        content = row[0]
+        topic = row[1]
+    
+    # 格式化
+    formatted = xiaohongshu_publisher.format_for_xiaohongshu(content, topic)
+    
+    return {
+        "original_content": content,
+        "formatted": formatted,
+        "tips": [
+            "标题最多20字，正文最多1000字",
+            "建议配3-9张高质量图片",
+            "最佳发布时间：12:00-14:00 或 20:00-22:00",
+            "话题标签已自动添加在正文末尾"
+        ]
+    }
+
+
+@router.post("/quick-publish-xhs")
+async def quick_publish_to_xiaohongshu(
+    topic: str,
+    image_urls: Optional[List[str]] = None
+):
+    """
+    快速生成小红书文案并发布
+    
+    Args:
+        topic: 文案主题（如：欧洲物流干货）
+        image_urls: 配图URL列表
+    """
+    from app.agents.copywriter import copywriter_agent
+    from sqlalchemy import text
+    from app.models.database import async_session_maker
+    
+    # 生成小红书风格文案
+    result = await copywriter_agent.process({
+        "task_type": "xiaohongshu",  # 使用小红书专用模板
+        "topic": topic,
+        "purpose": "种草分享",
+        "target_audience": "外贸人、跨境电商卖家"
+    })
+    
+    copy = result.get("copy", "")
+    if not copy:
+        raise HTTPException(status_code=500, detail="文案生成失败")
+    
+    # 保存文案
+    async with async_session_maker() as db:
+        insert_result = await db.execute(
+            text("""
+                INSERT INTO content_posts 
+                (content, topic, platform, status, created_at)
+                VALUES (:content, :topic, 'xiaohongshu', 'approved', NOW())
+                RETURNING id
+            """),
+            {
+                "content": copy,
+                "topic": topic
+            }
+        )
+        row = insert_result.fetchone()
+        content_id = str(row[0])
+        await db.commit()
+    
+    # 发布到小红书
+    publish_result = await xiaohongshu_publisher.publish(
+        content_id=content_id,
+        image_urls=image_urls
+    )
+    
+    return {
+        "success": True,
+        "content_id": content_id,
+        "topic": topic,
+        "publish_result": publish_result
+    }

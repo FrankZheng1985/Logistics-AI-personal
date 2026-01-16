@@ -390,6 +390,117 @@ async def auto_content_publish():
         return {"error": str(e)}
 
 
+async def auto_xiaohongshu_publish():
+    """
+    自动小红书内容发布任务
+    每周二/四/六执行，小文发布小红书笔记
+    """
+    logger.info("📕 开始执行: 小红书内容发布")
+    
+    try:
+        from app.agents.copywriter import copywriter_agent
+        from app.services.xiaohongshu_publisher import xiaohongshu_publisher
+        
+        # 小红书话题 - 针对外贸/跨境电商人群
+        topics = [
+            {
+                "topic": "欧洲物流避坑指南",
+                "purpose": "干货分享",
+                "target_audience": "外贸新手、跨境电商卖家"
+            },
+            {
+                "topic": "FBA头程省钱攻略",
+                "purpose": "实用技巧",
+                "target_audience": "亚马逊卖家"
+            },
+            {
+                "topic": "货代选择小技巧",
+                "purpose": "经验分享",
+                "target_audience": "有物流需求的外贸人"
+            },
+            {
+                "topic": "跨境物流常见问题",
+                "purpose": "解答疑惑",
+                "target_audience": "跨境电商新手"
+            },
+            {
+                "topic": "欧洲清关注意事项",
+                "purpose": "专业指导",
+                "target_audience": "有欧洲业务的外贸商家"
+            }
+        ]
+        
+        import random
+        topic = random.choice(topics)
+        
+        # 生成小红书风格文案
+        result = await copywriter_agent.process({
+            "task_type": "xiaohongshu",
+            **topic
+        })
+        
+        copy = result.get("copy", "")
+        if not copy:
+            logger.warning("📕 小红书文案生成为空")
+            return {"error": "文案生成失败"}
+        
+        # 保存文案记录
+        async with async_session_maker() as db:
+            insert_result = await db.execute(
+                text("""
+                    INSERT INTO content_posts 
+                    (content, topic, platform, status, created_at)
+                    VALUES (:content, :topic, 'xiaohongshu', 'approved', NOW())
+                    RETURNING id
+                """),
+                {
+                    "content": copy,
+                    "topic": topic["topic"]
+                }
+            )
+            row = insert_result.fetchone()
+            content_id = str(row[0]) if row else None
+            
+            # 更新小文任务统计
+            await db.execute(
+                text("""
+                    UPDATE ai_agents
+                    SET tasks_completed_today = tasks_completed_today + 1,
+                        tasks_completed_total = tasks_completed_total + 1,
+                        last_active_at = NOW(),
+                        updated_at = NOW()
+                    WHERE agent_type = 'copywriter'
+                """)
+            )
+            await db.commit()
+        
+        logger.info(f"📕 小红书文案生成完成: {topic['topic']}")
+        
+        # 发布到小红书（通过通知）
+        publish_result = None
+        if content_id:
+            publish_result = await xiaohongshu_publisher.publish(
+                content_id=content_id
+            )
+            
+            if publish_result.get("success"):
+                logger.info(f"📕 小红书文案已发送通知")
+            else:
+                logger.warning(f"📕 小红书文案发布失败: {publish_result.get('error')}")
+        
+        return {
+            "topic": topic["topic"],
+            "copy_length": len(copy),
+            "content_id": content_id,
+            "platform": "xiaohongshu",
+            "published": publish_result.get("success") if publish_result else False
+        }
+        
+    except Exception as e:
+        logger.error(f"小红书内容发布失败: {e}")
+        return {"error": str(e)}
+
+
 async def knowledge_base_update():
     """
     知识库更新任务

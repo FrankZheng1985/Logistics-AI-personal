@@ -55,6 +55,7 @@ async def init_scheduler():
         lead_hunt_task,
         auto_video_generation,
         auto_content_publish,
+        auto_xiaohongshu_publish,
         knowledge_base_update
     )
     
@@ -209,15 +210,25 @@ async def init_scheduler():
     
     # ==================== 小文任务 ====================
     
-    # 自动内容发布 - 每周一/三/五下午3点
+    # 自动内容发布(企业微信) - 每周一/三/五下午3点
     scheduler.add_job(
         auto_content_publish,
         CronTrigger(day_of_week='mon,wed,fri', hour=15, minute=0),
         id="auto_content_publish",
-        name="[小文] 自动内容发布",
+        name="[小文] 企业微信文案发布",
         replace_existing=True
     )
-    logger.info("📅 注册任务: [小文] 自动内容发布 - 周一/三/五 15:00")
+    logger.info("📅 注册任务: [小文] 企业微信文案发布 - 周一/三/五 15:00")
+    
+    # 小红书内容发布 - 每周二/四/六中午12点（小红书高峰时段）
+    scheduler.add_job(
+        auto_xiaohongshu_publish,
+        CronTrigger(day_of_week='tue,thu,sat', hour=12, minute=0),
+        id="auto_xiaohongshu_publish",
+        name="[小文] 小红书笔记发布",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小文] 小红书笔记发布 - 周二/四/六 12:00")
     
     # ==================== 小析2任务 ====================
     
