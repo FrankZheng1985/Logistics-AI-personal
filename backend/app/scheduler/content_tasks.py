@@ -227,17 +227,27 @@ async def auto_video_generation():
         
         # 3. 保存视频记录
         async with async_session_maker() as db:
+            # 获取视频任务UUID（如果有的话）
+            task_id = video_result.get("task_id")
+            task_uuid = None
+            if task_id:
+                # 检查task_id是否是有效的UUID格式
+                import uuid as uuid_module
+                try:
+                    task_uuid = uuid_module.UUID(task_id)
+                except (ValueError, TypeError):
+                    task_uuid = None
+            
             await db.execute(
                 text("""
                     INSERT INTO videos 
-                    (title, script, video_url, task_id, status, created_by, created_at)
-                    VALUES (:title, :script, :video_url, :task_id, :status, 'video_creator', NOW())
+                    (title, script, video_url, status, created_at)
+                    VALUES (:title, :script, :video_url, :status, NOW())
                 """),
                 {
                     "title": topic["title"],
                     "script": script,
                     "video_url": video_result.get("video_url", ""),
-                    "task_id": video_result.get("task_id", ""),
                     "status": video_result.get("status", "pending")
                 }
             )

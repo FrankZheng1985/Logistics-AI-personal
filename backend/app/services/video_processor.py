@@ -135,23 +135,31 @@ class VideoProcessor:
             logger.error(f"视频下载异常: {e}")
             return None
     
-    async def _generate_tts(self, text: str, voice: str = "zh_female") -> Optional[str]:
-        """使用edge-tts生成配音"""
+    async def _generate_tts(self, text: str, voice: str = "zh_female", max_retries: int = 3) -> Optional[str]:
+        """使用edge-tts生成配音，带重试机制"""
         if not EDGE_TTS_AVAILABLE:
+            logger.warning("edge-tts未安装，跳过TTS生成")
             return None
         
-        try:
-            voice_name = self.TTS_VOICES.get(voice, self.TTS_VOICES["zh_female"])
-            output_path = os.path.join(self.temp_dir, "tts.mp3")
-            
-            communicate = edge_tts.Communicate(text, voice_name)
-            await communicate.save(output_path)
-            
-            logger.info(f"TTS生成完成: {output_path}")
-            return output_path
-        except Exception as e:
-            logger.error(f"TTS生成失败: {e}")
-            return None
+        voice_name = self.TTS_VOICES.get(voice, self.TTS_VOICES["zh_female"])
+        output_path = os.path.join(self.temp_dir, "tts.mp3")
+        
+        for attempt in range(max_retries):
+            try:
+                communicate = edge_tts.Communicate(text, voice_name)
+                await communicate.save(output_path)
+                
+                logger.info(f"TTS生成完成: {output_path}")
+                return output_path
+            except Exception as e:
+                logger.warning(f"TTS生成失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    # 等待后重试，使用递增延迟
+                    await asyncio.sleep(2 * (attempt + 1))
+                else:
+                    logger.error(f"TTS生成最终失败: {e}")
+        
+        return None
     
     async def _compose_video(
         self,
@@ -591,21 +599,31 @@ class VideoProcessor:
     async def _generate_tts_with_voice_id(
         self, 
         text: str, 
-        voice_id: str
+        voice_id: str,
+        max_retries: int = 3
     ) -> Optional[str]:
-        """使用指定语音ID生成TTS"""
+        """使用指定语音ID生成TTS，带重试机制"""
         if not EDGE_TTS_AVAILABLE:
+            logger.warning("edge-tts未安装，跳过TTS生成")
             return None
         
-        try:
-            output_path = os.path.join(self.temp_dir, "tts_long.mp3")
-            communicate = edge_tts.Communicate(text, voice_id)
-            await communicate.save(output_path)
-            logger.info(f"TTS生成完成: {output_path}")
-            return output_path
-        except Exception as e:
-            logger.error(f"TTS生成失败: {e}")
-            return None
+        output_path = os.path.join(self.temp_dir, "tts_long.mp3")
+        
+        for attempt in range(max_retries):
+            try:
+                communicate = edge_tts.Communicate(text, voice_id)
+                await communicate.save(output_path)
+                logger.info(f"TTS生成完成: {output_path}")
+                return output_path
+            except Exception as e:
+                logger.warning(f"TTS生成失败 (尝试 {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    # 等待后重试，使用递增延迟
+                    await asyncio.sleep(2 * (attempt + 1))
+                else:
+                    logger.error(f"TTS生成最终失败，将跳过配音: {e}")
+        
+        return None
     
     async def _download_audio(self, url: str) -> Optional[str]:
         """下载音频文件"""
