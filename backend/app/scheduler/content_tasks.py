@@ -282,13 +282,15 @@ async def auto_content_publish():
     """
     自动内容发布任务
     每周一/三/五执行，小文发布营销文案
+    支持：生成文案 → 自动发布到企业微信
     """
     logger.info("📝 开始执行: 自动内容发布")
     
     try:
         from app.agents.copywriter import copywriter_agent
+        from app.services.content_publisher import content_publisher
         
-        # 生成朋友圈文案
+        # 生成朋友圈文案 - 只针对欧洲物流
         topics = [
             {
                 "topic": "欧洲清关到门服务",
@@ -296,14 +298,19 @@ async def auto_content_publish():
                 "target_audience": "有欧洲发货需求的外贸商家"
             },
             {
-                "topic": "物流时效保证",
+                "topic": "欧洲物流时效保证",
                 "purpose": "建立信任感",
                 "target_audience": "追求时效的跨境电商卖家"
             },
             {
-                "topic": "客户成功案例",
-                "purpose": "社会证明",
-                "target_audience": "正在比较货代的潜在客户"
+                "topic": "欧洲FBA物流方案",
+                "purpose": "解决方案推广",
+                "target_audience": "做欧洲站的亚马逊卖家"
+            },
+            {
+                "topic": "德国/法国派送服务",
+                "purpose": "展示服务范围",
+                "target_audience": "有欧洲发货需求的外贸商家"
             }
         ]
         
@@ -317,20 +324,26 @@ async def auto_content_publish():
         })
         
         copy = result.get("copy", "")
+        if not copy:
+            logger.warning("📝 文案生成为空")
+            return {"error": "文案生成失败"}
         
-        # 保存文案记录（实际发布需要对接各平台API）
+        # 保存文案记录
         async with async_session_maker() as db:
-            await db.execute(
+            insert_result = await db.execute(
                 text("""
                     INSERT INTO content_posts 
-                    (content, topic, platform, status, created_by, created_at)
-                    VALUES (:content, :topic, 'wechat_moments', 'draft', 'copywriter', NOW())
+                    (content, topic, platform, status, created_at)
+                    VALUES (:content, :topic, 'wechat_moments', 'approved', NOW())
+                    RETURNING id
                 """),
                 {
                     "content": copy,
                     "topic": topic["topic"]
                 }
             )
+            row = insert_result.fetchone()
+            content_id = str(row[0]) if row else None
             
             # 更新小文任务统计
             await db.execute(
@@ -347,15 +360,29 @@ async def auto_content_publish():
         
         logger.info(f"📝 文案生成完成: {topic['topic']}")
         
-        # 通知老板审核
-        await notification_service.send_to_boss(
-            title="📝 新文案待发布",
-            content=f"小文为您撰写了新的朋友圈文案，主题：{topic['topic']}\n\n{copy[:200]}..."
-        )
+        # 自动发布到企业微信应用
+        publish_result = None
+        if content_id:
+            publish_result = await content_publisher.publish_content(
+                content_id=content_id,
+                channels=["wechat_app"]  # 发送到企业微信应用
+            )
+            
+            if publish_result.get("success"):
+                logger.info(f"📝 文案已自动发布到企业微信")
+            else:
+                logger.warning(f"📝 文案发布失败: {publish_result.get('error')}")
+                # 发布失败时通知老板手动处理
+                await notification_service.send_to_boss(
+                    title="📝 新文案待发布",
+                    content=f"小文为您撰写了新的朋友圈文案，主题：{topic['topic']}\n\n{copy[:200]}...\n\n（自动发布失败，请手动发布）"
+                )
         
         return {
             "topic": topic["topic"],
-            "copy_length": len(copy)
+            "copy_length": len(copy),
+            "content_id": content_id,
+            "published": publish_result.get("success") if publish_result else False
         }
         
     except Exception as e:
