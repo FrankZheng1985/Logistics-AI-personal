@@ -1,572 +1,444 @@
 """
-内容管理API
-包括：文案列表、发布、审核等
-支持：企业微信、小红书等渠道
+内容营销API
+管理自动生成的营销内容
 """
-from typing import List, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
+from datetime import date, datetime, timedelta
+from typing import Optional, Dict, Any, List
 from pydantic import BaseModel
 from loguru import logger
 
-from app.services.content_publisher import content_publisher
-from app.services.xiaohongshu_publisher import xiaohongshu_publisher
-from app.services.multi_platform_publisher import multi_platform_publisher
+from app.models import get_db
+from app.services.content_marketing_service import content_marketing_service
 
-router = APIRouter(prefix="/content", tags=["内容管理"])
-
-
-class PublishRequest(BaseModel):
-    """发布请求"""
-    content_id: str
-    channels: List[str] = ["wechat_app"]  # 默认发送到企业微信应用
+router = APIRouter()
 
 
-class ApproveRequest(BaseModel):
-    """审核请求"""
-    content_id: str
-    approved: bool = True
+# ==================== 请求/响应模型 ====================
+
+class ContentItemUpdate(BaseModel):
+    """更新内容条目"""
+    title: Optional[str] = None
+    content: Optional[str] = None
+    hashtags: Optional[List[str]] = None
+    call_to_action: Optional[str] = None
+    video_script: Optional[str] = None
+    status: Optional[str] = None
 
 
-@router.get("/posts")
-async def get_content_posts(
-    status: Optional[str] = None,
-    limit: int = 20
-):
-    """
-    获取文案列表
-    
-    Args:
-        status: 状态筛选 (draft/approved/published)
-        limit: 返回数量
-    """
-    from sqlalchemy import text
-    from app.models.database import async_session_maker
-    
-    async with async_session_maker() as db:
+class GenerateContentRequest(BaseModel):
+    """生成内容请求"""
+    target_date: Optional[str] = None  # YYYY-MM-DD格式
+
+
+# ==================== 日历相关API ====================
+
+@router.get("/calendar")
+async def get_content_calendar(
+    start_date: Optional[str] = Query(None, description="开始日期 YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="结束日期 YYYY-MM-DD"),
+    status: Optional[str] = Query(None, description="状态筛选"),
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """获取内容日历"""
+    try:
+        start = date.fromisoformat(start_date) if start_date else None
+        end = date.fromisoformat(end_date) if end_date else None
+        
+        calendar = await content_marketing_service.get_content_calendar(
+            start_date=start,
+            end_date=end,
+            status=status
+        )
+        
+        # 统计
+        stats = {
+            "total": len(calendar),
+            "pending": len([c for c in calendar if c["status"] == "pending"]),
+            "generated": len([c for c in calendar if c["status"] == "generated"]),
+            "published": len([c for c in calendar if c["status"] == "published"])
+        }
+        
+        return {
+            "items": calendar,
+            "stats": stats
+        }
+    except Exception as e:
+        logger.error(f"获取内容日历失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/calendar/{calendar_id}")
+async def get_calendar_detail(
+    calendar_id: str,
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """获取日历详情（包含所有平台的内容）"""
+    try:
+        items = await content_marketing_service.get_content_items(calendar_id)
+        
+        # 获取日历基本信息
+        result = await db.execute(
+            text("""
+                SELECT content_date, content_type, status, topic, data_source
+                FROM content_calendar WHERE id = :id
+            """),
+            {"id": calendar_id}
+        )
+        row = result.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="内容日历不存在")
+        
+        return {
+            "id": calendar_id,
+            "content_date": str(row[0]),
+            "content_type": row[1],
+            "status": row[2],
+            "topic": row[3],
+            "data_source": row[4],
+            "items": items
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取日历详情失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 内容生成API ====================
+
+@router.post("/generate")
+async def generate_content(
+    request: GenerateContentRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """生成指定日期的内容"""
+    try:
+        target = date.fromisoformat(request.target_date) if request.target_date else date.today() + timedelta(days=1)
+        
+        # 在后台生成内容
+        async def generate_task():
+            result = await content_marketing_service.generate_daily_content(target)
+            logger.info(f"内容生成完成: {result}")
+        
+        background_tasks.add_task(generate_task)
+        
+        return {
+            "message": "内容生成任务已启动",
+            "target_date": str(target),
+            "status": "processing"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"日期格式错误: {e}")
+    except Exception as e:
+        logger.error(f"启动内容生成失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/generate/batch")
+async def generate_batch_content(
+    days: int = Query(7, ge=1, le=30, description="生成未来几天的内容"),
+    background_tasks: BackgroundTasks = None,
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """批量生成未来几天的内容"""
+    try:
+        dates = [date.today() + timedelta(days=i+1) for i in range(days)]
+        
+        async def batch_generate():
+            results = []
+            for d in dates:
+                result = await content_marketing_service.generate_daily_content(d)
+                results.append({"date": str(d), "status": result.get("status")})
+            logger.info(f"批量生成完成: {len(results)} 天")
+        
+        background_tasks.add_task(batch_generate)
+        
+        return {
+            "message": f"已启动未来 {days} 天的内容生成",
+            "dates": [str(d) for d in dates],
+            "status": "processing"
+        }
+    except Exception as e:
+        logger.error(f"批量生成失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 内容条目API ====================
+
+@router.get("/items/{item_id}")
+async def get_content_item(
+    item_id: str,
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """获取单个内容条目"""
+    try:
+        result = await db.execute(
+            text("""
+                SELECT i.*, c.content_date, c.content_type
+                FROM content_items i
+                JOIN content_calendar c ON i.calendar_id = c.id
+                WHERE i.id = :id
+            """),
+            {"id": item_id}
+        )
+        row = result.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="内容不存在")
+        
+        return {
+            "id": str(row[0]),
+            "calendar_id": str(row[1]),
+            "platform": row[2],
+            "title": row[3],
+            "content": row[4],
+            "hashtags": row[5] or [],
+            "cover_prompt": row[6],
+            "video_script": row[7],
+            "call_to_action": row[8],
+            "contact_info": row[9],
+            "status": row[10],
+            "content_date": str(row[-2]) if row[-2] else None,
+            "content_type": row[-1]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取内容条目失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/items/{item_id}")
+async def update_content_item(
+    item_id: str,
+    updates: ContentItemUpdate,
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """更新内容条目"""
+    try:
+        update_data = updates.model_dump(exclude_unset=True)
+        
+        if not update_data:
+            raise HTTPException(status_code=400, detail="没有要更新的内容")
+        
+        success = await content_marketing_service.update_content_item(item_id, update_data)
+        
+        if success:
+            return {"message": "更新成功"}
+        else:
+            raise HTTPException(status_code=500, detail="更新失败")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新内容条目失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/items/{item_id}/approve")
+async def approve_content_item(
+    item_id: str,
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """审核通过内容"""
+    try:
+        await db.execute(
+            text("UPDATE content_items SET status = 'approved', updated_at = NOW() WHERE id = :id"),
+            {"id": item_id}
+        )
+        await db.commit()
+        return {"message": "内容已审核通过"}
+    except Exception as e:
+        logger.error(f"审核内容失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/items/{item_id}/reject")
+async def reject_content_item(
+    item_id: str,
+    reason: str = "",
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """驳回内容"""
+    try:
+        await db.execute(
+            text("UPDATE content_items SET status = 'rejected', updated_at = NOW() WHERE id = :id"),
+            {"id": item_id}
+        )
+        await db.commit()
+        return {"message": "内容已驳回"}
+    except Exception as e:
+        logger.error(f"驳回内容失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/items/{item_id}/copy")
+async def copy_content(
+    item_id: str,
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """复制内容（用于手动发布）"""
+    try:
+        result = await db.execute(
+            text("SELECT content, title, hashtags, call_to_action FROM content_items WHERE id = :id"),
+            {"id": item_id}
+        )
+        row = result.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="内容不存在")
+        
+        # 组合完整文案
+        full_content = ""
+        if row[1]:  # title
+            full_content += f"{row[1]}\n\n"
+        full_content += row[0]  # content
+        if row[3]:  # call_to_action
+            full_content += f"\n\n{row[3]}"
+        if row[2]:  # hashtags
+            full_content += f"\n\n{' '.join(['#' + tag for tag in row[2]])}"
+        
+        return {
+            "content": full_content,
+            "message": "内容已复制"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"复制内容失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 统计API ====================
+
+@router.get("/stats")
+async def get_content_stats(
+    days: int = Query(30, ge=1, le=90),
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """获取内容统计"""
+    try:
+        start_date = date.today() - timedelta(days=days)
+        
+        # 内容生成统计
+        result = await db.execute(
+            text("""
+                SELECT 
+                    COUNT(*) as total,
+                    COUNT(CASE WHEN status = 'generated' THEN 1 END) as generated,
+                    COUNT(CASE WHEN status = 'published' THEN 1 END) as published
+                FROM content_calendar
+                WHERE content_date >= :start
+            """),
+            {"start": start_date}
+        )
+        calendar_stats = result.fetchone()
+        
+        # 按平台统计
+        result = await db.execute(
+            text("""
+                SELECT 
+                    platform,
+                    COUNT(*) as count,
+                    SUM(COALESCE(views, 0)) as total_views,
+                    SUM(COALESCE(leads_generated, 0)) as total_leads
+                FROM content_items i
+                JOIN content_calendar c ON i.calendar_id = c.id
+                WHERE c.content_date >= :start
+                GROUP BY platform
+            """),
+            {"start": start_date}
+        )
+        platform_stats = {
+            row[0]: {
+                "count": row[1],
+                "views": row[2] or 0,
+                "leads": row[3] or 0
+            }
+            for row in result.fetchall()
+        }
+        
+        # 按内容类型统计
+        result = await db.execute(
+            text("""
+                SELECT content_type, COUNT(*) as count
+                FROM content_calendar
+                WHERE content_date >= :start
+                GROUP BY content_type
+            """),
+            {"start": start_date}
+        )
+        type_stats = {row[0]: row[1] for row in result.fetchall()}
+        
+        return {
+            "period_days": days,
+            "calendar": {
+                "total": calendar_stats[0] or 0,
+                "generated": calendar_stats[1] or 0,
+                "published": calendar_stats[2] or 0
+            },
+            "by_platform": platform_stats,
+            "by_type": type_stats
+        }
+    except Exception as e:
+        logger.error(f"获取内容统计失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 模板API ====================
+
+@router.get("/templates")
+async def get_content_templates(
+    content_type: Optional[str] = None,
+    platform: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """获取内容模板"""
+    try:
         query = """
-            SELECT id, content, topic, platform, status, created_at, published_at
-            FROM content_posts
+            SELECT id, name, content_type, platform, title_template, 
+                   content_template, hashtags_template, cta_template,
+                   is_active, use_count, created_at
+            FROM content_templates
+            WHERE 1=1
         """
-        params = {"limit": limit}
+        params = {}
         
-        if status:
-            query += " WHERE status = :status"
-            params["status"] = status
+        if content_type:
+            query += " AND content_type = :type"
+            params["type"] = content_type
+        if platform:
+            query += " AND platform = :platform"
+            params["platform"] = platform
         
-        query += " ORDER BY created_at DESC LIMIT :limit"
+        query += " ORDER BY use_count DESC, created_at DESC"
         
         result = await db.execute(text(query), params)
         rows = result.fetchall()
         
         return {
-            "posts": [
+            "items": [
                 {
                     "id": str(row[0]),
-                    "content": row[1],
-                    "topic": row[2],
+                    "name": row[1],
+                    "content_type": row[2],
                     "platform": row[3],
-                    "status": row[4],
-                    "created_at": row[5].isoformat() if row[5] else None,
-                    "published_at": row[6].isoformat() if row[6] else None
+                    "title_template": row[4],
+                    "content_template": row[5],
+                    "hashtags_template": row[6] or [],
+                    "cta_template": row[7],
+                    "is_active": row[8],
+                    "use_count": row[9],
+                    "created_at": row[10].isoformat() if row[10] else None
                 }
                 for row in rows
             ],
             "total": len(rows)
         }
-
-
-@router.get("/posts/{content_id}")
-async def get_content_post(content_id: str):
-    """获取单个文案详情"""
-    from sqlalchemy import text
-    from app.models.database import async_session_maker
-    
-    async with async_session_maker() as db:
-        result = await db.execute(
-            text("""
-                SELECT id, content, topic, platform, status, 
-                       created_at, published_at, published_channels
-                FROM content_posts
-                WHERE id = :id
-            """),
-            {"id": content_id}
-        )
-        row = result.fetchone()
-        
-        if not row:
-            raise HTTPException(status_code=404, detail="文案不存在")
-        
-        return {
-            "id": str(row[0]),
-            "content": row[1],
-            "topic": row[2],
-            "platform": row[3],
-            "status": row[4],
-            "created_at": row[5].isoformat() if row[5] else None,
-            "published_at": row[6].isoformat() if row[6] else None,
-            "published_channels": row[7]
-        }
-
-
-@router.post("/posts/{content_id}/approve")
-async def approve_content(content_id: str, request: ApproveRequest):
-    """
-    审核文案
-    
-    Args:
-        content_id: 文案ID
-        request: 审核请求（approved=True 通过，False 拒绝）
-    """
-    from sqlalchemy import text
-    from app.models.database import async_session_maker
-    
-    new_status = "approved" if request.approved else "rejected"
-    
-    async with async_session_maker() as db:
-        result = await db.execute(
-            text("""
-                UPDATE content_posts
-                SET status = :status,
-                    updated_at = NOW()
-                WHERE id = :id AND status = 'draft'
-                RETURNING id
-            """),
-            {"id": content_id, "status": new_status}
-        )
-        row = result.fetchone()
-        await db.commit()
-        
-        if not row:
-            raise HTTPException(status_code=400, detail="文案不存在或状态不是草稿")
-        
-        return {
-            "success": True,
-            "content_id": content_id,
-            "new_status": new_status,
-            "message": f"文案已{'通过审核' if request.approved else '被拒绝'}"
-        }
-
-
-@router.post("/posts/{content_id}/publish")
-async def publish_content(content_id: str, request: PublishRequest):
-    """
-    发布文案到指定渠道
-    
-    Args:
-        content_id: 文案ID
-        request: 发布请求
-    
-    支持的渠道:
-        - wechat_app: 企业微信应用消息
-        - wechat_moments: 企业微信客户朋友圈
-    """
-    result = await content_publisher.publish_content(
-        content_id=content_id,
-        channels=request.channels
-    )
-    
-    if not result.get("success"):
-        raise HTTPException(
-            status_code=400, 
-            detail=result.get("error", "发布失败")
-        )
-    
-    return result
-
-
-@router.post("/publish-all-approved")
-async def publish_all_approved():
-    """
-    发布所有已审核的文案
-    """
-    result = await content_publisher.auto_publish_approved()
-    return result
-
-
-@router.get("/pending")
-async def get_pending_contents(limit: int = 10):
-    """获取待发布（草稿）的文案列表"""
-    contents = await content_publisher.get_pending_contents(limit=limit)
-    return {
-        "contents": contents,
-        "total": len(contents)
-    }
-
-
-@router.post("/quick-publish")
-async def quick_publish(
-    topic: str,
-    auto_publish: bool = False
-):
-    """
-    快速生成并发布文案
-    
-    Args:
-        topic: 文案主题
-        auto_publish: 是否自动发布（默认只生成草稿）
-    """
-    from app.agents.copywriter import copywriter_agent
-    from sqlalchemy import text
-    from app.models.database import async_session_maker
-    
-    # 生成文案
-    result = await copywriter_agent.process({
-        "task_type": "moments",
-        "topic": topic,
-        "purpose": "营销推广",
-        "target_audience": "有物流需求的客户"
-    })
-    
-    copy = result.get("copy", "")
-    if not copy:
-        raise HTTPException(status_code=500, detail="文案生成失败")
-    
-    # 保存文案
-    async with async_session_maker() as db:
-        insert_result = await db.execute(
-            text("""
-                INSERT INTO content_posts 
-                (content, topic, platform, status, created_at)
-                VALUES (:content, :topic, 'wechat_moments', :status, NOW())
-                RETURNING id
-            """),
-            {
-                "content": copy,
-                "topic": topic,
-                "status": "approved" if auto_publish else "draft"
-            }
-        )
-        row = insert_result.fetchone()
-        content_id = str(row[0])
-        await db.commit()
-    
-    response = {
-        "success": True,
-        "content_id": content_id,
-        "content": copy,
-        "topic": topic,
-        "status": "approved" if auto_publish else "draft"
-    }
-    
-    # 如果需要自动发布
-    if auto_publish:
-        publish_result = await content_publisher.publish_content(
-            content_id=content_id,
-            channels=["wechat_app"]
-        )
-        response["publish_result"] = publish_result
-    
-    return response
-
-
-# ==================== 小红书发布 ====================
-
-class XhsPublishRequest(BaseModel):
-    """小红书发布请求"""
-    content_id: str
-    image_urls: Optional[List[str]] = None
-
-
-@router.post("/posts/{content_id}/publish-to-xhs")
-async def publish_to_xiaohongshu(content_id: str, image_urls: Optional[List[str]] = None):
-    """
-    发布文案到小红书
-    
-    如果已配置小红书API，会直接发布；
-    否则会发送格式化文案到企业微信，用户手动复制发布。
-    
-    Args:
-        content_id: 文案ID
-        image_urls: 配图URL列表（可选）
-    """
-    result = await xiaohongshu_publisher.publish(
-        content_id=content_id,
-        image_urls=image_urls
-    )
-    
-    if not result.get("success"):
-        raise HTTPException(
-            status_code=400,
-            detail=result.get("error", "发布失败")
-        )
-    
-    return result
-
-
-@router.post("/posts/{content_id}/format-for-xhs")
-async def format_for_xiaohongshu(content_id: str):
-    """
-    将文案格式化为小红书风格（预览）
-    
-    返回格式化后的标题、正文和话题标签
-    """
-    from sqlalchemy import text
-    from app.models.database import async_session_maker
-    
-    async with async_session_maker() as db:
-        result = await db.execute(
-            text("""
-                SELECT content, topic
-                FROM content_posts
-                WHERE id = :id
-            """),
-            {"id": content_id}
-        )
-        row = result.fetchone()
-        
-        if not row:
-            raise HTTPException(status_code=404, detail="文案不存在")
-        
-        content = row[0]
-        topic = row[1]
-    
-    # 格式化
-    formatted = xiaohongshu_publisher.format_for_xiaohongshu(content, topic)
-    
-    return {
-        "original_content": content,
-        "formatted": formatted,
-        "tips": [
-            "标题最多20字，正文最多1000字",
-            "建议配3-9张高质量图片",
-            "最佳发布时间：12:00-14:00 或 20:00-22:00",
-            "话题标签已自动添加在正文末尾"
-        ]
-    }
-
-
-@router.post("/quick-publish-xhs")
-async def quick_publish_to_xiaohongshu(
-    topic: str,
-    image_urls: Optional[List[str]] = None
-):
-    """
-    快速生成小红书文案并发布
-    
-    Args:
-        topic: 文案主题（如：欧洲物流干货）
-        image_urls: 配图URL列表
-    """
-    from app.agents.copywriter import copywriter_agent
-    from sqlalchemy import text
-    from app.models.database import async_session_maker
-    
-    # 生成小红书风格文案
-    result = await copywriter_agent.process({
-        "task_type": "xiaohongshu",  # 使用小红书专用模板
-        "topic": topic,
-        "purpose": "种草分享",
-        "target_audience": "外贸人、跨境电商卖家"
-    })
-    
-    copy = result.get("copy", "")
-    if not copy:
-        raise HTTPException(status_code=500, detail="文案生成失败")
-    
-    # 保存文案
-    async with async_session_maker() as db:
-        insert_result = await db.execute(
-            text("""
-                INSERT INTO content_posts 
-                (content, topic, platform, status, created_at)
-                VALUES (:content, :topic, 'xiaohongshu', 'approved', NOW())
-                RETURNING id
-            """),
-            {
-                "content": copy,
-                "topic": topic
-            }
-        )
-        row = insert_result.fetchone()
-        content_id = str(row[0])
-        await db.commit()
-    
-    # 发布到小红书
-    publish_result = await xiaohongshu_publisher.publish(
-        content_id=content_id,
-        image_urls=image_urls
-    )
-    
-    return {
-        "success": True,
-        "content_id": content_id,
-        "topic": topic,
-        "publish_result": publish_result
-    }
-
-
-# ==================== 多平台发布 ====================
-
-@router.get("/platforms")
-async def get_available_platforms():
-    """
-    获取所有支持的发布平台
-    
-    返回各平台的配置状态和限制要求
-    """
-    platforms = multi_platform_publisher.get_available_platforms()
-    return {
-        "platforms": platforms,
-        "total": len(platforms)
-    }
-
-
-class MultiPublishRequest(BaseModel):
-    """多平台发布请求"""
-    platforms: List[str]
-
-
-@router.post("/posts/{content_id}/publish-multi")
-async def publish_to_multi_platforms(
-    content_id: str,
-    request: MultiPublishRequest
-):
-    """
-    发布文案到多个平台
-    
-    Args:
-        content_id: 文案ID
-        platforms: 平台列表，如 ["zhihu", "csdn", "toutiao"]
-    
-    支持的平台:
-        - zhihu: 知乎
-        - csdn: CSDN博客
-        - jianshu: 简书
-        - toutiao: 今日头条
-        - weibo: 微博
-        - baijiahao: 百家号
-        - wordpress: WordPress网站
-        - wechat_article: 微信公众号
-    """
-    result = await multi_platform_publisher.publish(
-        content_id=content_id,
-        platforms=request.platforms
-    )
-    
-    return result
-
-
-@router.post("/posts/{content_id}/publish-all")
-async def publish_to_all_platforms(content_id: str):
-    """
-    一键发布到所有推荐平台
-    
-    会发送格式化好的文案到企业微信，方便手动复制到各平台
-    """
-    result = await multi_platform_publisher.batch_publish(
-        content_id=content_id,
-        all_platforms=True
-    )
-    
-    return result
-
-
-@router.post("/posts/{content_id}/format-for-platform")
-async def format_for_platform(content_id: str, platform: str):
-    """
-    为指定平台格式化文案（预览）
-    
-    Args:
-        content_id: 文案ID
-        platform: 目标平台
-    """
-    from sqlalchemy import text
-    from app.models.database import async_session_maker
-    
-    async with async_session_maker() as db:
-        result = await db.execute(
-            text("""
-                SELECT content, topic
-                FROM content_posts
-                WHERE id = :id
-            """),
-            {"id": content_id}
-        )
-        row = result.fetchone()
-        
-        if not row:
-            raise HTTPException(status_code=404, detail="文案不存在")
-        
-        content = row[0]
-        topic = row[1]
-    
-    # 格式化
-    formatted = multi_platform_publisher.format_for_platform(content, topic, platform)
-    platform_info = multi_platform_publisher.PLATFORMS.get(platform, {})
-    
-    return {
-        "original_content": content,
-        "formatted": formatted,
-        "platform_info": {
-            "name": platform_info.get("name"),
-            "icon": platform_info.get("icon"),
-            "max_title": platform_info.get("max_title"),
-            "max_content": platform_info.get("max_content")
-        }
-    }
-
-
-@router.post("/quick-publish-multi")
-async def quick_publish_to_multi_platforms(
-    topic: str,
-    platforms: List[str],
-    article_type: str = "professional"
-):
-    """
-    快速生成并发布到多个平台
-    
-    Args:
-        topic: 文案主题
-        platforms: 目标平台列表
-        article_type: 文章类型 (professional/casual/story)
-    """
-    from app.agents.copywriter import copywriter_agent
-    from sqlalchemy import text
-    from app.models.database import async_session_maker
-    
-    # 根据平台类型选择文案风格
-    task_type = "article" if article_type == "professional" else "moments"
-    
-    # 生成文案
-    result = await copywriter_agent.process({
-        "task_type": task_type,
-        "topic": topic,
-        "purpose": "行业知识分享",
-        "target_audience": "外贸人、跨境电商卖家、物流从业者"
-    })
-    
-    copy = result.get("copy", "")
-    if not copy:
-        raise HTTPException(status_code=500, detail="文案生成失败")
-    
-    # 保存文案
-    async with async_session_maker() as db:
-        insert_result = await db.execute(
-            text("""
-                INSERT INTO content_posts 
-                (content, topic, platform, status, created_at)
-                VALUES (:content, :topic, 'multi', 'approved', NOW())
-                RETURNING id
-            """),
-            {
-                "content": copy,
-                "topic": topic
-            }
-        )
-        row = insert_result.fetchone()
-        content_id = str(row[0])
-        await db.commit()
-    
-    # 发布到多个平台
-    publish_result = await multi_platform_publisher.publish(
-        content_id=content_id,
-        platforms=platforms
-    )
-    
-    return {
-        "success": True,
-        "content_id": content_id,
-        "topic": topic,
-        "platforms": platforms,
-        "publish_result": publish_result
-    }
+    except Exception as e:
+        logger.error(f"获取内容模板失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

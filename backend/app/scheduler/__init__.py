@@ -56,7 +56,10 @@ async def init_scheduler():
         auto_video_generation,
         auto_content_publish,
         auto_xiaohongshu_publish,
-        knowledge_base_update
+        knowledge_base_update,
+        daily_content_generation,
+        batch_content_generation,
+        content_publish_reminder
     )
     
     # 素材采集任务
@@ -241,6 +244,38 @@ async def init_scheduler():
         replace_existing=True
     )
     logger.info("📅 注册任务: [小析2] 知识库更新 - 23:00")
+    
+    # ==================== 小媒任务 (内容营销) ====================
+    
+    # 每日内容生成 - 凌晨5点生成明天的内容
+    scheduler.add_job(
+        daily_content_generation,
+        CronTrigger(hour=5, minute=0),
+        id="daily_content_generation",
+        name="[小媒] 每日内容生成",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小媒] 每日内容生成 - 05:00")
+    
+    # 批量内容生成 - 每周日凌晨4点生成下周内容
+    scheduler.add_job(
+        batch_content_generation,
+        CronTrigger(day_of_week='sun', hour=4, minute=0),
+        id="batch_content_generation",
+        name="[小媒] 批量内容生成",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小媒] 批量内容生成 - 每周日 04:00")
+    
+    # 内容发布提醒 - 每天上午9点
+    scheduler.add_job(
+        content_publish_reminder,
+        CronTrigger(hour=9, minute=5),
+        id="content_publish_reminder",
+        name="[小媒] 内容发布提醒",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小媒] 内容发布提醒 - 09:05")
     
     # ==================== 小采任务 ====================
     

@@ -27,6 +27,7 @@ async def lifespan(app: FastAPI):
     logger.info("   - 小析 (客户分析) ✓")
     logger.info("   - 小猎 (线索猎手) ✓")
     logger.info("   - 小析2 (群聊情报员) ✓")
+    logger.info("   - 小媒 (内容运营) ✓")
     
     # 初始化任务队列
     from app.services.task_queue import task_queue, init_task_handlers
@@ -92,6 +93,7 @@ async def root():
             {"name": "小析", "role": "客户分析", "status": "online"},
             {"name": "小猎", "role": "线索猎手", "status": "online"},
             {"name": "小析2", "role": "群聊情报员", "status": "online"},
+            {"name": "小媒", "role": "内容运营", "status": "online"},
         ]
     }
 
