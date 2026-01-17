@@ -69,9 +69,10 @@ class ContentMarketingService:
                 )
                 existing_row = existing.fetchone()
                 
-                if existing_row and existing_row[1] == 'generated':
-                    logger.info(f"📝 {target_date} 的内容已生成，跳过")
-                    return {"status": "skipped", "message": "内容已存在"}
+                # 如果已存在且状态是 generating 或 generated，则跳过
+                if existing_row and existing_row[1] in ('generating', 'generated'):
+                    logger.info(f"📝 {target_date} 的内容已存在(状态: {existing_row[1]})，跳过")
+                    return {"status": "skipped", "message": "内容已存在或正在生成"}
                 
                 # 2. 获取数据源
                 data_source = await self._get_data_source(content_config["type"], db)
@@ -195,16 +196,30 @@ class ContentMarketingService:
             "generated_at": datetime.now().isoformat()
         }
         
-        # 获取公司配置
+        # 获取公司配置（包含聚焦市场等新字段）
         company_result = await db.execute(
-            text("SELECT * FROM company_config LIMIT 1")
+            text("""
+                SELECT company_name, company_intro, advantages, service_routes,
+                       focus_markets, business_scope, brand_slogan, content_tone,
+                       content_focus_keywords, forbidden_content, social_media
+                FROM company_config LIMIT 1
+            """)
         )
         company = company_result.fetchone()
         
         if company:
             data["company"] = {
-                "name": company[1] if len(company) > 1 else None,  # company_name
-                "intro": company[2] if len(company) > 2 else None,  # company_intro
+                "name": company[0],  # company_name
+                "intro": company[1],  # company_intro
+                "advantages": company[2] or [],  # advantages
+                "service_routes": company[3] or [],  # service_routes
+                "focus_markets": company[4] or [],  # 聚焦市场
+                "business_scope": company[5],  # 业务范围描述
+                "brand_slogan": company[6],  # 品牌口号
+                "content_tone": company[7] or 'professional',  # 内容风格
+                "focus_keywords": company[8] or [],  # 内容关键词
+                "forbidden_content": company[9] or [],  # 禁止内容
+                "social_media": company[10] or {}  # 社交媒体账号
             }
         
         # 根据内容类型获取特定数据
@@ -359,7 +374,53 @@ class ContentMarketingService:
         # 构建数据摘要
         data_summary = self._build_data_summary(content_type, data_source)
         
+        # 从数据源获取公司配置
+        company_info = data_source.get("company", {})
+        focus_markets = company_info.get("focus_markets", [])
+        business_scope = company_info.get("business_scope", "")
+        brand_slogan = company_info.get("brand_slogan", "")
+        content_tone = company_info.get("content_tone", "professional")
+        focus_keywords = company_info.get("focus_keywords", [])
+        forbidden_content = company_info.get("forbidden_content", [])
+        advantages = company_info.get("advantages", [])
+        social_media = company_info.get("social_media", {})
+        
+        # 构建服务区域描述
+        if focus_markets:
+            markets_text = "、".join(focus_markets)
+            focus_region = f"仅限{markets_text}等地区"
+        else:
+            focus_region = "国际物流全覆盖"
+        
+        # 构建风格描述
+        tone_map = {
+            "professional": "专业正式，适合B2B客户",
+            "friendly": "亲切友好，适合中小卖家",
+            "creative": "创意活泼，适合社交媒体"
+        }
+        tone_desc = tone_map.get(content_tone, tone_map["professional"])
+        
+        # 构建禁止内容提醒
+        forbidden_text = ""
+        if forbidden_content:
+            forbidden_text = f"\n- **禁止提及：{', '.join(forbidden_content)}**"
+        
+        # 构建社交媒体引流信息
+        social_cta = ""
+        if social_media:
+            if social_media.get("wechat_official"):
+                social_cta += f"关注公众号「{social_media['wechat_official']}」"
+            if social_media.get("douyin"):
+                social_cta += f"，抖音搜索「{social_media['douyin']}」"
+        
         prompt = f"""请为{company_name}生成一篇{content_type_names.get(content_type, '营销')}内容。
+
+## 公司定位
+{company_name}{f'：{brand_slogan}' if brand_slogan else ''}
+- 服务区域：{focus_region}
+- 业务范围：{business_scope if business_scope else '专业国际物流服务'}
+- 公司优势：{', '.join(advantages) if advantages else '专业服务、时效保障'}
+- 内容基调：{tone_desc}{forbidden_text}
 
 ## 发布平台
 {self.PLATFORM_NAMES.get(platform, platform)}
@@ -368,6 +429,7 @@ class ContentMarketingService:
 - 风格：{platform_info['style']}
 - 长度：{platform_info['length']}
 - 特殊要求：{platform_info['extra']}
+{f'- 优先使用关键词：{", ".join(focus_keywords)}' if focus_keywords else ''}
 
 ## 可用数据
 {data_summary}
@@ -376,6 +438,7 @@ class ContentMarketingService:
 - 结尾必须有明确的行动号召（CTA）
 - 引导用户添加微信/私信咨询
 - 强调"免费咨询"、"专属报价"等钩子
+{f'- 引流账号：{social_cta}' if social_cta else ''}
 
 ## 输出格式
 请按以下JSON格式输出：
@@ -402,11 +465,11 @@ class ContentMarketingService:
         
         # 如果AI生成失败，返回默认内容
         return {
-            "title": f"{content_type_names.get(content_type, '物流')}分享",
-            "content": f"感谢关注{company_name}！我们提供专业的国际物流服务，欢迎咨询！",
-            "hashtags": ["物流", "跨境电商", "外贸"],
-            "call_to_action": "私信咨询获取专属报价！",
-            "contact_info": "添加微信免费咨询"
+            "title": f"欧洲物流{content_type_names.get(content_type, '')}分享",
+            "content": f"感谢关注{company_name}！我们专注中国到欧洲物流15年，提供海运、空运、中欧班列全方位服务，德国、荷兰、英国、法国等欧洲全境覆盖，欢迎咨询！",
+            "hashtags": ["欧洲物流", "德国专线", "中欧班列", "跨境电商"],
+            "call_to_action": "私信咨询获取欧洲专线报价！",
+            "contact_info": "添加微信免费咨询欧洲物流方案"
         }
     
     def _extract_variables(self, data_source: Dict[str, Any]) -> Dict[str, str]:
@@ -477,86 +540,145 @@ class ContentMarketingService:
     # ==================== 模拟数据（等ERP对接后替换） ====================
     
     async def _get_mock_pricing_data(self) -> Dict[str, Any]:
-        """模拟运价数据"""
+        """模拟运价数据 - 仅欧洲航线"""
         return {
             "sea_freight": [
                 {
-                    "route": "深圳 → 汉堡",
+                    "route": "深圳 → 汉堡(德国)",
                     "container_type": "40GP",
                     "price": 2500,
                     "currency": "USD",
                     "transit_time": "28-32天",
-                    "remarks": "本周舱位充足"
+                    "remarks": "本周舱位充足，德国全境派送"
                 },
                 {
-                    "route": "宁波 → 鹿特丹",
+                    "route": "宁波 → 鹿特丹(荷兰)",
                     "container_type": "40HQ",
                     "price": 2800,
                     "currency": "USD",
-                    "transit_time": "25-30天"
+                    "transit_time": "25-30天",
+                    "remarks": "荷兰仓储+欧洲全境分拨"
                 },
                 {
-                    "route": "上海 → 费利克斯托",
+                    "route": "上海 → 费利克斯托(英国)",
                     "container_type": "40GP",
                     "price": 2600,
                     "currency": "USD",
-                    "transit_time": "30-35天"
+                    "transit_time": "30-35天",
+                    "remarks": "含清关，DDP到门"
+                },
+                {
+                    "route": "深圳 → 勒阿弗尔(法国)",
+                    "container_type": "40GP",
+                    "price": 2700,
+                    "currency": "USD",
+                    "transit_time": "30-35天",
+                    "remarks": "法国全境派送"
+                },
+                {
+                    "route": "宁波 → 热那亚(意大利)",
+                    "container_type": "40GP",
+                    "price": 2900,
+                    "currency": "USD",
+                    "transit_time": "32-38天",
+                    "remarks": "意大利清关一条龙"
                 }
             ],
             "air_freight": [
                 {
-                    "route": "深圳 → 法兰克福",
+                    "route": "深圳 → 法兰克福(德国)",
                     "price_per_kg": 28,
                     "currency": "CNY",
                     "transit_time": "5-7天",
+                    "min_weight": 45,
+                    "remarks": "紧急件首选"
+                },
+                {
+                    "route": "上海 → 阿姆斯特丹(荷兰)",
+                    "price_per_kg": 30,
+                    "currency": "CNY",
+                    "transit_time": "4-6天",
                     "min_weight": 45
                 }
             ],
             "rail_freight": [
                 {
-                    "route": "义乌 → 杜伊斯堡",
+                    "route": "义乌 → 杜伊斯堡(德国)",
                     "container_type": "40GP",
                     "price": 8500,
                     "currency": "USD",
-                    "transit_time": "18-22天"
+                    "transit_time": "18-22天",
+                    "remarks": "中欧班列，性价比之选"
+                },
+                {
+                    "route": "成都 → 波兰华沙",
+                    "container_type": "40GP",
+                    "price": 7800,
+                    "currency": "USD",
+                    "transit_time": "15-18天"
                 }
             ],
-            "highlight": "本周欧洲航线运价平稳，建议提前预订舱位"
+            "highlight": "本周欧洲航线运价平稳，德国/荷兰线舱位充足，建议提前预订",
+            "service_area": "专注欧洲：德国、荷兰、英国、法国、意大利、西班牙、波兰等"
         }
     
     async def _get_mock_case_data(self) -> List[Dict[str, Any]]:
-        """模拟案例数据"""
+        """模拟案例数据 - 仅欧洲客户"""
         return [
             {
                 "customer_type": "跨境电商卖家",
                 "cargo_type": "电子产品",
-                "route": "深圳 → 德国FBA",
-                "service": "海运+清关+派送",
-                "highlight": "15天到门，比客户预期快5天",
-                "feedback": "非常满意，已推荐给朋友"
+                "route": "深圳 → 德国FBA仓",
+                "service": "海运+德国清关+亚马逊仓派送",
+                "highlight": "28天到仓，含清关和VAT递延",
+                "feedback": "德国线做了3年了，每次都很稳"
             },
             {
                 "customer_type": "外贸工厂",
                 "cargo_type": "机械配件",
-                "route": "宁波 → 英国",
-                "service": "整柜海运",
-                "highlight": "帮客户节省了30%运费",
-                "feedback": "价格很有竞争力"
+                "route": "宁波 → 英国伯明翰",
+                "service": "整柜海运DDP到门",
+                "highlight": "帮客户节省了30%运费，含英国清关",
+                "feedback": "英国脱欧后清关麻烦，他们搞定了"
+            },
+            {
+                "customer_type": "家具出口商",
+                "cargo_type": "实木家具",
+                "route": "佛山 → 荷兰鹿特丹",
+                "service": "海运+荷兰仓储+欧洲分拨",
+                "highlight": "荷兰仓中转，覆盖欧洲5国客户",
+                "feedback": "仓储费用比其他低，服务也专业"
+            },
+            {
+                "customer_type": "服装品牌商",
+                "cargo_type": "服装鞋帽",
+                "route": "义乌 → 波兰华沙",
+                "service": "中欧班列+波兰清关",
+                "highlight": "铁路比海运快10天，比空运省一半",
+                "feedback": "东欧市场就靠这条线支撑"
             }
         ]
     
     async def _get_mock_policy_data(self) -> Dict[str, Any]:
-        """模拟政策数据"""
+        """模拟政策数据 - 欧洲政策"""
         return {
             "title": "欧盟CBAM碳关税新规解读",
             "summary": "自2026年起，进口欧盟的钢铁、铝等产品需申报碳排放",
             "key_points": [
-                "适用产品范围扩大",
-                "需要提供碳排放数据",
-                "建议提前做好准备"
+                "适用产品范围：钢铁、铝、水泥、化肥、电力",
+                "需要提供碳排放数据证明",
+                "过渡期报告义务已开始",
+                "2026年正式征收碳关税"
             ],
-            "impact": "对电子产品影响较小，钢铁铝材需关注",
-            "recommendation": "建议与供应商确认碳排放数据"
+            "impact": "对电子产品影响较小，钢铁铝材出口欧洲需重点关注",
+            "recommendation": "建议与供应商确认碳排放数据，我们可协助准备申报材料",
+            "related_policies": [
+                "德国包装法VerpackG注册要求",
+                "欧盟WEEE电子废弃物回收法规",
+                "英国脱欧后清关新规",
+                "欧盟CE认证更新要求"
+            ],
+            "service_area": "欧洲"
         }
     
     async def _extract_faq_from_conversations(self, db) -> List[str]:
@@ -584,17 +706,17 @@ class ContentMarketingService:
                         questions.append(q)
             
             return questions[:5] if questions else [
-                "海运到欧洲要多久？",
-                "空运和海运怎么选？",
-                "清关需要什么资料？",
-                "可以做FBA派送吗？",
-                "运费怎么计算？"
+                "海运到德国要多久？",
+                "欧洲清关需要什么资料？",
+                "德国FBA仓派送怎么收费？",
+                "中欧班列和海运怎么选？",
+                "英国脱欧后清关有什么变化？"
             ]
         except:
             return [
-                "海运到欧洲要多久？",
-                "空运和海运怎么选？",
-                "清关需要什么资料？"
+                "海运到德国要多久？",
+                "欧洲DDU和DDP有什么区别？",
+                "荷兰仓可以分拨到哪些国家？"
             ]
     
     async def _get_weekly_stats(self, db) -> Dict[str, Any]:

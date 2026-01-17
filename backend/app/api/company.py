@@ -46,6 +46,20 @@ class CompanyConfigUpdate(BaseModel):
     advantages: Optional[List[str]] = None
     faq: Optional[List[dict]] = None
     price_policy: Optional[str] = None
+    # 新增字段
+    logo_url: Optional[str] = None
+    focus_markets: Optional[List[str]] = None
+    company_website: Optional[str] = None
+    founded_year: Optional[int] = None
+    employee_count: Optional[str] = None
+    business_scope: Optional[str] = None
+    social_media: Optional[dict] = None
+    brand_slogan: Optional[str] = None
+    brand_colors: Optional[dict] = None
+    company_values: Optional[List[str]] = None
+    content_tone: Optional[str] = None
+    content_focus_keywords: Optional[List[str]] = None
+    forbidden_content: Optional[List[str]] = None
 
 
 class CompanyConfigResponse(BaseModel):
@@ -96,6 +110,7 @@ async def get_company_config(db: AsyncSession = Depends(get_db)):
             await db.commit()
             await db.refresh(config)
         
+        # 获取新字段（使用getattr防止字段不存在时报错）
         return {
             "id": str(config.id),
             "company_name": config.company_name or "",
@@ -108,7 +123,21 @@ async def get_company_config(db: AsyncSession = Depends(get_db)):
             "service_routes": config.service_routes or [],
             "advantages": config.advantages or [],
             "faq": config.faq or [],
-            "price_policy": config.price_policy
+            "price_policy": config.price_policy,
+            # 新增字段
+            "logo_url": getattr(config, 'logo_url', None),
+            "focus_markets": getattr(config, 'focus_markets', None) or [],
+            "company_website": getattr(config, 'company_website', None),
+            "founded_year": getattr(config, 'founded_year', None),
+            "employee_count": getattr(config, 'employee_count', None),
+            "business_scope": getattr(config, 'business_scope', None),
+            "social_media": getattr(config, 'social_media', None) or {},
+            "brand_slogan": getattr(config, 'brand_slogan', None),
+            "brand_colors": getattr(config, 'brand_colors', None) or {},
+            "company_values": getattr(config, 'company_values', None) or [],
+            "content_tone": getattr(config, 'content_tone', None) or 'professional',
+            "content_focus_keywords": getattr(config, 'content_focus_keywords', None) or [],
+            "forbidden_content": getattr(config, 'forbidden_content', None) or []
         }
     except Exception as e:
         logger.error(f"获取公司配置失败: {e}")

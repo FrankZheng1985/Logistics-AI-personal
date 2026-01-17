@@ -45,6 +45,32 @@ class CompanyConfig(Base):
     # 价格参考说明
     price_policy: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
-    # 时间戳
+    # ============ 新增字段 ============
+    
+    # Logo和品牌
+    logo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    brand_slogan: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)  # 品牌口号
+    brand_colors: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)  # 品牌色 {"primary": "#xxx", "secondary": "#xxx"}
+    company_values: Mapped[Optional[list]] = mapped_column(ARRAY(String), nullable=True)  # 企业价值观
+    
+    # 聚焦市场和业务范围
+    focus_markets: Mapped[Optional[list]] = mapped_column(ARRAY(String), nullable=True)  # 聚焦市场/服务区域
+    business_scope: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # 业务范围描述
+    
+    # 公司详情
+    company_website: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    founded_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # 成立年份
+    employee_count: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # 员工规模
+    
+    # 社交媒体账号
+    # 格式: {"wechat_official": "公众号ID", "douyin": "抖音号", "xiaohongshu": "小红书号", "video_account": "视频号"}
+    social_media: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+    
+    # 内容生成相关配置
+    content_tone: Mapped[Optional[str]] = mapped_column(String(50), default='professional')  # 内容风格
+    content_focus_keywords: Mapped[Optional[list]] = mapped_column(ARRAY(String), nullable=True)  # 内容关键词
+    forbidden_content: Mapped[Optional[list]] = mapped_column(ARRAY(String), nullable=True)  # 禁止出现的内容
+    
+    # ============ 时间戳 ============
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=func.now(), onupdate=func.now())
