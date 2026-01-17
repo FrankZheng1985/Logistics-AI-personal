@@ -299,13 +299,13 @@ class ContentMarketingService:
         
         # 始终使用AI生成，确保内容质量和真实性
         # 模板容易导致变量未替换或内容千篇一律
-            content = await self._generate_with_ai(
-                content_type=content_type,
-                platform=platform,
-                platform_info=platform_info,
-                data_source=data_source,
-                company_name=company_name
-            )
+        content = await self._generate_with_ai(
+            content_type=content_type,
+            platform=platform,
+            platform_info=platform_info,
+            data_source=data_source,
+            company_name=company_name
+        )
         
         return content
     
