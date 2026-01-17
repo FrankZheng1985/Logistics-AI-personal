@@ -206,3 +206,41 @@ async def save_all_settings(
     except Exception as e:
         logger.error(f"保存设置失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def mask_api_key(key: str, show_chars: int = 4) -> str:
+    """对API密钥进行部分隐藏处理"""
+    if not key:
+        return ""
+    if len(key) <= show_chars * 2:
+        return key
+    return f"{key[:show_chars]}{'*' * (len(key) - show_chars * 2)}{key[-show_chars:]}"
+
+
+@router.get("/api-keys")
+async def get_api_keys():
+    """获取已配置的API密钥（部分隐藏显示）"""
+    try:
+        # 从环境变量读取API密钥
+        keys = {
+            "keling_access_key": os.getenv("KELING_ACCESS_KEY", ""),
+            "keling_secret_key": os.getenv("KELING_SECRET_KEY", ""),
+            "dashscope_api_key": os.getenv("DASHSCOPE_API_KEY", ""),
+            "serper_api_key": os.getenv("SERPER_API_KEY", ""),
+            "pexels_api_key": os.getenv("PEXELS_API_KEY", ""),
+            "pixabay_api_key": os.getenv("PIXABAY_API_KEY", ""),
+        }
+        
+        # 返回部分隐藏的密钥和配置状态
+        result = {}
+        for key_name, key_value in keys.items():
+            result[key_name] = {
+                "configured": bool(key_value),
+                "masked_value": mask_api_key(key_value) if key_value else "",
+                "full_value": key_value  # 完整值，前端可以选择是否显示
+            }
+        
+        return result
+    except Exception as e:
+        logger.error(f"获取API密钥失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

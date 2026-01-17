@@ -70,6 +70,14 @@ interface ApiConfig {
   keling_secret_key: string
   dashscope_api_key: string
   serper_api_key: string
+  pexels_api_key: string
+  pixabay_api_key: string
+}
+
+interface ApiKeyStatus {
+  configured: boolean
+  masked_value: string
+  full_value: string
 }
 
 interface NotificationConfig {
@@ -219,8 +227,13 @@ export default function SettingsPage() {
     keling_access_key: '',
     keling_secret_key: '',
     dashscope_api_key: '',
-    serper_api_key: ''
+    serper_api_key: '',
+    pexels_api_key: '',
+    pixabay_api_key: ''
   })
+  
+  const [apiKeysLoaded, setApiKeysLoaded] = useState<Record<string, ApiKeyStatus>>({})
+  const [showingFullKey, setShowingFullKey] = useState<Record<string, boolean>>({})
 
   const [notificationConfig, setNotificationConfig] = useState<NotificationConfig>({
     high_intent_threshold: 60,
@@ -288,6 +301,22 @@ export default function SettingsPage() {
           if (data.ai && Object.keys(data.ai).length > 0) {
             setAiConfig(prev => ({ ...prev, ...data.ai }))
           }
+        }
+        
+        // 获取API密钥配置
+        const apiKeysRes = await fetch('/api/settings/api-keys')
+        if (apiKeysRes.ok) {
+          const apiKeysData = await apiKeysRes.json()
+          setApiKeysLoaded(apiKeysData)
+          // 将密钥值填充到apiConfig
+          setApiConfig({
+            keling_access_key: apiKeysData.keling_access_key?.full_value || '',
+            keling_secret_key: apiKeysData.keling_secret_key?.full_value || '',
+            dashscope_api_key: apiKeysData.dashscope_api_key?.full_value || '',
+            serper_api_key: apiKeysData.serper_api_key?.full_value || '',
+            pexels_api_key: apiKeysData.pexels_api_key?.full_value || '',
+            pixabay_api_key: apiKeysData.pixabay_api_key?.full_value || ''
+          })
         }
       } catch (error) {
         console.error('加载设置失败:', error)
@@ -1154,37 +1183,86 @@ export default function SettingsPage() {
       {activeTab === 'api' && (
         <div className="bg-dark-purple/40 rounded-xl p-6 space-y-6">
           <h2 className="text-lg font-semibold text-white mb-4">API密钥配置</h2>
-          <div className="p-4 bg-yellow-400/10 border border-yellow-400/30 rounded-lg text-yellow-400 text-sm mb-6">
-            ⚠️ API密钥需要在服务器环境变量中配置，请联系管理员修改 .env 文件。此页面仅供查看和参考。
+          <div className="p-4 bg-blue-400/10 border border-blue-400/30 rounded-lg text-blue-400 text-sm mb-6">
+            ℹ️ 以下是服务器已配置的API密钥。如需修改请联系管理员更新服务器 .env 文件。
           </div>
 
-          {[
-            { key: 'keling_access_key', label: '可灵AI Access Key', desc: '用于AI视频生成' },
-            { key: 'keling_secret_key', label: '可灵AI Secret Key', desc: '用于AI视频生成' },
-            { key: 'dashscope_api_key', label: '通义千问 API Key', desc: '用于AI对话和文案生成' },
-            { key: 'serper_api_key', label: 'Serper API Key', desc: '用于线索搜索' }
-          ].map(item => (
-            <div key={item.key}>
-              <label className="block text-sm font-medium text-gray-300 mb-1">{item.label}</label>
-              <p className="text-gray-500 text-xs mb-2">{item.desc}</p>
-              <div className="relative">
-                <input
-                  type={showSecrets[item.key] ? 'text' : 'password'}
-                  value={apiConfig[item.key as keyof ApiConfig]}
-                  onChange={e => setApiConfig(prev => ({ ...prev, [item.key]: e.target.value }))}
-                  className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none pr-12"
-                  placeholder={`请输入${item.label}`}
-                />
-                <button
-                  type="button"
-                  onClick={() => toggleSecretVisibility(item.key)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white"
-                >
-                  {showSecrets[item.key] ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
+          <div className="grid gap-6">
+            {[
+              { key: 'dashscope_api_key', label: '通义千问 API Key', desc: '用于AI对话和文案生成', icon: '🤖' },
+              { key: 'keling_access_key', label: '可灵AI Access Key', desc: '用于AI视频生成', icon: '🎬' },
+              { key: 'keling_secret_key', label: '可灵AI Secret Key', desc: '用于AI视频生成', icon: '🔐' },
+              { key: 'serper_api_key', label: 'Serper API Key', desc: '用于线索搜索', icon: '🔍' },
+              { key: 'pexels_api_key', label: 'Pexels API Key', desc: '用于素材采集', icon: '📷' },
+              { key: 'pixabay_api_key', label: 'Pixabay API Key', desc: '用于素材采集', icon: '🖼️' }
+            ].map(item => {
+              const keyStatus = apiKeysLoaded[item.key]
+              const isConfigured = keyStatus?.configured
+              const displayValue = showSecrets[item.key] 
+                ? (keyStatus?.full_value || '') 
+                : (keyStatus?.masked_value || '')
+              
+              return (
+                <div key={item.key} className="p-4 bg-deep-space/30 rounded-lg border border-gray-700/50">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xl">{item.icon}</span>
+                        <label className="text-sm font-medium text-white">{item.label}</label>
+                        {isConfigured ? (
+                          <span className="px-2 py-0.5 text-xs bg-green-500/20 text-green-400 rounded-full">✓ 已配置</span>
+                        ) : (
+                          <span className="px-2 py-0.5 text-xs bg-red-500/20 text-red-400 rounded-full">✗ 未配置</span>
+                        )}
+                      </div>
+                      <p className="text-gray-500 text-xs mb-3">{item.desc}</p>
+                      
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={displayValue}
+                          readOnly
+                          className={`w-full px-4 py-2.5 bg-deep-space/50 border rounded-lg text-white pr-12 font-mono text-sm ${
+                            isConfigured ? 'border-green-500/30' : 'border-gray-700'
+                          }`}
+                          placeholder={isConfigured ? '密钥已配置' : '未配置'}
+                        />
+                        {isConfigured && (
+                          <button
+                            type="button"
+                            onClick={() => setShowSecrets(prev => ({ ...prev, [item.key]: !prev[item.key] }))}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors"
+                            title={showSecrets[item.key] ? '隐藏密钥' : '显示完整密钥'}
+                          >
+                            {showSecrets[item.key] ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          
+          {/* 统计信息 */}
+          <div className="mt-6 p-4 bg-deep-space/30 rounded-lg border border-gray-700/50">
+            <h3 className="text-sm font-medium text-gray-300 mb-3">配置状态汇总</h3>
+            <div className="flex gap-4">
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 bg-green-500 rounded-full"></span>
+                <span className="text-sm text-gray-400">
+                  已配置: {Object.values(apiKeysLoaded).filter(k => k?.configured).length} 个
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 bg-red-500 rounded-full"></span>
+                <span className="text-sm text-gray-400">
+                  未配置: {6 - Object.values(apiKeysLoaded).filter(k => k?.configured).length} 个
+                </span>
               </div>
             </div>
-          ))}
+          </div>
         </div>
       )}
 

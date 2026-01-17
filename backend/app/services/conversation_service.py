@@ -56,17 +56,31 @@ class ConversationService:
                 row = result.fetchone()
                 
                 if row:
+                    customer_id = str(row[0])
+                    existing_name = row[1]
+                    
+                    # 如果现有客户没有名称，更新为默认名称
+                    if not existing_name:
+                        default_name = self._generate_customer_name(wechat_id, channel)
+                        await db.execute(
+                            text("UPDATE customers SET name = :name, updated_at = NOW() WHERE id = :id"),
+                            {"name": default_name, "id": customer_id}
+                        )
+                        await db.commit()
+                        existing_name = default_name
+                        logger.info(f"✅ 更新客户名称: {default_name} (ID: {customer_id})")
+                    
                     return {
-                        "id": str(row[0]),
-                        "name": row[1],
+                        "id": customer_id,
+                        "name": existing_name,
                         "intent_score": row[2],
                         "intent_level": row[3],
                         "follow_count": row[4],
                         "is_new": False
                     }
                 
-                # 创建新客户
-                customer_name = name or f"微信用户_{wechat_id[:8]}"
+                # 创建新客户 - 确保 name 始终有值
+                customer_name = name if name else self._generate_customer_name(wechat_id, channel)
                 result = await db.execute(
                     text("""
                         INSERT INTO customers (wechat_id, name, source, intent_score, intent_level, created_at, updated_at)
@@ -93,6 +107,27 @@ class ConversationService:
                 logger.error(f"获取/创建客户失败: {e}")
                 await db.rollback()
                 return {"id": None, "name": None, "is_new": False}
+    
+    def _generate_customer_name(self, identifier: str, channel: str = "wechat") -> str:
+        """根据渠道和标识符生成客户默认名称"""
+        from datetime import datetime
+        
+        # 根据渠道生成不同前缀的名称
+        channel_prefix = {
+            "wechat": "微信客户",
+            "website": "网站访客",
+            "webchat": "在线咨询",
+            "other": "新客户"
+        }
+        prefix = channel_prefix.get(channel, "客户")
+        
+        # 使用标识符的前8位或时间戳
+        if identifier and len(identifier) >= 4:
+            suffix = identifier[:8]
+        else:
+            suffix = datetime.now().strftime("%m%d%H%M")
+        
+        return f"{prefix}_{suffix}"
     
     async def save_message(
         self,

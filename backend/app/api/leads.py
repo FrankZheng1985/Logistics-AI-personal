@@ -336,9 +336,30 @@ async def convert_lead_to_customer(
         LeadSource.OTHER: CustomerSource.OTHER,
     }
     
+    # 生成客户名称 - 优先使用线索名称，否则用公司名或来源+时间
+    customer_name = lead.name
+    if not customer_name:
+        if lead.company:
+            customer_name = f"{lead.company}联系人"
+        else:
+            source_names = {
+                LeadSource.GOOGLE: "谷歌",
+                LeadSource.WEIBO: "微博",
+                LeadSource.ZHIHU: "知乎",
+                LeadSource.TIEBA: "贴吧",
+                LeadSource.WECHAT: "微信",
+                LeadSource.YOUTUBE: "油管",
+                LeadSource.FACEBOOK: "脸书",
+                LeadSource.LINKEDIN: "领英",
+                LeadSource.B2B_ALIBABA: "阿里",
+                LeadSource.B2B_1688: "1688",
+            }
+            source_name = source_names.get(lead.source, "线索")
+            customer_name = f"{source_name}客户_{datetime.utcnow().strftime('%m%d%H%M')}"
+    
     # 创建客户
     customer = Customer(
-        name=lead.name or "未知客户",
+        name=customer_name,
         company=lead.company,
         phone=lead.phone,
         email=lead.email,
