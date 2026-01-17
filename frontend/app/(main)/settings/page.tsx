@@ -65,6 +65,7 @@ export default function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const logoInputRef = useRef<HTMLInputElement>(null)
+  const [logoError, setLogoError] = useState(false)
 
   const [companyConfig, setCompanyConfig] = useState<CompanyConfig>({
     company_name: '',
@@ -228,16 +229,13 @@ export default function SettingsPage() {
     const file = e.target.files?.[0]
     if (!file) return
     
-    // 这里可以实现实际的上传逻辑
-    // 暂时使用本地预览
+    // 使用 base64 编码存储 Logo
     const reader = new FileReader()
     reader.onload = () => {
+      setLogoError(false)  // 重置错误状态
       setCompanyConfig(prev => ({ ...prev, logo_url: reader.result as string }))
     }
     reader.readAsDataURL(file)
-    
-    // TODO: 实际上传到服务器/云存储
-    alert('Logo已上传（本地预览），实际部署时需要配置云存储')
   }
 
   // 添加标签的通用函数
@@ -336,8 +334,13 @@ export default function SettingsPage() {
                   className="w-32 h-32 bg-deep-space/50 border-2 border-dashed border-gray-600 rounded-xl flex items-center justify-center cursor-pointer hover:border-cyber-blue transition-colors overflow-hidden"
                   onClick={() => logoInputRef.current?.click()}
                 >
-                  {companyConfig.logo_url ? (
-                    <img src={companyConfig.logo_url} alt="Logo" className="w-full h-full object-contain" />
+                  {companyConfig.logo_url && !logoError ? (
+                    <img 
+                      src={companyConfig.logo_url} 
+                      alt="Logo" 
+                      className="w-full h-full object-contain"
+                      onError={() => setLogoError(true)}
+                    />
                   ) : (
                     <div className="text-center">
                       <Upload className="w-8 h-8 text-gray-500 mx-auto mb-2" />

@@ -50,8 +50,8 @@ export default function Sidebar() {
   useEffect(() => {
     const fetchUnreadCount = async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-        const response = await fetch(`${apiUrl}/api/notifications?limit=1`)
+        // 使用相对路径，通过nginx代理访问API
+        const response = await fetch('/api/notifications?limit=1')
         if (response.ok) {
           const data = await response.json()
           setUnreadCount(data.unread_count || 0)

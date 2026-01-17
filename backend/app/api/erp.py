@@ -72,15 +72,18 @@ async def process_with_privacy(
         mask_contacts=mask_contacts
     )
     
-    # 记录审计日志
-    client_ip = await get_client_ip(request)
-    await privacy_service.log_access(
-        endpoint=endpoint,
-        user_ip=client_ip,
-        params=params,
-        data_count=data_count,
-        success=True
-    )
+    # 记录审计日志（异步，不阻塞主流程）
+    try:
+        client_ip = await get_client_ip(request)
+        await privacy_service.log_access(
+            endpoint=endpoint,
+            user_ip=client_ip,
+            params=params,
+            data_count=data_count,
+            success=True
+        )
+    except Exception as e:
+        logger.warning(f"审计日志记录失败: {e}")
     
     return masked_data
 
