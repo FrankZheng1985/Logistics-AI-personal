@@ -22,6 +22,7 @@ class EmailService:
     """邮件服务"""
     
     def __init__(self):
+        # 先从环境变量加载默认配置
         self.smtp_host = getattr(settings, 'SMTP_HOST', '')
         self.smtp_port = getattr(settings, 'SMTP_PORT', 465)
         self.smtp_user = getattr(settings, 'SMTP_USER', '')
@@ -31,6 +32,45 @@ class EmailService:
         
         # 默认公司名称（用于邮件模板）
         self.default_company_name = "物流智能体"
+        
+        # 标记是否已从数据库加载
+        self._db_config_loaded = False
+    
+    async def load_config_from_db(self):
+        """从数据库加载SMTP配置（如果有）"""
+        if self._db_config_loaded:
+            return
+        
+        try:
+            from app.models.database import async_session_maker
+            import json
+            
+            async with async_session_maker() as db:
+                result = await db.execute(
+                    text("SELECT value FROM system_settings WHERE key = 'smtp'")
+                )
+                row = result.fetchone()
+                
+                if row and row[0]:
+                    config = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                    
+                    # 用数据库配置覆盖环境变量配置
+                    if config.get("smtp_host"):
+                        self.smtp_host = config["smtp_host"]
+                    if config.get("smtp_port"):
+                        self.smtp_port = config["smtp_port"]
+                    if config.get("smtp_user"):
+                        self.smtp_user = config["smtp_user"]
+                    if config.get("smtp_password"):
+                        self.smtp_password = config["smtp_password"]
+                    if config.get("sender_name"):
+                        self.sender_name = config["sender_name"]
+                    
+                    logger.info("📧 已从数据库加载SMTP配置")
+            
+            self._db_config_loaded = True
+        except Exception as e:
+            logger.warning(f"从数据库加载SMTP配置失败: {e}")
     
     @property
     def is_configured(self) -> bool:
@@ -61,6 +101,9 @@ class EmailService:
         Returns:
             发送结果
         """
+        # 尝试从数据库加载配置
+        await self.load_config_from_db()
+        
         if not self.is_configured:
             logger.warning("邮件服务未配置，跳过发送")
             return {"status": "skipped", "message": "邮件服务未配置"}

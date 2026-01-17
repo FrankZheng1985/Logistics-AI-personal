@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Settings, Building2, Key, Bell, Globe, Save, Eye, EyeOff, Loader2, Upload, MapPin, Plus, X, Palette, Megaphone, Target, Image, QrCode, Film, Trash2 } from 'lucide-react'
+import { Settings, Building2, Key, Bell, Globe, Save, Eye, EyeOff, Loader2, Upload, MapPin, Plus, X, Palette, Megaphone, Target, Image, QrCode, Film, Trash2, Mail, Send, CheckCircle, XCircle } from 'lucide-react'
 
 interface BrandAssets {
   logo?: {
@@ -91,6 +91,14 @@ interface NotificationConfig {
 interface AIConfig {
   model_name: string
   temperature: number
+}
+
+interface SMTPConfig {
+  smtp_host: string
+  smtp_port: number
+  smtp_user: string
+  smtp_password: string
+  sender_name: string
 }
 
 // 资产上传组件
@@ -193,7 +201,7 @@ function AssetUploader({
 }
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<'company' | 'brand' | 'content' | 'api' | 'notification' | 'system'>('company')
+  const [activeTab, setActiveTab] = useState<'company' | 'brand' | 'content' | 'api' | 'email' | 'notification' | 'system'>('company')
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({})
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
@@ -247,6 +255,16 @@ export default function SettingsPage() {
     model_name: 'qwen-max',
     temperature: 0.7
   })
+
+  const [smtpConfig, setSmtpConfig] = useState<SMTPConfig>({
+    smtp_host: '',
+    smtp_port: 465,
+    smtp_user: '',
+    smtp_password: '',
+    sender_name: '物流智能体'
+  })
+  const [smtpConfigured, setSmtpConfigured] = useState(false)
+  const [testingSmtp, setTestingSmtp] = useState(false)
 
   // 加载设置
   useEffect(() => {
@@ -318,6 +336,22 @@ export default function SettingsPage() {
             pixabay_api_key: apiKeysData.pixabay_api_key?.full_value || ''
           })
         }
+        
+        // 获取SMTP配置
+        const smtpRes = await fetch('/api/settings/smtp')
+        if (smtpRes.ok) {
+          const smtpData = await smtpRes.json()
+          if (smtpData.success && smtpData.data) {
+            setSmtpConfig({
+              smtp_host: smtpData.data.smtp_host || '',
+              smtp_port: smtpData.data.smtp_port || 465,
+              smtp_user: smtpData.data.smtp_user || '',
+              smtp_password: smtpData.data.smtp_password || '',
+              sender_name: smtpData.data.sender_name || '物流智能体'
+            })
+            setSmtpConfigured(smtpData.configured || false)
+          }
+        }
       } catch (error) {
         console.error('加载设置失败:', error)
       } finally {
@@ -381,6 +415,23 @@ export default function SettingsPage() {
         return
       }
       
+      // 保存邮件配置
+      if (activeTab === 'email') {
+        const res = await fetch('/api/settings/smtp', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(smtpConfig)
+        })
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}))
+          throw new Error(errorData.detail || `保存邮件配置失败 (${res.status})`)
+        }
+        const data = await res.json()
+        if (data.success) {
+          setSmtpConfigured(true)
+        }
+      }
+      
       alert('设置已保存！')
     } catch (error: any) {
       console.error('保存失败:', error)
@@ -425,6 +476,7 @@ export default function SettingsPage() {
     { id: 'brand', label: '品牌设置', icon: Palette },
     { id: 'content', label: '内容配置', icon: Megaphone },
     { id: 'api', label: 'API配置', icon: Key },
+    { id: 'email', label: '邮件配置', icon: Mail },
     { id: 'notification', label: '通知设置', icon: Bell },
     { id: 'system', label: '系统设置', icon: Globe }
   ]
@@ -1260,6 +1312,179 @@ export default function SettingsPage() {
                 <span className="text-sm text-gray-400">
                   未配置: {6 - Object.values(apiKeysLoaded).filter(k => k?.configured).length} 个
                 </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 邮件配置 */}
+      {activeTab === 'email' && (
+        <div className="space-y-6">
+          {/* 配置状态提示 */}
+          <div className={`p-4 rounded-lg border ${smtpConfigured 
+            ? 'bg-green-500/10 border-green-500/30' 
+            : 'bg-yellow-500/10 border-yellow-500/30'
+          }`}>
+            <div className="flex items-center gap-3">
+              {smtpConfigured ? (
+                <>
+                  <CheckCircle className="w-5 h-5 text-green-400" />
+                  <span className="text-green-400">SMTP已配置，邮件功能可用</span>
+                </>
+              ) : (
+                <>
+                  <XCircle className="w-5 h-5 text-yellow-400" />
+                  <span className="text-yellow-400">SMTP未配置，请填写以下信息以启用邮件跟进功能</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* SMTP配置表单 */}
+          <div className="bg-dark-purple/40 rounded-xl p-6 space-y-6">
+            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <Mail className="w-5 h-5 text-cyber-blue" />
+              SMTP邮件服务配置
+            </h2>
+            <p className="text-gray-400 text-sm">
+              配置SMTP服务后，AI员工（小跟）可以通过邮件跟进客户
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">SMTP服务器地址 *</label>
+                <input
+                  type="text"
+                  value={smtpConfig.smtp_host}
+                  onChange={e => setSmtpConfig(prev => ({ ...prev, smtp_host: e.target.value }))}
+                  className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                  placeholder="如：smtp.qq.com"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">端口号 *</label>
+                <input
+                  type="number"
+                  value={smtpConfig.smtp_port}
+                  onChange={e => setSmtpConfig(prev => ({ ...prev, smtp_port: parseInt(e.target.value) || 465 }))}
+                  className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                  placeholder="465"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">发件邮箱 *</label>
+                <input
+                  type="email"
+                  value={smtpConfig.smtp_user}
+                  onChange={e => setSmtpConfig(prev => ({ ...prev, smtp_user: e.target.value }))}
+                  className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                  placeholder="your-email@qq.com"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  授权码/密码 *
+                  <span className="text-gray-500 text-xs ml-2">（QQ邮箱请使用授权码）</span>
+                </label>
+                <input
+                  type="password"
+                  value={smtpConfig.smtp_password}
+                  onChange={e => setSmtpConfig(prev => ({ ...prev, smtp_password: e.target.value }))}
+                  className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                  placeholder="输入授权码或密码"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-300 mb-2">发件人名称</label>
+                <input
+                  type="text"
+                  value={smtpConfig.sender_name}
+                  onChange={e => setSmtpConfig(prev => ({ ...prev, sender_name: e.target.value }))}
+                  className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                  placeholder="物流智能体"
+                />
+                <p className="text-gray-500 text-xs mt-1">收件人看到的发件人名称</p>
+              </div>
+            </div>
+
+            {/* 测试按钮 */}
+            <div className="flex items-center gap-4 pt-4 border-t border-gray-700">
+              <button
+                onClick={async () => {
+                  // 先保存配置
+                  setTestingSmtp(true)
+                  try {
+                    // 保存
+                    await fetch('/api/settings/smtp', {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(smtpConfig)
+                    })
+                    
+                    // 测试
+                    const res = await fetch('/api/settings/smtp/test', { method: 'POST' })
+                    const data = await res.json()
+                    
+                    if (data.success) {
+                      alert(`✅ ${data.message}`)
+                      setSmtpConfigured(true)
+                    } else {
+                      alert(`❌ 测试失败: ${data.message}`)
+                    }
+                  } catch (error) {
+                    alert('测试失败，请检查配置')
+                  } finally {
+                    setTestingSmtp(false)
+                  }
+                }}
+                disabled={testingSmtp || !smtpConfig.smtp_host || !smtpConfig.smtp_user}
+                className="flex items-center gap-2 px-4 py-2 bg-cyber-blue/20 border border-cyber-blue/50 rounded-lg text-cyber-blue hover:bg-cyber-blue/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {testingSmtp ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    测试中...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    发送测试邮件
+                  </>
+                )}
+              </button>
+              <span className="text-gray-500 text-sm">
+                测试邮件将发送到配置的发件邮箱
+              </span>
+            </div>
+          </div>
+
+          {/* 常用邮箱配置参考 */}
+          <div className="bg-dark-purple/40 rounded-xl p-6">
+            <h3 className="text-sm font-medium text-gray-300 mb-4">常用邮箱SMTP配置参考</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+              <div className="p-3 bg-deep-space/30 rounded-lg">
+                <div className="font-medium text-white mb-2">QQ邮箱</div>
+                <div className="text-gray-400 space-y-1">
+                  <p>服务器: smtp.qq.com</p>
+                  <p>端口: 465 (SSL)</p>
+                  <p className="text-yellow-400 text-xs">需要开启SMTP并获取授权码</p>
+                </div>
+              </div>
+              <div className="p-3 bg-deep-space/30 rounded-lg">
+                <div className="font-medium text-white mb-2">阿里云企业邮箱</div>
+                <div className="text-gray-400 space-y-1">
+                  <p>服务器: smtp.mxhichina.com</p>
+                  <p>端口: 465 (SSL)</p>
+                </div>
+              </div>
+              <div className="p-3 bg-deep-space/30 rounded-lg">
+                <div className="font-medium text-white mb-2">163邮箱</div>
+                <div className="text-gray-400 space-y-1">
+                  <p>服务器: smtp.163.com</p>
+                  <p>端口: 465 (SSL)</p>
+                  <p className="text-yellow-400 text-xs">需要开启SMTP并获取授权码</p>
+                </div>
               </div>
             </div>
           </div>

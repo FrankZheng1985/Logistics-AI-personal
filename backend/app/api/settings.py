@@ -38,6 +38,15 @@ class AIConfig(BaseModel):
     temperature: Optional[float] = 0.7
 
 
+class SMTPConfig(BaseModel):
+    """SMTP邮件配置"""
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = 465
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    sender_name: Optional[str] = "物流智能体"
+
+
 class SettingsResponse(BaseModel):
     company: dict
     notification: dict
@@ -206,6 +215,141 @@ async def save_all_settings(
     except Exception as e:
         logger.error(f"保存设置失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =====================================================
+# SMTP邮件配置
+# =====================================================
+
+@router.get("/smtp")
+async def get_smtp_settings():
+    """获取SMTP邮件配置"""
+    try:
+        # 优先从数据库读取
+        smtp_config = await get_setting("smtp")
+        
+        # 如果数据库没有，从环境变量读取
+        if not smtp_config:
+            smtp_config = {
+                "smtp_host": os.getenv("SMTP_HOST", ""),
+                "smtp_port": int(os.getenv("SMTP_PORT", "465")),
+                "smtp_user": os.getenv("SMTP_USER", ""),
+                "smtp_password": "",  # 不返回密码
+                "sender_name": os.getenv("EMAIL_SENDER_NAME", "物流智能体")
+            }
+        else:
+            # 不返回密码明文
+            smtp_config["smtp_password"] = "********" if smtp_config.get("smtp_password") else ""
+        
+        # 检查是否已配置
+        is_configured = bool(
+            smtp_config.get("smtp_host") and 
+            smtp_config.get("smtp_user") and 
+            (smtp_config.get("smtp_password") or os.getenv("SMTP_PASSWORD"))
+        )
+        
+        return {
+            "success": True,
+            "data": smtp_config,
+            "configured": is_configured
+        }
+    except Exception as e:
+        logger.error(f"获取SMTP配置失败: {e}")
+        return {
+            "success": False,
+            "data": {},
+            "configured": False
+        }
+
+
+@router.put("/smtp")
+async def update_smtp_settings(config: SMTPConfig):
+    """更新SMTP邮件配置"""
+    try:
+        data = config.model_dump(exclude_none=True)
+        
+        # 如果密码为空或是占位符，保留原密码
+        if not data.get("smtp_password") or data.get("smtp_password") == "********":
+            current = await get_setting("smtp")
+            if current and current.get("smtp_password"):
+                data["smtp_password"] = current["smtp_password"]
+            else:
+                # 如果数据库没有，检查环境变量
+                env_password = os.getenv("SMTP_PASSWORD", "")
+                if env_password:
+                    data["smtp_password"] = env_password
+        
+        await save_setting("smtp", data)
+        
+        # 更新email_service的配置
+        try:
+            from app.services.email_service import email_service
+            email_service.smtp_host = data.get("smtp_host", "")
+            email_service.smtp_port = data.get("smtp_port", 465)
+            email_service.smtp_user = data.get("smtp_user", "")
+            email_service.smtp_password = data.get("smtp_password", "")
+            email_service.sender_name = data.get("sender_name", "物流智能体")
+            logger.info("邮件服务配置已更新")
+        except Exception as e:
+            logger.warning(f"更新邮件服务配置失败: {e}")
+        
+        logger.info("SMTP设置已保存")
+        return {"success": True, "message": "SMTP配置已保存"}
+    except Exception as e:
+        logger.error(f"更新SMTP设置失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/smtp/test")
+async def test_smtp_connection():
+    """测试SMTP连接"""
+    try:
+        from app.services.email_service import email_service
+        
+        if not email_service.is_configured:
+            return {
+                "success": False,
+                "message": "SMTP未配置，请先填写配置信息"
+            }
+        
+        # 发送测试邮件给配置的管理员邮箱
+        notify_email = email_service.notify_email or email_service.smtp_user
+        if not notify_email:
+            return {
+                "success": False,
+                "message": "未配置收件人邮箱"
+            }
+        
+        result = await email_service.send_email(
+            to_emails=[notify_email],
+            subject="📧 SMTP配置测试 - 物流智能体",
+            html_content="""
+            <div style="font-family: Arial, sans-serif; padding: 20px;">
+                <h2 style="color: #2563eb;">✅ SMTP配置测试成功！</h2>
+                <p>您的邮件服务已正确配置，系统可以正常发送邮件了。</p>
+                <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+                <p style="color: #666; font-size: 12px;">此邮件由物流智能体系统自动发送</p>
+            </div>
+            """,
+            text_content="SMTP配置测试成功！您的邮件服务已正确配置。"
+        )
+        
+        if result.get("status") == "sent":
+            return {
+                "success": True,
+                "message": f"测试邮件已发送至 {notify_email}"
+            }
+        else:
+            return {
+                "success": False,
+                "message": result.get("message", "发送失败")
+            }
+    except Exception as e:
+        logger.error(f"SMTP测试失败: {e}")
+        return {
+            "success": False,
+            "message": str(e)
+        }
 
 
 def mask_api_key(key: str, show_chars: int = 4) -> str:
