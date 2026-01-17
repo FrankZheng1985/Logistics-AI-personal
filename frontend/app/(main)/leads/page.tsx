@@ -24,7 +24,9 @@ import {
   Zap,
   Play,
   Pause,
-  BarChart3
+  BarChart3,
+  Ban,
+  RotateCcw
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -292,13 +294,17 @@ function SearchPanel({
 }
 
 // 线索卡片组件
-function LeadCard({ lead, onConvert, onContact }: { 
+function LeadCard({ lead, onConvert, onContact, onFilter, onRestore }: { 
   lead: Lead
   onConvert: (leadId: string) => void
   onContact: (leadId: string) => void
+  onFilter: (leadId: string) => void
+  onRestore: (leadId: string) => void
 }) {
   const [converting, setConverting] = useState(false)
   const [contacting, setContacting] = useState(false)
+  const [filtering, setFiltering] = useState(false)
+  const [restoring, setRestoring] = useState(false)
   
   const handleConvert = async () => {
     if (lead.status === 'converted') {
@@ -315,26 +321,63 @@ function LeadCard({ lead, onConvert, onContact }: {
     await onContact(lead.id)
     setContacting(false)
   }
+
+  const handleFilter = async () => {
+    if (lead.status === 'invalid') {
+      alert('该线索已被过滤')
+      return
+    }
+    if (lead.status === 'converted') {
+      alert('已转化的线索无法过滤')
+      return
+    }
+    if (!confirm('确定要过滤掉这条线索吗？过滤后将不再显示在待处理列表中。')) {
+      return
+    }
+    setFiltering(true)
+    await onFilter(lead.id)
+    setFiltering(false)
+  }
+
+  const handleRestore = async () => {
+    if (lead.status !== 'invalid') {
+      return
+    }
+    setRestoring(true)
+    await onRestore(lead.id)
+    setRestoring(false)
+  }
+
+  // 判断是否为无效线索
+  const isInvalid = lead.status === 'invalid'
   
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="glass-card p-4 hover:border-cyber-blue/30 transition-colors"
+      className={`glass-card p-4 transition-colors ${
+        isInvalid 
+          ? 'opacity-60 border-red-500/30' 
+          : 'hover:border-cyber-blue/30'
+      }`}
     >
       <div className="flex items-start justify-between">
         <div className="flex-1">
           {/* 头部信息 */}
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyber-blue/50 to-neon-purple/50 flex items-center justify-center">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+              isInvalid 
+                ? 'bg-red-500/20' 
+                : 'bg-gradient-to-br from-cyber-blue/50 to-neon-purple/50'
+            }`}>
               {lead.company ? (
-                <Building2 className="w-5 h-5 text-white" />
+                <Building2 className={`w-5 h-5 ${isInvalid ? 'text-red-400' : 'text-white'}`} />
               ) : (
-                <User className="w-5 h-5 text-white" />
+                <User className={`w-5 h-5 ${isInvalid ? 'text-red-400' : 'text-white'}`} />
               )}
             </div>
             <div>
-              <h3 className="font-medium">
+              <h3 className={`font-medium ${isInvalid ? 'text-gray-400 line-through' : ''}`}>
                 {lead.name || lead.company || '未知客户'}
               </h3>
               {lead.company && lead.name && (
@@ -367,7 +410,7 @@ function LeadCard({ lead, onConvert, onContact }: {
 
           {/* AI摘要 */}
           {lead.ai_summary && (
-            <p className="text-gray-300 text-sm mb-3 line-clamp-2">
+            <p className={`text-sm mb-3 line-clamp-2 ${isInvalid ? 'text-gray-500' : 'text-gray-300'}`}>
               {lead.ai_summary}
             </p>
           )}
@@ -378,7 +421,11 @@ function LeadCard({ lead, onConvert, onContact }: {
               {lead.needs.map((need, index) => (
                 <span
                   key={index}
-                  className="px-2 py-0.5 bg-cyber-blue/20 text-cyber-blue text-xs rounded"
+                  className={`px-2 py-0.5 text-xs rounded ${
+                    isInvalid 
+                      ? 'bg-gray-500/20 text-gray-500' 
+                      : 'bg-cyber-blue/20 text-cyber-blue'
+                  }`}
                 >
                   {need}
                 </span>
@@ -409,26 +456,56 @@ function LeadCard({ lead, onConvert, onContact }: {
           {new Date(lead.created_at).toLocaleString('zh-CN')}
         </span>
         <div className="flex gap-2">
-          <button 
-            onClick={handleConvert}
-            disabled={converting || lead.status === 'converted'}
-            className={`px-3 py-1 text-xs glass-card transition-colors flex items-center gap-1 ${
-              lead.status === 'converted' 
-                ? 'opacity-50 cursor-not-allowed' 
-                : 'hover:border-cyber-blue/50'
-            }`}
-          >
-            {converting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-            {lead.status === 'converted' ? '已转化' : '转为客户'}
-          </button>
-          <button 
-            onClick={handleContact}
-            disabled={contacting}
-            className="px-3 py-1 text-xs glass-card hover:border-cyber-green/50 transition-colors flex items-center gap-1"
-          >
-            {contacting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-            联系
-          </button>
+          {/* 已过滤状态显示恢复按钮 */}
+          {isInvalid ? (
+            <button 
+              onClick={handleRestore}
+              disabled={restoring}
+              className="px-3 py-1 text-xs glass-card hover:border-cyber-green/50 transition-colors flex items-center gap-1 text-cyber-green"
+            >
+              {restoring ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+              恢复
+            </button>
+          ) : (
+            <>
+              {/* 过滤按钮 */}
+              <button 
+                onClick={handleFilter}
+                disabled={filtering || lead.status === 'converted'}
+                className={`px-3 py-1 text-xs glass-card transition-colors flex items-center gap-1 ${
+                  lead.status === 'converted'
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'hover:border-red-500/50 text-red-400'
+                }`}
+                title="过滤掉不合适的线索"
+              >
+                {filtering ? <Loader2 className="w-3 h-3 animate-spin" /> : <Ban className="w-3 h-3" />}
+                过滤
+              </button>
+              {/* 转为客户按钮 */}
+              <button 
+                onClick={handleConvert}
+                disabled={converting || lead.status === 'converted'}
+                className={`px-3 py-1 text-xs glass-card transition-colors flex items-center gap-1 ${
+                  lead.status === 'converted' 
+                    ? 'opacity-50 cursor-not-allowed' 
+                    : 'hover:border-cyber-blue/50'
+                }`}
+              >
+                {converting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                {lead.status === 'converted' ? '已转化' : '转为客户'}
+              </button>
+              {/* 联系按钮 */}
+              <button 
+                onClick={handleContact}
+                disabled={contacting}
+                className="px-3 py-1 text-xs glass-card hover:border-cyber-green/50 transition-colors flex items-center gap-1"
+              >
+                {contacting ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                联系
+              </button>
+            </>
+          )}
         </div>
       </div>
     </motion.div>
@@ -592,6 +669,46 @@ export default function LeadsPage() {
     }
   }
 
+  // 过滤线索
+  const handleFilterLead = async (leadId: string) => {
+    try {
+      const response = await fetch(`/api/leads/${leadId}/filter`, {
+        method: 'POST'
+      })
+      
+      if (response.ok) {
+        // 刷新列表和统计
+        await Promise.all([fetchLeads(), fetchStats()])
+      } else {
+        const error = await response.json()
+        alert(error.detail || '过滤失败，请重试')
+      }
+    } catch (error) {
+      console.error('过滤失败:', error)
+      alert('操作失败，请检查网络连接')
+    }
+  }
+
+  // 恢复线索
+  const handleRestoreLead = async (leadId: string) => {
+    try {
+      const response = await fetch(`/api/leads/${leadId}/restore`, {
+        method: 'POST'
+      })
+      
+      if (response.ok) {
+        // 刷新列表和统计
+        await Promise.all([fetchLeads(), fetchStats()])
+      } else {
+        const error = await response.json()
+        alert(error.detail || '恢复失败，请重试')
+      }
+    } catch (error) {
+      console.error('恢复失败:', error)
+      alert('操作失败，请检查网络连接')
+    }
+  }
+
   return (
     <div className="min-h-screen p-6">
       {/* 头部 */}
@@ -637,12 +754,12 @@ export default function LeadsPage() {
           onChange={(e) => setFilter(prev => ({ ...prev, status: e.target.value }))}
           className="px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyber-blue/50 focus:outline-none"
         >
-          <option value="">待处理线索</option>
+          <option value="">所有状态</option>
           <option value="new">新线索</option>
           <option value="contacted">已联系</option>
           <option value="qualified">已确认</option>
           <option value="converted">已转化(历史)</option>
-          <option value="invalid">无效</option>
+          <option value="invalid">已过滤 {stats?.by_status?.invalid ? `(${stats.by_status.invalid})` : ''}</option>
         </select>
 
         <select
@@ -665,13 +782,20 @@ export default function LeadsPage() {
           <option value="google">Google</option>
           <option value="weibo">微博</option>
           <option value="zhihu">知乎</option>
+          <option value="tieba">贴吧</option>
           <option value="manual">手动添加</option>
         </select>
 
         {/* 显示当前筛选状态提示 */}
+        {filter.status === 'invalid' && (
+          <span className="text-red-400 text-sm ml-2 flex items-center gap-1">
+            <Ban className="w-4 h-4" />
+            正在查看已过滤的线索，可点击"恢复"按钮恢复线索
+          </span>
+        )}
         {!filter.status && !filter.include_converted && (
           <span className="text-gray-500 text-sm ml-2">
-            💡 已转化线索已隐藏
+            💡 已转化和已过滤线索已隐藏
           </span>
         )}
       </div>
@@ -689,6 +813,8 @@ export default function LeadsPage() {
               lead={lead}
               onConvert={handleConvertLead}
               onContact={handleContactLead}
+              onFilter={handleFilterLead}
+              onRestore={handleRestoreLead}
             />
           ))}
         </div>

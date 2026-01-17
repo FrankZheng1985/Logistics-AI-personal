@@ -484,6 +484,84 @@ async def contact_lead(
     }
 
 
+@router.post("/{lead_id}/filter")
+async def filter_lead(
+    lead_id: UUID,
+    reason: str = "",
+    db: AsyncSession = Depends(get_db)
+):
+    """过滤/排除线索 - 将不合适的线索标记为无效"""
+    result = await db.execute(
+        select(Lead).where(Lead.id == lead_id)
+    )
+    lead = result.scalar_one_or_none()
+    
+    if not lead:
+        raise HTTPException(status_code=404, detail="线索不存在")
+    
+    if lead.status == LeadStatus.CONVERTED:
+        raise HTTPException(status_code=400, detail="该线索已转化为客户，无法过滤")
+    
+    if lead.status == LeadStatus.INVALID:
+        raise HTTPException(status_code=400, detail="该线索已被过滤")
+    
+    # 更新线索状态为无效
+    lead.status = LeadStatus.INVALID
+    
+    # 如果提供了原因，记录到extra_data
+    if reason:
+        extra_data = lead.extra_data or {}
+        extra_data["filter_reason"] = reason
+        extra_data["filtered_at"] = datetime.utcnow().isoformat()
+        lead.extra_data = extra_data
+    
+    await db.commit()
+    
+    logger.info(f"过滤线索: {lead.name or lead.id}, 原因: {reason or '无'}")
+    
+    return {
+        "message": "线索已过滤",
+        "lead_id": str(lead.id)
+    }
+
+
+@router.post("/{lead_id}/restore")
+async def restore_lead(
+    lead_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """恢复被过滤的线索"""
+    result = await db.execute(
+        select(Lead).where(Lead.id == lead_id)
+    )
+    lead = result.scalar_one_or_none()
+    
+    if not lead:
+        raise HTTPException(status_code=404, detail="线索不存在")
+    
+    if lead.status != LeadStatus.INVALID:
+        raise HTTPException(status_code=400, detail="该线索未被过滤，无需恢复")
+    
+    # 恢复线索状态为新线索
+    lead.status = LeadStatus.NEW
+    
+    # 清除过滤记录
+    if lead.extra_data:
+        extra_data = lead.extra_data.copy()
+        extra_data.pop("filter_reason", None)
+        extra_data.pop("filtered_at", None)
+        lead.extra_data = extra_data
+    
+    await db.commit()
+    
+    logger.info(f"恢复线索: {lead.name or lead.id}")
+    
+    return {
+        "message": "线索已恢复",
+        "lead_id": str(lead.id)
+    }
+
+
 @router.post("/hunt")
 async def start_lead_hunting(
     background_tasks: BackgroundTasks,
