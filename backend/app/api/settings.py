@@ -303,50 +303,83 @@ async def update_smtp_settings(config: SMTPConfig):
 @router.post("/smtp/test")
 async def test_smtp_connection():
     """测试SMTP连接"""
+    import smtplib
+    import ssl
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    from email.utils import formataddr
+    
     try:
-        from app.services.email_service import email_service
+        # 直接从数据库读取配置
+        smtp_config = await get_setting("smtp")
         
-        # 强制重新从数据库加载配置
-        await email_service.load_config_from_db(force=True)
-        
-        if not email_service.is_configured:
+        if not smtp_config:
             return {
                 "success": False,
                 "message": "SMTP未配置，请先填写配置信息"
             }
         
-        # 发送测试邮件给配置的管理员邮箱
-        notify_email = email_service.notify_email or email_service.smtp_user
-        if not notify_email:
+        smtp_host = smtp_config.get("smtp_host", "")
+        smtp_port = smtp_config.get("smtp_port", 465)
+        smtp_user = smtp_config.get("smtp_user", "")
+        smtp_password = smtp_config.get("smtp_password", "")
+        sender_name = smtp_config.get("sender_name", "物流智能体")
+        
+        logger.info(f"SMTP测试 - host: {smtp_host}, port: {smtp_port}, user: {smtp_user}, has_password: {bool(smtp_password)}")
+        
+        if not smtp_host or not smtp_user or not smtp_password:
             return {
                 "success": False,
-                "message": "未配置收件人邮箱"
+                "message": f"SMTP配置不完整: host={bool(smtp_host)}, user={bool(smtp_user)}, password={bool(smtp_password)}"
             }
         
-        result = await email_service.send_email(
-            to_emails=[notify_email],
-            subject="📧 SMTP配置测试 - 物流智能体",
-            html_content="""
-            <div style="font-family: Arial, sans-serif; padding: 20px;">
-                <h2 style="color: #2563eb;">✅ SMTP配置测试成功！</h2>
-                <p>您的邮件服务已正确配置，系统可以正常发送邮件了。</p>
-                <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-                <p style="color: #666; font-size: 12px;">此邮件由物流智能体系统自动发送</p>
-            </div>
-            """,
-            text_content="SMTP配置测试成功！您的邮件服务已正确配置。"
-        )
+        # 直接发送测试邮件
+        to_email = smtp_user  # 发送给自己
         
-        if result.get("status") == "sent":
-            return {
-                "success": True,
-                "message": f"测试邮件已发送至 {notify_email}"
-            }
-        else:
-            return {
-                "success": False,
-                "message": result.get("message", "发送失败")
-            }
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "📧 SMTP配置测试 - 物流智能体"
+        msg["From"] = formataddr((sender_name, smtp_user))
+        msg["To"] = to_email
+        
+        html_content = """
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+            <h2 style="color: #2563eb;">✅ SMTP配置测试成功！</h2>
+            <p>您的邮件服务已正确配置，系统可以正常发送邮件了。</p>
+            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+            <p style="color: #666; font-size: 12px;">此邮件由物流智能体系统自动发送</p>
+        </div>
+        """
+        text_content = "SMTP配置测试成功！您的邮件服务已正确配置。"
+        
+        msg.attach(MIMEText(text_content, "plain", "utf-8"))
+        msg.attach(MIMEText(html_content, "html", "utf-8"))
+        
+        # 连接并发送
+        context = ssl.create_default_context()
+        
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, context=context, timeout=30) as server:
+            server.login(smtp_user, smtp_password)
+            server.sendmail(smtp_user, [to_email], msg.as_string())
+        
+        logger.info(f"SMTP测试邮件发送成功: {to_email}")
+        
+        return {
+            "success": True,
+            "message": f"测试邮件已发送至 {to_email}"
+        }
+        
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error(f"SMTP认证失败: {e}")
+        return {
+            "success": False,
+            "message": f"SMTP认证失败，请检查用户名和密码是否正确"
+        }
+    except smtplib.SMTPConnectError as e:
+        logger.error(f"SMTP连接失败: {e}")
+        return {
+            "success": False,
+            "message": f"无法连接到SMTP服务器，请检查服务器地址和端口"
+        }
     except Exception as e:
         logger.error(f"SMTP测试失败: {e}")
         return {
