@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { MessageCircle, Users, TrendingUp, Target, Eye, EyeOff, Plus, Search, RefreshCw, X, CloudDownload, Bot, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react'
+import { MessageCircle, Users, TrendingUp, Target, Eye, EyeOff, Plus, Search, RefreshCw, X, Download, Bot, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react'
 
 interface WechatGroup {
   id: string
@@ -228,7 +228,7 @@ export default function WechatGroupsPage() {
             className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-lg hover:bg-amber-500/20 transition-colors disabled:opacity-50"
             title="从企业微信同步群列表"
           >
-            <CloudDownload className={`w-4 h-4 ${syncing ? 'animate-bounce' : ''}`} />
+            <Download className={`w-4 h-4 ${syncing ? 'animate-bounce' : ''}`} />
             {syncing ? '同步中...' : '同步群组'}
           </button>
           <button
