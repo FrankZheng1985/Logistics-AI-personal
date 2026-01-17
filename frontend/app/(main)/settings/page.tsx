@@ -1,7 +1,31 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Settings, Building2, Key, Bell, Globe, Save, Eye, EyeOff, Loader2, Upload, MapPin, Plus, X, Palette, Megaphone, Target } from 'lucide-react'
+import { Settings, Building2, Key, Bell, Globe, Save, Eye, EyeOff, Loader2, Upload, MapPin, Plus, X, Palette, Megaphone, Target, Image, QrCode, Film, Trash2 } from 'lucide-react'
+
+interface BrandAssets {
+  logo?: {
+    main?: string
+    white?: string
+    icon?: string
+  }
+  qrcode?: {
+    wechat?: string
+    wechat_official?: string
+    douyin?: string
+    xiaohongshu?: string
+  }
+  watermark?: {
+    enabled?: boolean
+    position?: string
+    opacity?: number
+    image?: string
+  }
+  video_assets?: {
+    intro_video?: string
+    outro_template?: string
+  }
+}
 
 interface CompanyConfig {
   company_name: string
@@ -37,6 +61,8 @@ interface CompanyConfig {
   content_tone?: string
   content_focus_keywords?: string[]
   forbidden_content?: string[]
+  // 品牌资产
+  brand_assets?: BrandAssets
 }
 
 interface ApiConfig {
@@ -57,6 +83,105 @@ interface NotificationConfig {
 interface AIConfig {
   model_name: string
   temperature: number
+}
+
+// 资产上传组件
+function AssetUploader({ 
+  label, 
+  description, 
+  value, 
+  onChange,
+  small = false
+}: { 
+  label: string
+  description: string
+  value?: string
+  onChange: (value: string | undefined) => void
+  small?: boolean
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [error, setError] = useState(false)
+
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    
+    // 检查文件大小（限制2MB）
+    if (file.size > 2 * 1024 * 1024) {
+      alert('文件大小不能超过2MB')
+      return
+    }
+    
+    const reader = new FileReader()
+    reader.onload = () => {
+      setError(false)
+      onChange(reader.result as string)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleDelete = () => {
+    onChange(undefined)
+    if (inputRef.current) {
+      inputRef.current.value = ''
+    }
+  }
+
+  const size = small ? 'w-24 h-24' : 'w-32 h-32'
+
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
+      <p className="text-xs text-gray-500 mb-2">{description}</p>
+      <div 
+        className={`${size} bg-deep-space/50 border-2 border-dashed border-gray-600 rounded-xl flex items-center justify-center cursor-pointer hover:border-cyber-blue transition-colors overflow-hidden relative group`}
+        onClick={() => inputRef.current?.click()}
+      >
+        {value && !error ? (
+          <>
+            <img 
+              src={value} 
+              alt={label}
+              className="w-full h-full object-contain"
+              onError={() => setError(true)}
+            />
+            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  inputRef.current?.click()
+                }}
+                className="p-2 bg-cyber-blue rounded-lg hover:bg-cyber-blue/80"
+              >
+                <Upload className="w-4 h-4 text-white" />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleDelete()
+                }}
+                className="p-2 bg-red-500 rounded-lg hover:bg-red-600"
+              >
+                <Trash2 className="w-4 h-4 text-white" />
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="text-center p-2">
+            <Upload className={`${small ? 'w-6 h-6' : 'w-8 h-8'} text-gray-500 mx-auto mb-1`} />
+            <span className="text-xs text-gray-500">点击上传</span>
+          </div>
+        )}
+      </div>
+      <input 
+        ref={inputRef}
+        type="file" 
+        accept="image/*" 
+        className="hidden" 
+        onChange={handleUpload}
+      />
+    </div>
+  )
 }
 
 export default function SettingsPage() {
@@ -81,7 +206,13 @@ export default function SettingsPage() {
     company_values: [],
     content_tone: 'professional',
     content_focus_keywords: [],
-    forbidden_content: []
+    forbidden_content: [],
+    brand_assets: {
+      logo: {},
+      qrcode: {},
+      watermark: { enabled: false, position: 'bottom-right', opacity: 0.8 },
+      video_assets: {}
+    }
   })
 
   const [apiConfig, setApiConfig] = useState<ApiConfig>({
@@ -137,7 +268,13 @@ export default function SettingsPage() {
             company_values: companyData.company_values || [],
             content_tone: companyData.content_tone || 'professional',
             content_focus_keywords: companyData.content_focus_keywords || [],
-            forbidden_content: companyData.forbidden_content || []
+            forbidden_content: companyData.forbidden_content || [],
+            brand_assets: companyData.brand_assets || {
+              logo: {},
+              qrcode: {},
+              watermark: { enabled: false, position: 'bottom-right', opacity: 0.8 },
+              video_assets: {}
+            }
           })
         }
         
@@ -606,100 +743,311 @@ export default function SettingsPage() {
 
       {/* 品牌设置 */}
       {activeTab === 'brand' && (
-        <div className="bg-dark-purple/40 rounded-xl p-6 space-y-6">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Palette className="w-5 h-5 text-cyber-purple" />
-            品牌设置
-          </h2>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">品牌口号 / Slogan</label>
-            <input
-              type="text"
-              value={companyConfig.brand_slogan || ''}
-              onChange={e => setCompanyConfig(prev => ({ ...prev, brand_slogan: e.target.value }))}
-              className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
-              placeholder="如：专注欧洲物流15年，让您的货物安全准时到达"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">企业价值观</label>
-            <div className="flex flex-wrap gap-2 mb-2">
-              {(companyConfig.company_values || []).map((value, index) => (
-                <span
-                  key={index}
-                  className="px-3 py-1.5 bg-cyber-purple/20 text-cyber-purple rounded-full text-sm flex items-center gap-2"
-                >
-                  {value}
-                  <button onClick={() => removeTag('company_values', index)} className="hover:text-white">
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              ))}
+        <div className="space-y-6">
+          {/* 品牌基本设置 */}
+          <div className="bg-dark-purple/40 rounded-xl p-6 space-y-6">
+            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <Palette className="w-5 h-5 text-cyber-purple" />
+              品牌基本设置
+            </h2>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">品牌口号 / Slogan</label>
               <input
                 type="text"
-                placeholder="添加价值观后回车..."
-                className="px-3 py-1.5 bg-deep-space/50 border border-gray-700 rounded-full text-sm text-white focus:border-cyber-blue focus:outline-none w-40"
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && e.currentTarget.value) {
-                    addTag('company_values', e.currentTarget.value)
-                    e.currentTarget.value = ''
-                  }
-                }}
+                value={companyConfig.brand_slogan || ''}
+                onChange={e => setCompanyConfig(prev => ({ ...prev, brand_slogan: e.target.value }))}
+                className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                placeholder="如：专注欧洲物流15年，让您的货物安全准时到达"
               />
             </div>
-            <p className="text-gray-500 text-xs">如：诚信、专业、高效、创新</p>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">品牌色</label>
-            <div className="flex gap-4">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">主色调</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={companyConfig.brand_colors?.primary || '#3B82F6'}
-                    onChange={e => setCompanyConfig(prev => ({ 
-                      ...prev, 
-                      brand_colors: { ...prev.brand_colors, primary: e.target.value }
-                    }))}
-                    className="w-10 h-10 rounded cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={companyConfig.brand_colors?.primary || '#3B82F6'}
-                    onChange={e => setCompanyConfig(prev => ({ 
-                      ...prev, 
-                      brand_colors: { ...prev.brand_colors, primary: e.target.value }
-                    }))}
-                    className="w-24 px-2 py-1 bg-deep-space/50 border border-gray-700 rounded text-white text-sm"
-                  />
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">企业价值观</label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {(companyConfig.company_values || []).map((value, index) => (
+                  <span
+                    key={index}
+                    className="px-3 py-1.5 bg-cyber-purple/20 text-cyber-purple rounded-full text-sm flex items-center gap-2"
+                  >
+                    {value}
+                    <button onClick={() => removeTag('company_values', index)} className="hover:text-white">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+                <input
+                  type="text"
+                  placeholder="添加价值观后回车..."
+                  className="px-3 py-1.5 bg-deep-space/50 border border-gray-700 rounded-full text-sm text-white focus:border-cyber-blue focus:outline-none w-40"
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && e.currentTarget.value) {
+                      addTag('company_values', e.currentTarget.value)
+                      e.currentTarget.value = ''
+                    }
+                  }}
+                />
+              </div>
+              <p className="text-gray-500 text-xs">如：诚信、专业、高效、创新</p>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">品牌色</label>
+              <div className="flex gap-4">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">主色调</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={companyConfig.brand_colors?.primary || '#3B82F6'}
+                      onChange={e => setCompanyConfig(prev => ({ 
+                        ...prev, 
+                        brand_colors: { ...prev.brand_colors, primary: e.target.value }
+                      }))}
+                      className="w-10 h-10 rounded cursor-pointer"
+                    />
+                    <input
+                      type="text"
+                      value={companyConfig.brand_colors?.primary || '#3B82F6'}
+                      onChange={e => setCompanyConfig(prev => ({ 
+                        ...prev, 
+                        brand_colors: { ...prev.brand_colors, primary: e.target.value }
+                      }))}
+                      className="w-24 px-2 py-1 bg-deep-space/50 border border-gray-700 rounded text-white text-sm"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">辅助色</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={companyConfig.brand_colors?.secondary || '#10B981'}
+                      onChange={e => setCompanyConfig(prev => ({ 
+                        ...prev, 
+                        brand_colors: { ...prev.brand_colors, secondary: e.target.value }
+                      }))}
+                      className="w-10 h-10 rounded cursor-pointer"
+                    />
+                    <input
+                      type="text"
+                      value={companyConfig.brand_colors?.secondary || '#10B981'}
+                      onChange={e => setCompanyConfig(prev => ({ 
+                        ...prev,
+                        brand_colors: { ...prev.brand_colors, secondary: e.target.value }
+                      }))}
+                      className="w-24 px-2 py-1 bg-deep-space/50 border border-gray-700 rounded text-white text-sm"
+                    />
+                  </div>
                 </div>
               </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">辅助色</label>
-                <div className="flex items-center gap-2">
+            </div>
+          </div>
+
+          {/* Logo资产 */}
+          <div className="bg-dark-purple/40 rounded-xl p-6">
+            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <Image className="w-5 h-5 text-green-400" />
+              Logo资产
+              <span className="text-xs text-gray-400 font-normal ml-2">用于视频制作和内容展示</span>
+            </h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* 主Logo */}
+              <AssetUploader
+                label="主Logo"
+                description="用于视频片头、水印等"
+                value={companyConfig.brand_assets?.logo?.main}
+                onChange={(value) => setCompanyConfig(prev => ({
+                  ...prev,
+                  brand_assets: {
+                    ...prev.brand_assets,
+                    logo: { ...prev.brand_assets?.logo, main: value }
+                  }
+                }))}
+              />
+              
+              {/* 白色Logo */}
+              <AssetUploader
+                label="白色版Logo"
+                description="用于深色背景"
+                value={companyConfig.brand_assets?.logo?.white}
+                onChange={(value) => setCompanyConfig(prev => ({
+                  ...prev,
+                  brand_assets: {
+                    ...prev.brand_assets,
+                    logo: { ...prev.brand_assets?.logo, white: value }
+                  }
+                }))}
+              />
+              
+              {/* 图标版 */}
+              <AssetUploader
+                label="图标版"
+                description="小尺寸场景使用"
+                value={companyConfig.brand_assets?.logo?.icon}
+                onChange={(value) => setCompanyConfig(prev => ({
+                  ...prev,
+                  brand_assets: {
+                    ...prev.brand_assets,
+                    logo: { ...prev.brand_assets?.logo, icon: value }
+                  }
+                }))}
+              />
+            </div>
+          </div>
+
+          {/* 二维码资产 */}
+          <div className="bg-dark-purple/40 rounded-xl p-6">
+            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <QrCode className="w-5 h-5 text-blue-400" />
+              二维码资产
+              <span className="text-xs text-gray-400 font-normal ml-2">视频脚本中引用的二维码图片</span>
+            </h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {/* 微信个人号 */}
+              <AssetUploader
+                label="微信个人号二维码"
+                description="个人微信号"
+                value={companyConfig.brand_assets?.qrcode?.wechat}
+                onChange={(value) => setCompanyConfig(prev => ({
+                  ...prev,
+                  brand_assets: {
+                    ...prev.brand_assets,
+                    qrcode: { ...prev.brand_assets?.qrcode, wechat: value }
+                  }
+                }))}
+              />
+              
+              {/* 公众号 */}
+              <AssetUploader
+                label="公众号二维码"
+                description="微信公众号"
+                value={companyConfig.brand_assets?.qrcode?.wechat_official}
+                onChange={(value) => setCompanyConfig(prev => ({
+                  ...prev,
+                  brand_assets: {
+                    ...prev.brand_assets,
+                    qrcode: { ...prev.brand_assets?.qrcode, wechat_official: value }
+                  }
+                }))}
+              />
+              
+              {/* 抖音 */}
+              <AssetUploader
+                label="抖音二维码"
+                description="抖音账号"
+                value={companyConfig.brand_assets?.qrcode?.douyin}
+                onChange={(value) => setCompanyConfig(prev => ({
+                  ...prev,
+                  brand_assets: {
+                    ...prev.brand_assets,
+                    qrcode: { ...prev.brand_assets?.qrcode, douyin: value }
+                  }
+                }))}
+              />
+              
+              {/* 小红书 */}
+              <AssetUploader
+                label="小红书二维码"
+                description="小红书账号"
+                value={companyConfig.brand_assets?.qrcode?.xiaohongshu}
+                onChange={(value) => setCompanyConfig(prev => ({
+                  ...prev,
+                  brand_assets: {
+                    ...prev.brand_assets,
+                    qrcode: { ...prev.brand_assets?.qrcode, xiaohongshu: value }
+                  }
+                }))}
+              />
+            </div>
+          </div>
+
+          {/* 水印设置 */}
+          <div className="bg-dark-purple/40 rounded-xl p-6">
+            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <Film className="w-5 h-5 text-yellow-400" />
+              视频水印设置
+            </h2>
+            
+            <div className="flex items-start gap-6">
+              <div className="flex-1 space-y-4">
+                <label className="flex items-center gap-3 cursor-pointer">
                   <input
-                    type="color"
-                    value={companyConfig.brand_colors?.secondary || '#10B981'}
-                    onChange={e => setCompanyConfig(prev => ({ 
-                      ...prev, 
-                      brand_colors: { ...prev.brand_colors, secondary: e.target.value }
-                    }))}
-                    className="w-10 h-10 rounded cursor-pointer"
-                  />
-                  <input
-                    type="text"
-                    value={companyConfig.brand_colors?.secondary || '#10B981'}
-                    onChange={e => setCompanyConfig(prev => ({ 
+                    type="checkbox"
+                    checked={companyConfig.brand_assets?.watermark?.enabled || false}
+                    onChange={e => setCompanyConfig(prev => ({
                       ...prev,
-                      brand_colors: { ...prev.brand_colors, secondary: e.target.value }
+                      brand_assets: {
+                        ...prev.brand_assets,
+                        watermark: { ...prev.brand_assets?.watermark, enabled: e.target.checked }
+                      }
                     }))}
-                    className="w-24 px-2 py-1 bg-deep-space/50 border border-gray-700 rounded text-white text-sm"
+                    className="w-5 h-5 rounded bg-deep-space/50 border-gray-700 text-cyber-blue focus:ring-cyber-blue"
                   />
+                  <span className="text-white">启用视频水印</span>
+                </label>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-2">水印位置</label>
+                    <select
+                      value={companyConfig.brand_assets?.watermark?.position || 'bottom-right'}
+                      onChange={e => setCompanyConfig(prev => ({
+                        ...prev,
+                        brand_assets: {
+                          ...prev.brand_assets,
+                          watermark: { ...prev.brand_assets?.watermark, position: e.target.value }
+                        }
+                      }))}
+                      className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                    >
+                      <option value="top-left">左上角</option>
+                      <option value="top-right">右上角</option>
+                      <option value="bottom-left">左下角</option>
+                      <option value="bottom-right">右下角</option>
+                      <option value="center">居中</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-2">透明度</label>
+                    <input
+                      type="range"
+                      min="0.1"
+                      max="1"
+                      step="0.1"
+                      value={companyConfig.brand_assets?.watermark?.opacity || 0.8}
+                      onChange={e => setCompanyConfig(prev => ({
+                        ...prev,
+                        brand_assets: {
+                          ...prev.brand_assets,
+                          watermark: { ...prev.brand_assets?.watermark, opacity: parseFloat(e.target.value) }
+                        }
+                      }))}
+                      className="w-full"
+                    />
+                    <div className="text-center text-gray-400 text-sm">
+                      {Math.round((companyConfig.brand_assets?.watermark?.opacity || 0.8) * 100)}%
+                    </div>
+                  </div>
                 </div>
+              </div>
+              
+              <div className="w-40">
+                <AssetUploader
+                  label="水印图片"
+                  description="PNG透明背景"
+                  value={companyConfig.brand_assets?.watermark?.image}
+                  onChange={(value) => setCompanyConfig(prev => ({
+                    ...prev,
+                    brand_assets: {
+                      ...prev.brand_assets,
+                      watermark: { ...prev.brand_assets?.watermark, image: value }
+                    }
+                  }))}
+                  small
+                />
               </div>
             </div>
           </div>

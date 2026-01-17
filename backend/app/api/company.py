@@ -60,6 +60,8 @@ class CompanyConfigUpdate(BaseModel):
     content_tone: Optional[str] = None
     content_focus_keywords: Optional[List[str]] = None
     forbidden_content: Optional[List[str]] = None
+    # 品牌资产
+    brand_assets: Optional[dict] = None
 
 
 class CompanyConfigResponse(BaseModel):
@@ -137,7 +139,9 @@ async def get_company_config(db: AsyncSession = Depends(get_db)):
             "company_values": getattr(config, 'company_values', None) or [],
             "content_tone": getattr(config, 'content_tone', None) or 'professional',
             "content_focus_keywords": getattr(config, 'content_focus_keywords', None) or [],
-            "forbidden_content": getattr(config, 'forbidden_content', None) or []
+            "forbidden_content": getattr(config, 'forbidden_content', None) or [],
+            # 品牌资产
+            "brand_assets": getattr(config, 'brand_assets', None) or {}
         }
     except Exception as e:
         logger.error(f"获取公司配置失败: {e}")

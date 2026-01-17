@@ -71,6 +71,15 @@ class CompanyConfig(Base):
     content_focus_keywords: Mapped[Optional[list]] = mapped_column(ARRAY(String), nullable=True)  # 内容关键词
     forbidden_content: Mapped[Optional[list]] = mapped_column(ARRAY(String), nullable=True)  # 禁止出现的内容
     
+    # ============ 品牌资产 ============
+    # 格式: {
+    #   "logo": {"main": "...", "white": "...", "icon": "..."},
+    #   "qrcode": {"wechat": "...", "wechat_official": "...", "douyin": "...", "xiaohongshu": "..."},
+    #   "watermark": {"enabled": true, "position": "bottom-right", "opacity": 0.8, "image": "..."},
+    #   "video_assets": {"intro_video": "...", "outro_template": "..."}
+    # }
+    brand_assets: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+    
     # ============ 时间戳 ============
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), default=func.now(), onupdate=func.now())
