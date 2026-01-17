@@ -59,6 +59,13 @@ class AIFollowRequest(BaseModel):
     purpose: Optional[str] = "日常跟进"
 
 
+class AIFollowWithEmailRequest(BaseModel):
+    """AI跟进并发送邮件请求"""
+    customer_id: UUID
+    purpose: str = "daily_follow"  # daily_follow, quote_follow, reactivate
+    custom_content: Optional[str] = None  # 自定义内容（可选）
+
+
 # =====================================================
 # API端点
 # =====================================================
@@ -448,6 +455,141 @@ async def create_ai_follow(
         "next_follow_at": record.next_follow_at.isoformat() if record.next_follow_at else None,
         "message": "AI跟进内容已生成"
     }
+
+
+@router.post("/ai-follow-email")
+async def ai_follow_with_email(
+    data: AIFollowWithEmailRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    AI自动跟进 + 发送邮件
+    
+    小跟生成跟进内容后，自动发送邮件给客户
+    """
+    from app.services.email_service import email_service
+    
+    # 验证客户存在
+    customer_result = await db.execute(
+        select(Customer).where(Customer.id == data.customer_id)
+    )
+    customer = customer_result.scalar_one_or_none()
+    if not customer:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    
+    # 检查客户是否有邮箱
+    if not customer.email:
+        raise HTTPException(status_code=400, detail="客户未设置邮箱地址，无法发送邮件跟进")
+    
+    # 检查邮件服务是否配置
+    if not email_service.is_configured:
+        raise HTTPException(status_code=400, detail="邮件服务未配置，请先在设置中配置SMTP")
+    
+    # 如果有自定义内容，直接使用
+    if data.custom_content:
+        follow_message = data.custom_content
+        suggested_interval = 3
+    else:
+        # 获取最近对话用于AI生成
+        from app.models import Conversation
+        conv_result = await db.execute(
+            select(Conversation)
+            .where(Conversation.customer_id == data.customer_id)
+            .order_by(Conversation.created_at.desc())
+            .limit(5)
+        )
+        conversations = conv_result.scalars().all()
+        last_conversation = "\n".join([
+            f"[{c.message_type.value}] {c.content}" for c in reversed(conversations)
+        ]) if conversations else "无历史对话"
+        
+        # 调用小跟生成跟进内容
+        try:
+            follow_result = await follow_agent.process({
+                "customer_info": {
+                    "name": customer.name,
+                    "company": customer.company,
+                    "phone": customer.phone
+                },
+                "intent_level": customer.intent_level.value,
+                "last_contact": customer.last_contact_at.isoformat() if customer.last_contact_at else "从未联系",
+                "last_conversation": last_conversation,
+                "purpose": data.purpose
+            })
+            
+            follow_message = follow_result.get("follow_message", "您好，有什么可以帮您的吗？")
+            suggested_interval = follow_result.get("suggested_interval_days", 3)
+            
+        except Exception as e:
+            logger.error(f"AI生成跟进内容失败: {e}")
+            follow_message = f"您好，我是您的物流顾问，想跟您确认一下物流需求。如有任何问题，请随时联系我们。"
+            suggested_interval = 3
+    
+    # 创建跟进记录
+    record = FollowRecord(
+        customer_id=data.customer_id,
+        follow_type=FollowType.DAILY_FOLLOW,
+        channel=FollowChannel.EMAIL,  # 邮件渠道
+        executor_type="follow",
+        executor_name="小跟",
+        content=follow_message,
+        intent_before=customer.intent_score,
+        intent_after=customer.intent_score,
+        intent_level_before=customer.intent_level.value,
+        intent_level_after=customer.intent_level.value,
+        next_follow_at=datetime.utcnow() + timedelta(days=suggested_interval)
+    )
+    
+    db.add(record)
+    await db.flush()  # 获取记录ID
+    
+    # 发送邮件
+    email_result = await email_service.send_follow_email(
+        customer_id=str(customer.id),
+        to_email=customer.email,
+        customer_name=customer.name or "尊敬的客户",
+        purpose=data.purpose,
+        custom_content=follow_message
+    )
+    
+    # 根据发送结果更新记录
+    if email_result.get("status") == "sent":
+        record.result = FollowResult.NO_REPLY  # 初始状态为未回复
+        
+        # 关联邮件日志
+        if email_result.get("email_log_id"):
+            record.extra_data = {"email_log_id": email_result.get("email_log_id")}
+        
+        # 更新客户信息
+        customer.last_contact_at = datetime.utcnow()
+        customer.follow_count += 1
+        customer.next_follow_at = record.next_follow_at
+        
+        await db.commit()
+        await db.refresh(record)
+        
+        logger.info(f"AI邮件跟进成功: 客户={customer.name}, 邮箱={customer.email}")
+        
+        return {
+            "success": True,
+            "record_id": str(record.id),
+            "follow_message": follow_message,
+            "email_sent_to": customer.email,
+            "next_follow_at": record.next_follow_at.isoformat() if record.next_follow_at else None,
+            "message": f"跟进邮件已发送至 {customer.email}"
+        }
+    else:
+        # 邮件发送失败，但仍保存跟进记录
+        record.result_note = f"邮件发送失败: {email_result.get('message', '未知错误')}"
+        await db.commit()
+        
+        return {
+            "success": False,
+            "record_id": str(record.id),
+            "follow_message": follow_message,
+            "error": email_result.get("message", "邮件发送失败"),
+            "message": "跟进内容已生成但邮件发送失败"
+        }
 
 
 @router.patch("/{record_id}")

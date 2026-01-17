@@ -1,15 +1,19 @@
 """
-邮件通知服务
-支持发送各类通知邮件：高意向客户提醒、每日汇总、异常告警等
+邮件服务
+支持两类邮件：
+1. 系统通知邮件：高意向客户提醒、每日汇总、异常告警等（发给管理员）
+2. 客户营销邮件：跟进邮件、促销邮件、激活邮件等（发给客户）
 """
 import smtplib
 import ssl
+import re
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.utils import formataddr
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from loguru import logger
+from sqlalchemy import text
 
 from app.core.config import settings
 
@@ -24,6 +28,9 @@ class EmailService:
         self.smtp_password = getattr(settings, 'SMTP_PASSWORD', '')
         self.notify_email = getattr(settings, 'NOTIFY_EMAIL', '')
         self.sender_name = getattr(settings, 'EMAIL_SENDER_NAME', '物流获客AI')
+        
+        # 默认公司名称（用于邮件模板）
+        self.default_company_name = "物流智能体"
     
     @property
     def is_configured(self) -> bool:
@@ -95,6 +102,431 @@ class EmailService:
         except Exception as e:
             logger.error(f"📧 邮件发送失败: {e}")
             return {"status": "error", "message": str(e)}
+    
+    # =====================================================
+    # 客户营销邮件功能
+    # =====================================================
+    
+    def _render_template(
+        self, 
+        template: str, 
+        variables: Dict[str, str]
+    ) -> str:
+        """
+        渲染邮件模板，替换变量
+        
+        支持的变量格式: {{variable_name}}
+        """
+        result = template
+        for key, value in variables.items():
+            # 替换 {{key}} 格式的变量
+            pattern = r'\{\{\s*' + re.escape(key) + r'\s*\}\}'
+            result = re.sub(pattern, str(value) if value else '', result)
+        return result
+    
+    async def get_email_templates(
+        self,
+        template_type: Optional[str] = None,
+        active_only: bool = True
+    ) -> List[Dict[str, Any]]:
+        """获取邮件模板列表"""
+        from app.models.database import async_session_maker
+        
+        try:
+            async with async_session_maker() as db:
+                query = """
+                    SELECT id, name, template_type, subject, html_content, text_content,
+                           variables, is_active, is_default, use_count, last_used_at
+                    FROM email_templates
+                    WHERE 1=1
+                """
+                params = {}
+                
+                if active_only:
+                    query += " AND is_active = true"
+                
+                if template_type:
+                    query += " AND template_type = :template_type"
+                    params["template_type"] = template_type
+                
+                query += " ORDER BY is_default DESC, use_count DESC"
+                
+                result = await db.execute(text(query), params)
+                rows = result.fetchall()
+                
+                return [
+                    {
+                        "id": str(row[0]),
+                        "name": row[1],
+                        "template_type": row[2],
+                        "subject": row[3],
+                        "html_content": row[4],
+                        "text_content": row[5],
+                        "variables": row[6] or [],
+                        "is_active": row[7],
+                        "is_default": row[8],
+                        "use_count": row[9],
+                        "last_used_at": row[10].isoformat() if row[10] else None
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"获取邮件模板失败: {e}")
+            return []
+    
+    async def get_template_by_id(self, template_id: str) -> Optional[Dict[str, Any]]:
+        """根据ID获取邮件模板"""
+        from app.models.database import async_session_maker
+        
+        try:
+            async with async_session_maker() as db:
+                result = await db.execute(
+                    text("""
+                        SELECT id, name, template_type, subject, html_content, text_content,
+                               variables, is_active, is_default
+                        FROM email_templates
+                        WHERE id = :template_id
+                    """),
+                    {"template_id": template_id}
+                )
+                row = result.fetchone()
+                
+                if row:
+                    return {
+                        "id": str(row[0]),
+                        "name": row[1],
+                        "template_type": row[2],
+                        "subject": row[3],
+                        "html_content": row[4],
+                        "text_content": row[5],
+                        "variables": row[6] or [],
+                        "is_active": row[7],
+                        "is_default": row[8]
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"获取邮件模板失败: {e}")
+            return None
+    
+    async def get_default_template(self, template_type: str = "follow_up") -> Optional[Dict[str, Any]]:
+        """获取默认模板"""
+        from app.models.database import async_session_maker
+        
+        try:
+            async with async_session_maker() as db:
+                result = await db.execute(
+                    text("""
+                        SELECT id, name, template_type, subject, html_content, text_content, variables
+                        FROM email_templates
+                        WHERE template_type = :template_type AND is_active = true
+                        ORDER BY is_default DESC, use_count DESC
+                        LIMIT 1
+                    """),
+                    {"template_type": template_type}
+                )
+                row = result.fetchone()
+                
+                if row:
+                    return {
+                        "id": str(row[0]),
+                        "name": row[1],
+                        "template_type": row[2],
+                        "subject": row[3],
+                        "html_content": row[4],
+                        "text_content": row[5],
+                        "variables": row[6] or []
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"获取默认模板失败: {e}")
+            return None
+    
+    async def _get_company_name(self) -> str:
+        """获取公司名称（从配置中）"""
+        from app.models.database import async_session_maker
+        
+        try:
+            async with async_session_maker() as db:
+                result = await db.execute(
+                    text("SELECT company_name FROM company_config LIMIT 1")
+                )
+                row = result.fetchone()
+                if row and row[0]:
+                    return row[0]
+        except Exception as e:
+            logger.warning(f"获取公司名称失败: {e}")
+        
+        return self.default_company_name
+    
+    async def send_customer_email(
+        self,
+        customer_id: str,
+        to_email: str,
+        template_id: Optional[str] = None,
+        subject: Optional[str] = None,
+        html_content: Optional[str] = None,
+        text_content: Optional[str] = None,
+        variables: Optional[Dict[str, str]] = None,
+        sender_type: str = "ai",
+        sender_name: str = "小跟",
+        follow_record_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        给客户发送邮件
+        
+        Args:
+            customer_id: 客户ID
+            to_email: 收件人邮箱
+            template_id: 模板ID（可选，如果提供则使用模板）
+            subject: 邮件主题（如果不使用模板则必填）
+            html_content: HTML内容（如果不使用模板则必填）
+            text_content: 纯文本内容（可选）
+            variables: 模板变量（如 {"customer_name": "张三"}）
+            sender_type: 发送者类型 (ai/manual)
+            sender_name: 发送者名称
+            follow_record_id: 关联的跟进记录ID
+        
+        Returns:
+            发送结果
+        """
+        from app.models.database import async_session_maker
+        
+        if not self.is_configured:
+            logger.warning("邮件服务未配置，跳过发送")
+            return {"status": "skipped", "message": "邮件服务未配置，请在设置中配置SMTP"}
+        
+        # 验证邮箱格式
+        if not to_email or not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', to_email):
+            return {"status": "error", "message": "邮箱格式无效"}
+        
+        try:
+            # 获取公司名称
+            company_name = await self._get_company_name()
+            
+            # 如果使用模板
+            if template_id:
+                template = await self.get_template_by_id(template_id)
+                if not template:
+                    return {"status": "error", "message": "模板不存在"}
+                
+                subject = template["subject"]
+                html_content = template["html_content"]
+                text_content = template.get("text_content")
+            
+            if not subject or not html_content:
+                return {"status": "error", "message": "缺少邮件主题或内容"}
+            
+            # 准备变量
+            render_vars = variables or {}
+            render_vars.setdefault("company_name", company_name)
+            
+            # 渲染模板
+            rendered_subject = self._render_template(subject, render_vars)
+            rendered_html = self._render_template(html_content, render_vars)
+            rendered_text = self._render_template(text_content, render_vars) if text_content else None
+            
+            # 记录发送日志
+            async with async_session_maker() as db:
+                # 创建发送记录
+                log_result = await db.execute(
+                    text("""
+                        INSERT INTO email_logs 
+                        (customer_id, template_id, follow_record_id, to_email, subject, content,
+                         status, sender_type, sender_name, created_at)
+                        VALUES (:customer_id, :template_id, :follow_record_id, :to_email, :subject, :content,
+                                'pending', :sender_type, :sender_name, NOW())
+                        RETURNING id
+                    """),
+                    {
+                        "customer_id": customer_id,
+                        "template_id": template_id,
+                        "follow_record_id": follow_record_id,
+                        "to_email": to_email,
+                        "subject": rendered_subject,
+                        "content": rendered_html,
+                        "sender_type": sender_type,
+                        "sender_name": sender_name
+                    }
+                )
+                log_id = log_result.scalar()
+                await db.commit()
+            
+            # 发送邮件
+            send_result = await self.send_email(
+                to_emails=[to_email],
+                subject=rendered_subject,
+                html_content=rendered_html,
+                text_content=rendered_text
+            )
+            
+            # 更新发送状态
+            async with async_session_maker() as db:
+                if send_result.get("status") == "sent":
+                    await db.execute(
+                        text("""
+                            UPDATE email_logs 
+                            SET status = 'sent', sent_at = NOW()
+                            WHERE id = :log_id
+                        """),
+                        {"log_id": log_id}
+                    )
+                    
+                    # 更新模板使用次数
+                    if template_id:
+                        await db.execute(
+                            text("""
+                                UPDATE email_templates 
+                                SET use_count = use_count + 1, last_used_at = NOW()
+                                WHERE id = :template_id
+                            """),
+                            {"template_id": template_id}
+                        )
+                else:
+                    await db.execute(
+                        text("""
+                            UPDATE email_logs 
+                            SET status = 'failed', error_message = :error
+                            WHERE id = :log_id
+                        """),
+                        {"log_id": log_id, "error": send_result.get("message", "发送失败")}
+                    )
+                
+                await db.commit()
+            
+            logger.info(f"📧 客户邮件{'发送成功' if send_result.get('status') == 'sent' else '发送失败'}: {to_email}")
+            
+            return {
+                "status": send_result.get("status"),
+                "message": "邮件发送成功" if send_result.get("status") == "sent" else send_result.get("message"),
+                "email_log_id": str(log_id),
+                "to_email": to_email
+            }
+            
+        except Exception as e:
+            logger.error(f"📧 发送客户邮件异常: {e}")
+            return {"status": "error", "message": str(e)}
+    
+    async def send_follow_email(
+        self,
+        customer_id: str,
+        to_email: str,
+        customer_name: str,
+        purpose: str = "daily_follow",
+        custom_content: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        发送跟进邮件（简化接口，小跟使用）
+        
+        Args:
+            customer_id: 客户ID
+            to_email: 客户邮箱
+            customer_name: 客户姓名
+            purpose: 跟进目的 (daily_follow, quote_follow, reactivate)
+            custom_content: 自定义内容（如果提供则不使用模板）
+        """
+        # 根据目的选择模板类型
+        template_type_map = {
+            "daily_follow": "follow_up",
+            "quote_follow": "follow_up",
+            "reactivate": "reactivate",
+            "promotion": "promotion"
+        }
+        template_type = template_type_map.get(purpose, "follow_up")
+        
+        # 如果有自定义内容，直接发送
+        if custom_content:
+            company_name = await self._get_company_name()
+            return await self.send_customer_email(
+                customer_id=customer_id,
+                to_email=to_email,
+                subject=f"来自{company_name}的问候",
+                html_content=f"""
+                <html>
+                <body style="font-family: Arial, sans-serif; line-height: 1.8; color: #333;">
+                    <p>{customer_name}，您好！</p>
+                    <p>{custom_content}</p>
+                    <br>
+                    <p style="color: #666;">---<br>{company_name}<br>您的可靠物流伙伴</p>
+                </body>
+                </html>
+                """,
+                text_content=f"{customer_name}，您好！\n\n{custom_content}\n\n---\n{company_name}",
+                sender_type="ai",
+                sender_name="小跟"
+            )
+        
+        # 使用默认模板
+        template = await self.get_default_template(template_type)
+        if not template:
+            return {"status": "error", "message": f"未找到{template_type}类型的邮件模板"}
+        
+        return await self.send_customer_email(
+            customer_id=customer_id,
+            to_email=to_email,
+            template_id=template["id"],
+            variables={"customer_name": customer_name},
+            sender_type="ai",
+            sender_name="小跟"
+        )
+    
+    async def get_email_logs(
+        self,
+        customer_id: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """获取邮件发送记录"""
+        from app.models.database import async_session_maker
+        
+        try:
+            async with async_session_maker() as db:
+                query = """
+                    SELECT el.id, el.customer_id, el.to_email, el.subject, el.status,
+                           el.sender_type, el.sender_name, el.sent_at, el.error_message,
+                           el.open_count, el.click_count, el.created_at,
+                           c.name as customer_name, et.name as template_name
+                    FROM email_logs el
+                    LEFT JOIN customers c ON el.customer_id = c.id
+                    LEFT JOIN email_templates et ON el.template_id = et.id
+                    WHERE 1=1
+                """
+                params = {"limit": limit}
+                
+                if customer_id:
+                    query += " AND el.customer_id = :customer_id"
+                    params["customer_id"] = customer_id
+                
+                if status:
+                    query += " AND el.status = :status"
+                    params["status"] = status
+                
+                query += " ORDER BY el.created_at DESC LIMIT :limit"
+                
+                result = await db.execute(text(query), params)
+                rows = result.fetchall()
+                
+                return [
+                    {
+                        "id": str(row[0]),
+                        "customer_id": str(row[1]) if row[1] else None,
+                        "to_email": row[2],
+                        "subject": row[3],
+                        "status": row[4],
+                        "sender_type": row[5],
+                        "sender_name": row[6],
+                        "sent_at": row[7].isoformat() if row[7] else None,
+                        "error_message": row[8],
+                        "open_count": row[9],
+                        "click_count": row[10],
+                        "created_at": row[11].isoformat() if row[11] else None,
+                        "customer_name": row[12],
+                        "template_name": row[13]
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"获取邮件记录失败: {e}")
+            return []
     
     async def notify_high_intent_customer(
         self,

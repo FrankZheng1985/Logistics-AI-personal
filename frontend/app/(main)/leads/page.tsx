@@ -39,6 +39,8 @@ interface Lead {
   email: string | null
   wechat: string | null
   source: string
+  source_url: string | null  // 帖子来源链接
+  source_content: string | null  // 原始内容摘要
   status: string
   intent_level: string
   intent_score: number
@@ -408,11 +410,36 @@ function LeadCard({ lead, onConvert, onContact, onFilter, onRestore }: {
             )}
           </div>
 
-          {/* AI摘要 */}
-          {lead.ai_summary && (
+          {/* AI摘要 或 原始内容 */}
+          {(lead.ai_summary || lead.source_content) && (
             <p className={`text-sm mb-3 line-clamp-2 ${isInvalid ? 'text-gray-500' : 'text-gray-300'}`}>
-              {lead.ai_summary}
+              {lead.ai_summary || lead.source_content}
             </p>
+          )}
+
+          {/* 来源链接 - 方便去留言 */}
+          {lead.source_url && (
+            <a 
+              href={lead.source_url} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className={`flex items-center gap-1 text-xs mb-3 hover:underline ${
+                isInvalid 
+                  ? 'text-gray-500' 
+                  : 'text-cyber-blue hover:text-cyber-blue/80'
+              }`}
+            >
+              <ExternalLink className="w-3 h-3" />
+              <span className="truncate max-w-[280px]">
+                查看原帖 · {(() => {
+                  try {
+                    return new URL(lead.source_url).hostname.replace('www.', '')
+                  } catch {
+                    return '点击查看'
+                  }
+                })()}
+              </span>
+            </a>
           )}
 
           {/* 需求标签 */}

@@ -7,7 +7,7 @@ from app.api import (
     reports, knowledge, webchat,
     standards, monitoring, marketing,
     assets, settings, notifications, wechat_groups,
-    social_auth, erp, wechat_analyst2, content
+    social_auth, erp, wechat_analyst2, content, email
 )
 
 router = APIRouter()
@@ -36,3 +36,4 @@ router.include_router(social_auth.router, tags=["社交媒体登录"])
 router.include_router(erp.router, prefix="/erp", tags=["ERP对接"])
 router.include_router(wechat_analyst2.router, tags=["企业微信-小析2"])
 router.include_router(content.router, prefix="/content", tags=["内容营销"])
+router.include_router(email.router, tags=["邮件营销"])

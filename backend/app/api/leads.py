@@ -104,6 +104,8 @@ async def list_leads(
                 "email": lead.email,
                 "wechat": lead.wechat,
                 "source": lead.source.value,
+                "source_url": lead.source_url,  # 帖子来源链接
+                "source_content": lead.source_content[:200] if lead.source_content else None,  # 原始内容摘要
                 "status": lead.status.value,
                 "intent_level": lead.intent_level.value,
                 "intent_score": lead.intent_score,

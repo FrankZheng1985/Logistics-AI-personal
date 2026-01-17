@@ -50,14 +50,22 @@ function IntentBadge({ level }: { level: 'S' | 'A' | 'B' | 'C' }) {
 function CustomerDetailModal({ 
   customer, 
   onClose,
-  onSendMessage 
+  onSendMessage,
+  onRefresh
 }: { 
   customer: Customer | null
   onClose: () => void
   onSendMessage: (customerId: string, message: string) => void
+  onRefresh?: () => void
 }) {
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
+  const [emailContent, setEmailContent] = useState('')
+  const [sendingEmail, setSendingEmail] = useState(false)
+  const [showEmailForm, setShowEmailForm] = useState(false)
+  const [editingEmail, setEditingEmail] = useState(false)
+  const [newEmail, setNewEmail] = useState('')
+  const [savingEmail, setSavingEmail] = useState(false)
   
   if (!customer) return null
   
@@ -67,6 +75,81 @@ function CustomerDetailModal({
     await onSendMessage(customer.id, message)
     setMessage('')
     setSending(false)
+  }
+  
+  // 发送跟进邮件
+  const handleSendEmail = async () => {
+    if (!customer.email) {
+      alert('该客户没有邮箱地址，请先添加')
+      return
+    }
+    
+    setSendingEmail(true)
+    try {
+      const res = await fetch('/api/follow/ai-follow-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_id: customer.id,
+          purpose: 'daily_follow',
+          custom_content: emailContent.trim() || undefined
+        })
+      })
+      
+      const data = await res.json()
+      
+      if (data.success) {
+        alert(`✅ ${data.message}`)
+        setEmailContent('')
+        setShowEmailForm(false)
+        onRefresh?.()
+      } else {
+        alert(`❌ ${data.message || data.error || '发送失败'}`)
+      }
+    } catch (error) {
+      console.error('发送邮件失败:', error)
+      alert('发送失败，请稍后重试')
+    } finally {
+      setSendingEmail(false)
+    }
+  }
+  
+  // 保存客户邮箱
+  const handleSaveEmail = async () => {
+    if (!newEmail.trim()) {
+      setEditingEmail(false)
+      return
+    }
+    
+    // 验证邮箱格式
+    const emailRegex = /^[\w\.-]+@[\w\.-]+\.\w+$/
+    if (!emailRegex.test(newEmail.trim())) {
+      alert('请输入正确的邮箱格式')
+      return
+    }
+    
+    setSavingEmail(true)
+    try {
+      const res = await fetch(`/api/customers/${customer.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: newEmail.trim() })
+      })
+      
+      if (res.ok) {
+        alert('邮箱保存成功！')
+        customer.email = newEmail.trim()
+        setEditingEmail(false)
+        onRefresh?.()
+      } else {
+        alert('保存失败，请重试')
+      }
+    } catch (error) {
+      console.error('保存邮箱失败:', error)
+      alert('保存失败，请稍后重试')
+    } finally {
+      setSavingEmail(false)
+    }
   }
   
   return (
@@ -123,6 +206,53 @@ function CustomerDetailModal({
               </div>
               <p className="font-medium">{customer.phone || '未知'}</p>
             </div>
+            {/* 邮箱 */}
+            <div className="glass-card p-4">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2 text-gray-400">
+                  <Mail className="w-4 h-4" />
+                  邮箱
+                </div>
+                {!editingEmail && (
+                  <button 
+                    onClick={() => {
+                      setNewEmail(customer.email || '')
+                      setEditingEmail(true)
+                    }}
+                    className="text-xs text-cyber-blue hover:underline"
+                  >
+                    {customer.email ? '修改' : '添加'}
+                  </button>
+                )}
+              </div>
+              {editingEmail ? (
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    value={newEmail}
+                    onChange={e => setNewEmail(e.target.value)}
+                    placeholder="输入邮箱地址..."
+                    className="flex-1 px-2 py-1 text-sm bg-dark-purple/50 border border-white/10 rounded focus:border-cyber-blue/50 focus:outline-none"
+                    autoFocus
+                  />
+                  <button 
+                    onClick={handleSaveEmail}
+                    disabled={savingEmail}
+                    className="px-2 py-1 text-xs bg-cyber-blue text-black rounded hover:bg-cyber-blue/80 disabled:opacity-50"
+                  >
+                    {savingEmail ? '...' : '保存'}
+                  </button>
+                  <button 
+                    onClick={() => setEditingEmail(false)}
+                    className="px-2 py-1 text-xs text-gray-400 hover:text-white"
+                  >
+                    取消
+                  </button>
+                </div>
+              ) : (
+                <p className="font-medium">{customer.email || <span className="text-gray-500">未设置</span>}</p>
+              )}
+            </div>
             <div className="glass-card p-4">
               <div className="flex items-center gap-2 text-gray-400 mb-1">
                 <Activity className="w-4 h-4" />
@@ -130,7 +260,7 @@ function CustomerDetailModal({
               </div>
               <p className="font-medium">{customer.source}</p>
             </div>
-            <div className="glass-card p-4">
+            <div className="glass-card p-4 col-span-2">
               <div className="flex items-center gap-2 text-gray-400 mb-1">
                 <Calendar className="w-4 h-4" />
                 最近联系
@@ -143,7 +273,7 @@ function CustomerDetailModal({
           <div className="glass-card p-4">
             <h3 className="font-medium mb-3 flex items-center gap-2">
               <MessageSquare className="w-4 h-4" />
-              发送消息
+              发送消息（企业微信）
             </h3>
             <div className="flex gap-2">
               <input
@@ -163,7 +293,77 @@ function CustomerDetailModal({
                 发送
               </button>
             </div>
-            <p className="text-gray-500 text-xs mt-2">消息将通过企业微信发送给客户</p>
+          </div>
+          
+          {/* 邮件跟进 */}
+          <div className="glass-card p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-medium flex items-center gap-2">
+                <Mail className="w-4 h-4" />
+                邮件跟进
+              </h3>
+              {!showEmailForm && (
+                <button
+                  onClick={() => setShowEmailForm(true)}
+                  className="text-sm text-cyber-blue hover:underline"
+                >
+                  展开
+                </button>
+              )}
+            </div>
+            
+            {showEmailForm ? (
+              <div className="space-y-3">
+                <textarea
+                  placeholder="输入自定义邮件内容（留空则使用AI自动生成）..."
+                  value={emailContent}
+                  onChange={e => setEmailContent(e.target.value)}
+                  rows={3}
+                  className="w-full px-4 py-2 bg-dark-purple/50 border border-white/10 rounded-lg focus:border-cyber-blue/50 focus:outline-none transition-colors resize-none"
+                />
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-500 text-xs">
+                    {customer.email 
+                      ? `将发送至: ${customer.email}` 
+                      : '⚠️ 请先添加客户邮箱'}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setShowEmailForm(false)
+                        setEmailContent('')
+                      }}
+                      className="px-4 py-2 text-sm text-gray-400 hover:text-white"
+                    >
+                      取消
+                    </button>
+                    <button 
+                      onClick={handleSendEmail}
+                      disabled={!customer.email || sendingEmail}
+                      className="btn-cyber flex items-center gap-2 disabled:opacity-50"
+                    >
+                      {sendingEmail ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          发送中...
+                        </>
+                      ) : (
+                        <>
+                          <Mail className="w-4 h-4" />
+                          {emailContent.trim() ? '发送邮件' : 'AI生成并发送'}
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-gray-500 text-sm">
+                {customer.email 
+                  ? '点击展开，使用AI自动生成跟进邮件并发送给客户' 
+                  : '请先添加客户邮箱后再使用邮件跟进功能'}
+              </p>
+            )}
           </div>
           
           {/* 快捷操作 */}
@@ -538,6 +738,7 @@ export default function CustomersPage() {
             customer={selectedCustomer}
             onClose={() => setSelectedCustomer(null)}
             onSendMessage={handleSendMessage}
+            onRefresh={fetchCustomers}
           />
         )}
       </AnimatePresence>
