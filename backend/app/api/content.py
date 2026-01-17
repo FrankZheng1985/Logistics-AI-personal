@@ -10,6 +10,7 @@ from loguru import logger
 
 from app.services.content_publisher import content_publisher
 from app.services.xiaohongshu_publisher import xiaohongshu_publisher
+from app.services.multi_platform_publisher import multi_platform_publisher
 
 router = APIRouter(prefix="/content", tags=["内容管理"])
 
@@ -390,5 +391,177 @@ async def quick_publish_to_xiaohongshu(
         "success": True,
         "content_id": content_id,
         "topic": topic,
+        "publish_result": publish_result
+    }
+
+
+# ==================== 多平台发布 ====================
+
+@router.get("/platforms")
+async def get_available_platforms():
+    """
+    获取所有支持的发布平台
+    
+    返回各平台的配置状态和限制要求
+    """
+    platforms = multi_platform_publisher.get_available_platforms()
+    return {
+        "platforms": platforms,
+        "total": len(platforms)
+    }
+
+
+@router.post("/posts/{content_id}/publish-multi")
+async def publish_to_multi_platforms(
+    content_id: str,
+    platforms: List[str]
+):
+    """
+    发布文案到多个平台
+    
+    Args:
+        content_id: 文案ID
+        platforms: 平台列表，如 ["zhihu", "csdn", "toutiao"]
+    
+    支持的平台:
+        - zhihu: 知乎
+        - csdn: CSDN博客
+        - jianshu: 简书
+        - toutiao: 今日头条
+        - weibo: 微博
+        - baijiahao: 百家号
+        - wordpress: WordPress网站
+        - wechat_article: 微信公众号
+    """
+    result = await multi_platform_publisher.publish(
+        content_id=content_id,
+        platforms=platforms
+    )
+    
+    return result
+
+
+@router.post("/posts/{content_id}/publish-all")
+async def publish_to_all_platforms(content_id: str):
+    """
+    一键发布到所有推荐平台
+    
+    会发送格式化好的文案到企业微信，方便手动复制到各平台
+    """
+    result = await multi_platform_publisher.batch_publish(
+        content_id=content_id,
+        all_platforms=True
+    )
+    
+    return result
+
+
+@router.post("/posts/{content_id}/format-for-platform")
+async def format_for_platform(content_id: str, platform: str):
+    """
+    为指定平台格式化文案（预览）
+    
+    Args:
+        content_id: 文案ID
+        platform: 目标平台
+    """
+    from sqlalchemy import text
+    from app.models.database import async_session_maker
+    
+    async with async_session_maker() as db:
+        result = await db.execute(
+            text("""
+                SELECT content, topic
+                FROM content_posts
+                WHERE id = :id
+            """),
+            {"id": content_id}
+        )
+        row = result.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="文案不存在")
+        
+        content = row[0]
+        topic = row[1]
+    
+    # 格式化
+    formatted = multi_platform_publisher.format_for_platform(content, topic, platform)
+    platform_info = multi_platform_publisher.PLATFORMS.get(platform, {})
+    
+    return {
+        "original_content": content,
+        "formatted": formatted,
+        "platform_info": {
+            "name": platform_info.get("name"),
+            "icon": platform_info.get("icon"),
+            "max_title": platform_info.get("max_title"),
+            "max_content": platform_info.get("max_content")
+        }
+    }
+
+
+@router.post("/quick-publish-multi")
+async def quick_publish_to_multi_platforms(
+    topic: str,
+    platforms: List[str],
+    article_type: str = "professional"
+):
+    """
+    快速生成并发布到多个平台
+    
+    Args:
+        topic: 文案主题
+        platforms: 目标平台列表
+        article_type: 文章类型 (professional/casual/story)
+    """
+    from app.agents.copywriter import copywriter_agent
+    from sqlalchemy import text
+    from app.models.database import async_session_maker
+    
+    # 根据平台类型选择文案风格
+    task_type = "article" if article_type == "professional" else "moments"
+    
+    # 生成文案
+    result = await copywriter_agent.process({
+        "task_type": task_type,
+        "topic": topic,
+        "purpose": "行业知识分享",
+        "target_audience": "外贸人、跨境电商卖家、物流从业者"
+    })
+    
+    copy = result.get("copy", "")
+    if not copy:
+        raise HTTPException(status_code=500, detail="文案生成失败")
+    
+    # 保存文案
+    async with async_session_maker() as db:
+        insert_result = await db.execute(
+            text("""
+                INSERT INTO content_posts 
+                (content, topic, platform, status, created_at)
+                VALUES (:content, :topic, 'multi', 'approved', NOW())
+                RETURNING id
+            """),
+            {
+                "content": copy,
+                "topic": topic
+            }
+        )
+        row = insert_result.fetchone()
+        content_id = str(row[0])
+        await db.commit()
+    
+    # 发布到多个平台
+    publish_result = await multi_platform_publisher.publish(
+        content_id=content_id,
+        platforms=platforms
+    )
+    
+    return {
+        "success": True,
+        "content_id": content_id,
+        "topic": topic,
+        "platforms": platforms,
         "publish_result": publish_result
     }
