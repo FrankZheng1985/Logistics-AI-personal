@@ -411,10 +411,15 @@ async def get_available_platforms():
     }
 
 
+class MultiPublishRequest(BaseModel):
+    """多平台发布请求"""
+    platforms: List[str]
+
+
 @router.post("/posts/{content_id}/publish-multi")
 async def publish_to_multi_platforms(
     content_id: str,
-    platforms: List[str]
+    request: MultiPublishRequest
 ):
     """
     发布文案到多个平台
@@ -435,7 +440,7 @@ async def publish_to_multi_platforms(
     """
     result = await multi_platform_publisher.publish(
         content_id=content_id,
-        platforms=platforms
+        platforms=request.platforms
     )
     
     return result
