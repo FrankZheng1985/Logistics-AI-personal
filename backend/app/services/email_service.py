@@ -36,9 +36,9 @@ class EmailService:
         # 标记是否已从数据库加载
         self._db_config_loaded = False
     
-    async def load_config_from_db(self):
+    async def load_config_from_db(self, force: bool = False):
         """从数据库加载SMTP配置（如果有）"""
-        if self._db_config_loaded:
+        if self._db_config_loaded and not force:
             return
         
         try:

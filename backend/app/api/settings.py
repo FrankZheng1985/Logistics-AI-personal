@@ -306,6 +306,9 @@ async def test_smtp_connection():
     try:
         from app.services.email_service import email_service
         
+        # 强制重新从数据库加载配置
+        await email_service.load_config_from_db(force=True)
+        
         if not email_service.is_configured:
             return {
                 "success": False,
