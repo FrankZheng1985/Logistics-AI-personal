@@ -175,7 +175,10 @@ export default function SettingsPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(companyConfig)
         })
-        if (!res.ok) throw new Error('保存公司设置失败')
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}))
+          throw new Error(errorData.detail || `保存公司设置失败 (${res.status})`)
+        }
       }
       
       // 保存通知设置
@@ -185,7 +188,10 @@ export default function SettingsPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(notificationConfig)
         })
-        if (!res.ok) throw new Error('保存通知设置失败')
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}))
+          throw new Error(errorData.detail || `保存通知设置失败 (${res.status})`)
+        }
       }
       
       // 保存AI设置
@@ -195,7 +201,10 @@ export default function SettingsPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(aiConfig)
         })
-        if (!res.ok) throw new Error('保存AI设置失败')
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}))
+          throw new Error(errorData.detail || `保存AI设置失败 (${res.status})`)
+        }
       }
       
       // API配置保存提示
@@ -206,9 +215,9 @@ export default function SettingsPage() {
       }
       
       alert('设置已保存！')
-    } catch (error) {
+    } catch (error: any) {
       console.error('保存失败:', error)
-      alert('保存失败，请重试')
+      alert(`保存失败: ${error.message || '请重试'}`)
     } finally {
       setIsSaving(false)
     }
@@ -348,16 +357,16 @@ export default function SettingsPage() {
               {/* 公司名称和简介 */}
               <div className="flex-1 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
+            <div>
                     <label className="block text-sm font-medium text-gray-300 mb-2">公司名称 *</label>
-                    <input
-                      type="text"
-                      value={companyConfig.company_name}
-                      onChange={e => setCompanyConfig(prev => ({ ...prev, company_name: e.target.value }))}
-                      className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
-                      placeholder="请输入公司名称"
-                    />
-                  </div>
+              <input
+                type="text"
+                value={companyConfig.company_name}
+                onChange={e => setCompanyConfig(prev => ({ ...prev, company_name: e.target.value }))}
+                className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                placeholder="请输入公司名称"
+              />
+            </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-300 mb-2">公司官网</label>
                     <input
@@ -436,55 +445,55 @@ export default function SettingsPage() {
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">联系电话</label>
-                <input
-                  type="text"
-                  value={companyConfig.contact_phone}
-                  onChange={e => setCompanyConfig(prev => ({ ...prev, contact_phone: e.target.value }))}
-                  className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
-                  placeholder="请输入联系电话"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">联系邮箱</label>
-                <input
-                  type="email"
-                  value={companyConfig.contact_email}
-                  onChange={e => setCompanyConfig(prev => ({ ...prev, contact_email: e.target.value }))}
-                  className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
-                  placeholder="请输入联系邮箱"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">微信号</label>
-                <input
-                  type="text"
-                  value={companyConfig.contact_wechat}
-                  onChange={e => setCompanyConfig(prev => ({ ...prev, contact_wechat: e.target.value }))}
-                  className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
-                  placeholder="请输入微信号"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">公司地址</label>
-                <input
-                  type="text"
-                  value={companyConfig.address}
-                  onChange={e => setCompanyConfig(prev => ({ ...prev, address: e.target.value }))}
-                  className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
-                  placeholder="请输入公司地址"
-                />
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">联系电话</label>
+              <input
+                type="text"
+                value={companyConfig.contact_phone}
+                onChange={e => setCompanyConfig(prev => ({ ...prev, contact_phone: e.target.value }))}
+                className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                placeholder="请输入联系电话"
+              />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">联系邮箱</label>
+              <input
+                type="email"
+                value={companyConfig.contact_email}
+                onChange={e => setCompanyConfig(prev => ({ ...prev, contact_email: e.target.value }))}
+                className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                placeholder="请输入联系邮箱"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">微信号</label>
+              <input
+                type="text"
+                value={companyConfig.contact_wechat}
+                onChange={e => setCompanyConfig(prev => ({ ...prev, contact_wechat: e.target.value }))}
+                className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+                placeholder="请输入微信号"
+              />
+            </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">公司地址</label>
+            <input
+              type="text"
+              value={companyConfig.address}
+              onChange={e => setCompanyConfig(prev => ({ ...prev, address: e.target.value }))}
+              className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
+              placeholder="请输入公司地址"
+            />
+              </div>
+          </div>
 
             <div className="mt-6">
-              <label className="block text-sm font-medium text-gray-300 mb-2">公司简介</label>
-              <textarea
-                value={companyConfig.company_intro}
-                onChange={e => setCompanyConfig(prev => ({ ...prev, company_intro: e.target.value }))}
-                rows={4}
-                className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none resize-none"
+            <label className="block text-sm font-medium text-gray-300 mb-2">公司简介</label>
+            <textarea
+              value={companyConfig.company_intro}
+              onChange={e => setCompanyConfig(prev => ({ ...prev, company_intro: e.target.value }))}
+              rows={4}
+              className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none resize-none"
                 placeholder="请输入公司简介，AI员工将在与客户沟通、生成内容时使用这段介绍"
               />
             </div>
@@ -610,7 +619,7 @@ export default function SettingsPage() {
               placeholder="如：专注欧洲物流15年，让您的货物安全准时到达"
             />
           </div>
-          
+
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">企业价值观</label>
             <div className="flex flex-wrap gap-2 mb-2">
@@ -682,7 +691,7 @@ export default function SettingsPage() {
                     type="text"
                     value={companyConfig.brand_colors?.secondary || '#10B981'}
                     onChange={e => setCompanyConfig(prev => ({ 
-                      ...prev, 
+                      ...prev,
                       brand_colors: { ...prev.brand_colors, secondary: e.target.value }
                     }))}
                     className="w-24 px-2 py-1 bg-deep-space/50 border border-gray-700 rounded text-white text-sm"

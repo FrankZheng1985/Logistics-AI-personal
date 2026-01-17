@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useState, useEffect } from 'react'
 import { 
   LayoutDashboard, 
   Users, 
@@ -43,6 +44,28 @@ const managementItems = [
 
 export default function Sidebar() {
   const pathname = usePathname()
+  const [unreadCount, setUnreadCount] = useState(0)
+  
+  // 获取未读通知数量
+  useEffect(() => {
+    const fetchUnreadCount = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+        const response = await fetch(`${apiUrl}/api/notifications?limit=1`)
+        if (response.ok) {
+          const data = await response.json()
+          setUnreadCount(data.unread_count || 0)
+        }
+      } catch (error) {
+        console.error('获取通知数量失败:', error)
+      }
+    }
+    
+    fetchUnreadCount()
+    // 每60秒刷新一次未读数量
+    const interval = setInterval(fetchUnreadCount, 60000)
+    return () => clearInterval(interval)
+  }, [])
   
   return (
     <aside className="w-64 h-screen fixed left-0 top-0 bg-dark-purple/50 border-r border-white/10 flex flex-col">
@@ -109,7 +132,11 @@ export default function Sidebar() {
         >
           <Bell className="w-5 h-5" />
           <span>通知</span>
-          <span className="ml-auto px-2 py-0.5 bg-alert-red/20 text-alert-red text-xs rounded-full">3</span>
+          {unreadCount > 0 && (
+            <span className="ml-auto px-2 py-0.5 bg-alert-red/20 text-alert-red text-xs rounded-full">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          )}
         </Link>
         <Link
           href="/settings"

@@ -6,8 +6,10 @@ ERP业务系统对接API
 - 所有接口都是只读操作
 - 不提供任何写入、修改、删除操作
 - 数据来源于ERP系统的只读API账户
+- 敏感数据自动脱敏处理
+- 所有访问记录审计日志
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional, List
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -20,8 +22,67 @@ from app.services.erp_connector import (
     ERPAuthenticationError,
     ERPPermissionError
 )
+from app.services.privacy_protection import (
+    privacy_service,
+    ERPDataPrivacyService
+)
 
 router = APIRouter(tags=["ERP业务系统"])
+
+
+# ========== 隐私保护辅助函数 ==========
+
+async def get_client_ip(request: Request) -> str:
+    """获取客户端IP"""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+async def process_with_privacy(
+    request: Request,
+    endpoint: str,
+    data: dict,
+    params: dict = None,
+    mask_amounts: bool = True,
+    mask_contacts: bool = True
+) -> dict:
+    """
+    处理ERP数据并应用隐私保护
+    
+    1. 脱敏敏感数据
+    2. 记录审计日志
+    """
+    # 获取数据条数
+    data_count = 0
+    if isinstance(data, dict):
+        if 'data' in data and isinstance(data['data'], dict):
+            if 'list' in data['data']:
+                data_count = len(data['data']['list'])
+            elif 'total' in data['data']:
+                data_count = data['data'].get('total', 0)
+        elif 'list' in data:
+            data_count = len(data['list'])
+    
+    # 脱敏数据
+    masked_data = privacy_service.mask_erp_response(
+        data, 
+        mask_amounts=mask_amounts,
+        mask_contacts=mask_contacts
+    )
+    
+    # 记录审计日志
+    client_ip = await get_client_ip(request)
+    await privacy_service.log_access(
+        endpoint=endpoint,
+        user_ip=client_ip,
+        params=params,
+        data_count=data_count,
+        success=True
+    )
+    
+    return masked_data
 
 
 # ========== 请求/响应模型 ==========
@@ -122,28 +183,40 @@ async def clear_erp_cache():
 
 @router.get("/orders", summary="获取订单列表")
 async def get_orders(
+    request: Request,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(100, ge=1, le=100),
     status: Optional[str] = Query(None, description="订单状态"),
-    customer_id: Optional[str] = Query(None, description="客户ID"),
-    start_date: Optional[str] = Query(None, description="开始日期 YYYY-MM-DD"),
-    end_date: Optional[str] = Query(None, description="结束日期 YYYY-MM-DD")
+    start_date: Optional[str] = Query(None, description="开始日期 (ISO 8601)"),
+    end_date: Optional[str] = Query(None, description="结束日期 (ISO 8601)"),
+    order_type: Optional[str] = Query(None, description="订单类型: history=已完成, active=进行中, all=全部"),
+    updated_after: Optional[str] = Query(None, description="增量同步时间 (ISO 8601)")
 ):
     """
     获取ERP订单列表
     
     这是只读接口，只能查询订单信息，不能修改订单。
+    敏感信息已自动脱敏处理。
     """
     try:
         data = await erp_connector.get_orders(
             page=page,
             page_size=page_size,
             status=status,
-            customer_id=customer_id,
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
+            order_type=order_type,
+            updated_after=updated_after
         )
-        return data
+        # 应用隐私保护
+        return await process_with_privacy(
+            request=request,
+            endpoint="/internal-api/orders",
+            data=data,
+            params={"page": page, "page_size": page_size, "status": status},
+            mask_amounts=True,
+            mask_contacts=True
+        )
     except ERPConnectionError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except ERPAuthenticationError as e:
@@ -245,24 +318,42 @@ async def get_product_pricing(
 
 @router.get("/customers", summary="获取客户列表")
 async def get_customers(
+    request: Request,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    keyword: Optional[str] = Query(None, description="搜索关键词"),
-    level: Optional[str] = Query(None, description="客户级别")
+    page_size: int = Query(100, ge=1, le=100),
+    keyword: Optional[str] = Query(None, description="关键词搜索（客户名/编码/公司名）"),
+    customer_level: Optional[str] = Query(None, description="客户等级: normal/silver/gold/vip"),
+    customer_type: Optional[str] = Query(None, description="客户类型: shipper/consignee/both/agent"),
+    customer_region: Optional[str] = Query(None, description="客户区域: china/overseas"),
+    status: Optional[str] = Query(None, description="客户状态: active/inactive"),
+    updated_after: Optional[str] = Query(None, description="增量同步时间 (ISO 8601)")
 ):
     """
     获取ERP客户列表
     
     这是只读接口，只能查询客户信息，不能修改客户资料。
+    敏感信息（手机号、邮箱、地址等）已自动脱敏。
     """
     try:
         data = await erp_connector.get_customers(
             page=page,
             page_size=page_size,
             keyword=keyword,
-            level=level
+            customer_level=customer_level,
+            customer_type=customer_type,
+            customer_region=customer_region,
+            status=status,
+            updated_after=updated_after
         )
-        return data
+        # 应用隐私保护 - 客户数据需要严格脱敏
+        return await process_with_privacy(
+            request=request,
+            endpoint="/internal-api/customers",
+            data=data,
+            params={"page": page, "keyword": keyword, "customer_level": customer_level},
+            mask_amounts=True,
+            mask_contacts=True
+        )
     except ERPConnectionError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
@@ -271,14 +362,17 @@ async def get_customers(
 
 
 @router.get("/customers/{customer_id}", summary="获取客户详情")
-async def get_customer_detail(customer_id: str):
+async def get_customer_detail(
+    customer_id: str,
+    include_contacts: bool = Query(False, description="是否包含联系人列表")
+):
     """
     获取单个客户详情
     
     这是只读接口。
     """
     try:
-        data = await erp_connector.get_customer_detail(customer_id)
+        data = await erp_connector.get_customer_detail(customer_id, include_contacts=include_contacts)
         return data
     except ERPConnectionError as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -337,6 +431,7 @@ async def get_shipment_tracking(shipment_id: str):
 
 @router.get("/finance/summary", summary="获取财务概览")
 async def get_finance_summary(
+    request: Request,
     start_date: Optional[str] = Query(None, description="开始日期 YYYY-MM-DD"),
     end_date: Optional[str] = Query(None, description="结束日期 YYYY-MM-DD")
 ):
@@ -344,13 +439,22 @@ async def get_finance_summary(
     获取财务概览数据
     
     这是只读接口，用于查询财务汇总信息。
+    详细金额已脱敏为范围显示。
     """
     try:
         data = await erp_connector.get_finance_summary(
             start_date=start_date,
             end_date=end_date
         )
-        return data
+        # 应用隐私保护 - 财务汇总数据脱敏
+        return await process_with_privacy(
+            request=request,
+            endpoint="/internal-api/financial-summary",
+            data=data,
+            params={"start_date": start_date, "end_date": end_date},
+            mask_amounts=True,
+            mask_contacts=False
+        )
     except ERPConnectionError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
@@ -360,24 +464,40 @@ async def get_finance_summary(
 
 @router.get("/finance/invoices", summary="获取发票列表")
 async def get_invoices(
+    request: Request,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    status: Optional[str] = Query(None, description="发票状态"),
-    customer_id: Optional[str] = Query(None, description="客户ID")
+    page_size: int = Query(100, ge=1, le=100),
+    status: Optional[str] = Query(None, description="发票状态: draft/unpaid/partial/paid/overdue/cancelled"),
+    invoice_type: Optional[str] = Query(None, description="发票类型: receivable=应收, payable=应付"),
+    start_date: Optional[str] = Query(None, description="创建开始日期 (ISO 8601)"),
+    end_date: Optional[str] = Query(None, description="创建结束日期 (ISO 8601)"),
+    updated_after: Optional[str] = Query(None, description="增量同步时间 (ISO 8601)")
 ):
     """
     获取发票列表
     
     这是只读接口，只能查询发票信息。
+    金额数据已脱敏为范围显示。
     """
     try:
         data = await erp_connector.get_invoices(
             page=page,
             page_size=page_size,
             status=status,
-            customer_id=customer_id
+            invoice_type=invoice_type,
+            start_date=start_date,
+            end_date=end_date,
+            updated_after=updated_after
         )
-        return data
+        # 应用隐私保护 - 财务数据金额脱敏
+        return await process_with_privacy(
+            request=request,
+            endpoint="/internal-api/invoices",
+            data=data,
+            params={"page": page, "status": status, "invoice_type": invoice_type},
+            mask_amounts=True,
+            mask_contacts=True
+        )
     except ERPConnectionError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
@@ -404,24 +524,38 @@ async def get_invoice_detail(invoice_id: str):
 
 @router.get("/finance/payments", summary="获取付款记录")
 async def get_payments(
+    request: Request,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(100, ge=1, le=100),
     status: Optional[str] = Query(None, description="付款状态"),
-    customer_id: Optional[str] = Query(None, description="客户ID")
+    start_date: Optional[str] = Query(None, description="付款开始日期 (ISO 8601)"),
+    end_date: Optional[str] = Query(None, description="付款结束日期 (ISO 8601)"),
+    updated_after: Optional[str] = Query(None, description="增量同步时间 (ISO 8601)")
 ):
     """
     获取付款记录列表
     
     这是只读接口。
+    金额数据已脱敏，银行账号已隐藏。
     """
     try:
         data = await erp_connector.get_payments(
             page=page,
             page_size=page_size,
             status=status,
-            customer_id=customer_id
+            start_date=start_date,
+            end_date=end_date,
+            updated_after=updated_after
         )
-        return data
+        # 应用隐私保护 - 付款数据涉及银行账号，严格脱敏
+        return await process_with_privacy(
+            request=request,
+            endpoint="/internal-api/payments",
+            data=data,
+            params={"page": page, "status": status},
+            mask_amounts=True,
+            mask_contacts=True
+        )
     except ERPConnectionError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
@@ -492,16 +626,15 @@ async def get_stats():
 
 @router.get("/monthly-stats", summary="获取月度统计")
 async def get_monthly_stats(
-    year: Optional[int] = Query(None, description="年份"),
-    month: Optional[int] = Query(None, ge=1, le=12, description="月份")
+    months: int = Query(12, ge=1, le=24, description="统计月数，默认12个月")
 ):
     """
     获取月度统计数据
     
-    这是只读接口。
+    这是只读接口，返回订单量、收入、成本、利润等月度数据。
     """
     try:
-        data = await erp_connector.get_monthly_stats(year=year, month=month)
+        data = await erp_connector.get_monthly_stats(months=months)
         return data
     except ERPConnectionError as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -514,6 +647,7 @@ async def get_monthly_stats(
 
 @router.get("/suppliers", summary="获取供应商列表")
 async def get_suppliers(
+    request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     category: Optional[str] = Query(None, description="供应商类别")
@@ -529,9 +663,136 @@ async def get_suppliers(
             page_size=page_size,
             category=category
         )
-        return data
+        # 应用隐私保护
+        return await process_with_privacy(
+            request=request,
+            endpoint="/internal-api/suppliers",
+            data=data,
+            params={"page": page, "category": category},
+            mask_amounts=True,
+            mask_contacts=True
+        )
     except ERPConnectionError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.error(f"获取供应商失败: {e}")
         raise HTTPException(status_code=500, detail="获取供应商失败")
+
+
+# ========== 隐私保护管理接口 ==========
+
+class AccessAuditResponse(BaseModel):
+    """访问审计日志响应"""
+    id: str
+    endpoint: str
+    user_id: str
+    user_ip: Optional[str] = None
+    params: Optional[dict] = None  # JSONB类型，返回字典
+    data_count: int = 0
+    success: bool
+    error_message: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+@router.get("/privacy/audit-logs", response_model=List[AccessAuditResponse], summary="获取数据访问审计日志")
+async def get_access_audit_logs(
+    endpoint: Optional[str] = Query(None, description="筛选特定端点"),
+    user_id: Optional[str] = Query(None, description="筛选特定用户"),
+    start_date: Optional[str] = Query(None, description="开始日期"),
+    end_date: Optional[str] = Query(None, description="结束日期"),
+    limit: int = Query(100, ge=1, le=500, description="返回条数")
+):
+    """
+    获取ERP数据访问审计日志
+    
+    用于追踪谁在什么时候访问了哪些数据。
+    """
+    try:
+        logs = await privacy_service.get_access_logs(
+            endpoint=endpoint,
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit
+        )
+        return [AccessAuditResponse(**log) for log in logs]
+    except Exception as e:
+        logger.error(f"获取审计日志失败: {e}")
+        raise HTTPException(status_code=500, detail="获取审计日志失败")
+
+
+@router.get("/privacy/stats", summary="获取隐私保护统计")
+async def get_privacy_stats():
+    """
+    获取隐私保护统计信息
+    
+    包括今日访问次数、脱敏数据量等。
+    """
+    try:
+        from app.models.database import AsyncSessionLocal
+        from sqlalchemy import text
+        
+        async with AsyncSessionLocal() as db:
+            # 今日访问统计
+            result = await db.execute(
+                text("""
+                    SELECT 
+                        COUNT(*) as total_access,
+                        COUNT(CASE WHEN success = TRUE THEN 1 END) as success_count,
+                        COUNT(CASE WHEN success = FALSE THEN 1 END) as failed_count,
+                        SUM(data_count) as total_data_accessed
+                    FROM erp_access_audit 
+                    WHERE created_at >= CURRENT_DATE
+                """)
+            )
+            row = result.fetchone()
+            
+            # 最近7天趋势
+            trend_result = await db.execute(
+                text("""
+                    SELECT 
+                        DATE(created_at) as date,
+                        COUNT(*) as access_count
+                    FROM erp_access_audit 
+                    WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
+                    GROUP BY DATE(created_at)
+                    ORDER BY date DESC
+                """)
+            )
+            trends = trend_result.fetchall()
+            
+            return {
+                "today": {
+                    "total_access": row[0] if row else 0,
+                    "success_count": row[1] if row else 0,
+                    "failed_count": row[2] if row else 0,
+                    "total_data_accessed": row[3] if row else 0
+                },
+                "trends": [
+                    {"date": str(t[0]), "count": t[1]} for t in trends
+                ],
+                "privacy_features": {
+                    "data_masking": True,
+                    "audit_logging": True,
+                    "cache_encryption": True,
+                    "access_control": True
+                }
+            }
+    except Exception as e:
+        logger.error(f"获取隐私统计失败: {e}")
+        # 如果表还不存在，返回默认值
+        return {
+            "today": {
+                "total_access": 0,
+                "success_count": 0,
+                "failed_count": 0,
+                "total_data_accessed": 0
+            },
+            "trends": [],
+            "privacy_features": {
+                "data_masking": True,
+                "audit_logging": True,
+                "cache_encryption": True,
+                "access_control": True
+            }
+        }

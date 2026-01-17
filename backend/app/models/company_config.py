@@ -47,8 +47,8 @@ class CompanyConfig(Base):
     
     # ============ 新增字段 ============
     
-    # Logo和品牌
-    logo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # Logo和品牌（使用Text类型支持base64存储）
+    logo_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     brand_slogan: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)  # 品牌口号
     brand_colors: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)  # 品牌色 {"primary": "#xxx", "secondary": "#xxx"}
     company_values: Mapped[Optional[list]] = mapped_column(ARRAY(String), nullable=True)  # 企业价值观

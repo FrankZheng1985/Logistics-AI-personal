@@ -282,38 +282,46 @@ class ReadOnlyERPConnector:
     async def get_orders(
         self, 
         page: int = 1, 
-        page_size: int = 20,
+        page_size: int = 100,
         status: Optional[str] = None,
         customer_id: Optional[str] = None,
         start_date: Optional[str] = None,
-        end_date: Optional[str] = None
+        end_date: Optional[str] = None,
+        order_type: Optional[str] = None,
+        updated_after: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         获取订单列表
         
         参数:
             page: 页码
-            page_size: 每页数量
+            page_size: 每页数量（最大100）
             status: 订单状态筛选
             customer_id: 客户ID筛选
-            start_date: 开始日期
-            end_date: 结束日期
+            start_date: 开始日期（ISO 8601）
+            end_date: 结束日期（ISO 8601）
+            order_type: history=已完成, active=进行中, all=全部
+            updated_after: 增量同步，只获取此时间后更新的数据
         
         返回:
             订单列表数据
         """
         params = {
             'page': page,
-            'page_size': page_size
+            'pageSize': page_size  # API使用驼峰命名
         }
         if status:
             params['status'] = status
         if customer_id:
-            params['customer_id'] = customer_id
+            params['customerId'] = customer_id
         if start_date:
-            params['start_date'] = start_date
+            params['startDate'] = start_date
         if end_date:
-            params['end_date'] = end_date
+            params['endDate'] = end_date
+        if order_type:
+            params['type'] = order_type
+        if updated_after:
+            params['updatedAfter'] = updated_after
         
         return await self._request('GET', '/internal-api/orders', params=params)
     
@@ -328,27 +336,39 @@ class ReadOnlyERPConnector:
     async def get_invoices(
         self,
         page: int = 1,
-        page_size: int = 20,
+        page_size: int = 100,
         status: Optional[str] = None,
-        customer_id: Optional[str] = None
+        invoice_type: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        updated_after: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         获取发票列表
         
         参数:
             page: 页码
-            page_size: 每页数量
-            status: 发票状态
-            customer_id: 客户ID
+            page_size: 每页数量（最大100）
+            status: 发票状态 (draft/unpaid/partial/paid/overdue/cancelled)
+            invoice_type: receivable=应收, payable=应付
+            start_date: 创建开始日期
+            end_date: 创建结束日期
+            updated_after: 增量同步时间
         
         返回:
             发票列表数据
         """
-        params = {'page': page, 'page_size': page_size}
+        params = {'page': page, 'pageSize': page_size}
         if status:
             params['status'] = status
-        if customer_id:
-            params['customer_id'] = customer_id
+        if invoice_type:
+            params['type'] = invoice_type
+        if start_date:
+            params['startDate'] = start_date
+        if end_date:
+            params['endDate'] = end_date
+        if updated_after:
+            params['updatedAfter'] = updated_after
         
         return await self._request('GET', '/internal-api/invoices', params=params)
     
@@ -359,27 +379,35 @@ class ReadOnlyERPConnector:
     async def get_payments(
         self,
         page: int = 1,
-        page_size: int = 20,
+        page_size: int = 100,
         status: Optional[str] = None,
-        customer_id: Optional[str] = None
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        updated_after: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         获取付款记录
         
         参数:
             page: 页码
-            page_size: 每页数量
+            page_size: 每页数量（最大100）
             status: 付款状态
-            customer_id: 客户ID
+            start_date: 付款开始日期
+            end_date: 付款结束日期
+            updated_after: 增量同步时间
         
         返回:
             付款记录数据
         """
-        params = {'page': page, 'page_size': page_size}
+        params = {'page': page, 'pageSize': page_size}
         if status:
             params['status'] = status
-        if customer_id:
-            params['customer_id'] = customer_id
+        if start_date:
+            params['startDate'] = start_date
+        if end_date:
+            params['endDate'] = end_date
+        if updated_after:
+            params['updatedAfter'] = updated_after
         
         return await self._request('GET', '/internal-api/payments', params=params)
     
@@ -400,40 +428,34 @@ class ReadOnlyERPConnector:
         获取财务汇总
         
         参数:
-            start_date: 开始日期
-            end_date: 结束日期
+            start_date: 统计开始日期
+            end_date: 统计结束日期
         
         返回:
-            财务汇总数据
+            财务汇总数据（应收/应付/收款/付款等）
         """
         params = {}
         if start_date:
-            params['start_date'] = start_date
+            params['startDate'] = start_date
         if end_date:
-            params['end_date'] = end_date
+            params['endDate'] = end_date
         
         return await self._request('GET', '/internal-api/financial-summary', params=params, cache_ttl=600)
     
     async def get_monthly_stats(
         self,
-        year: Optional[int] = None,
-        month: Optional[int] = None
+        months: int = 12
     ) -> Dict[str, Any]:
         """
         获取月度统计
         
         参数:
-            year: 年份
-            month: 月份
+            months: 统计月数，默认12个月
         
         返回:
-            月度统计数据
+            月度统计数据（订单量、收入、成本、利润等）
         """
-        params = {}
-        if year:
-            params['year'] = year
-        if month:
-            params['month'] = month
+        params = {'months': months}
         
         return await self._request('GET', '/internal-api/monthly-stats', params=params, cache_ttl=600)
     
@@ -461,24 +483,61 @@ class ReadOnlyERPConnector:
     async def get_customers(
         self,
         page: int = 1,
-        page_size: int = 20,
+        page_size: int = 100,
         keyword: Optional[str] = None,
-        level: Optional[str] = None
+        customer_level: Optional[str] = None,
+        customer_type: Optional[str] = None,
+        customer_region: Optional[str] = None,
+        status: Optional[str] = None,
+        updated_after: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        获取客户列表（如果ERP有此接口）
+        获取客户列表
+        
+        参数:
+            page: 页码
+            page_size: 每页数量（最大100）
+            keyword: 关键词搜索（客户名/编码/公司名）
+            customer_level: 客户等级 (normal/silver/gold/vip)
+            customer_type: 客户类型 (shipper/consignee/both/agent)
+            customer_region: 客户区域 (china/overseas)
+            status: 客户状态 (active/inactive)
+            updated_after: 增量同步时间
+        
+        返回:
+            客户列表数据
         """
-        params = {'page': page, 'page_size': page_size}
+        params = {'page': page, 'pageSize': page_size}
         if keyword:
             params['keyword'] = keyword
-        if level:
-            params['level'] = level
+        if customer_level:
+            params['customerLevel'] = customer_level
+        if customer_type:
+            params['customerType'] = customer_type
+        if customer_region:
+            params['customerRegion'] = customer_region
+        if status:
+            params['status'] = status
+        if updated_after:
+            params['updatedAfter'] = updated_after
         
         return await self._request('GET', '/internal-api/customers', params=params)
     
-    async def get_customer_detail(self, customer_id: str) -> Dict[str, Any]:
-        """获取客户详情（如果ERP有此接口）"""
-        return await self._request('GET', f'/internal-api/customers/{customer_id}')
+    async def get_customer_detail(self, customer_id: str, include_contacts: bool = False) -> Dict[str, Any]:
+        """
+        获取客户详情
+        
+        参数:
+            customer_id: 客户ID
+            include_contacts: 是否包含联系人列表
+        
+        返回:
+            客户详情数据
+        """
+        params = {}
+        if include_contacts:
+            params['includeContacts'] = 'true'
+        return await self._request('GET', f'/internal-api/customers/{customer_id}', params=params)
     
     async def get_shipments(
         self,
