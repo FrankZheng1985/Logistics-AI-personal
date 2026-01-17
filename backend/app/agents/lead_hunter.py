@@ -1,12 +1,14 @@
 """
-小猎 - 线索猎手 (24小时智能版)
-负责自动在互联网上搜索潜在客户线索
-支持：
-- 24小时不间断搜索
-- 智能关键词轮换
-- 搜索效果追踪
-- URL去重
-- 自动优化搜索策略
+小猎 - 线索猎手 & 话题发现者
+双模式运行：
+1. 线索搜索模式：搜索互联网上的潜在客户线索
+2. 话题发现模式：发现热门话题，配合小文生成回答内容引流
+
+话题发现模式支持：
+- 搜索知乎/小红书等平台的热门物流相关话题
+- 评估话题价值（浏览量、回答数、时效性）
+- 生成回答策略建议
+- 与小文配合一键生成专业回答
 """
 from typing import Dict, Any, List, Optional
 import json
@@ -23,11 +25,11 @@ from app.core.config import settings
 
 
 class LeadHunterAgent(BaseAgent):
-    """小猎 - 线索猎手 (24小时智能版)"""
+    """小猎 - 线索猎手 & 话题发现者"""
     
     name = "小猎"
     agent_type = AgentType.LEAD_HUNTER
-    description = "线索猎手 - 24小时自动搜索互联网上的潜在客户线索"
+    description = "线索猎手 & 话题发现者 - 搜索线索或发现热门话题配合内容引流"
     
     # 备用搜索关键词（数据库关键词不可用时使用）- 只搜索欧洲相关
     FALLBACK_KEYWORDS = [
@@ -99,11 +101,12 @@ class LeadHunterAgent(BaseAgent):
     
     async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        处理线索搜索任务
+        处理线索搜索或话题发现任务
         
         Args:
             input_data: {
-                "action": "search" | "analyze" | "hunt" | "smart_hunt",
+                "action": "search" | "analyze" | "hunt" | "smart_hunt" | 
+                          "discover_topics" | "analyze_topic" | "get_topic_stats",
                 "source": "搜索来源",
                 "content": "要分析的内容",
                 "keywords": ["自定义关键词"],
@@ -113,6 +116,7 @@ class LeadHunterAgent(BaseAgent):
         """
         action = input_data.get("action", "smart_hunt")
         
+        # 线索搜索模式
         if action == "search":
             return await self._search_leads(input_data)
         elif action == "analyze":
@@ -123,6 +127,16 @@ class LeadHunterAgent(BaseAgent):
             return await self._smart_hunt(input_data)
         elif action == "get_stats":
             return await self._get_hunt_stats()
+        
+        # 话题发现模式（新增）
+        elif action == "discover_topics":
+            return await self._discover_topics(input_data)
+        elif action == "analyze_topic":
+            return await self._analyze_topic_value(input_data)
+        elif action == "get_topic_stats":
+            return await self._get_topic_stats()
+        elif action == "generate_answer":
+            return await self._generate_answer(input_data)
         else:
             return {"error": f"未知操作: {action}"}
     
@@ -989,6 +1003,423 @@ URL：{url}
         except Exception as e:
             self.log(f"添加关键词失败: {e}", "error")
             return {"success": False, "error": str(e)}
+
+
+    # ==================== 话题发现模式（新增）====================
+    
+    async def _discover_topics(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        发现热门话题 - 用于内容引流
+        搜索知乎、小红书等平台的热门物流相关话题
+        """
+        self.log("🔍 开始发现热门话题...")
+        start_time = datetime.now()
+        
+        # 检查API配置
+        api_key = getattr(settings, 'SERPER_API_KEY', None)
+        if not api_key:
+            return {
+                "error": "搜索API未配置",
+                "message": "请在系统设置中配置 SERPER_API_KEY"
+            }
+        
+        results = {
+            "discover_time": datetime.now().isoformat(),
+            "mode": "topic_discovery",
+            "topics_found": [],
+            "total_topics": 0,
+            "high_value_topics": 0,
+            "platforms_searched": [],
+            "keywords_used": []
+        }
+        
+        try:
+            from app.models.database import async_session_maker
+            from sqlalchemy import text
+            
+            async with async_session_maker() as db:
+                # 1. 获取搜索关键词
+                max_keywords = input_data.get("max_keywords", 8)
+                
+                kw_result = await db.execute(
+                    text("""
+                        SELECT id, keyword, category, platform, priority
+                        FROM topic_search_keywords
+                        WHERE is_active = true
+                        ORDER BY priority DESC, RANDOM()
+                        LIMIT :limit
+                    """),
+                    {"limit": max_keywords}
+                )
+                keywords_data = kw_result.fetchall()
+                
+                if not keywords_data:
+                    # 使用默认关键词
+                    default_keywords = [
+                        ("FBA头程费用", "报价咨询"),
+                        ("货物被扣怎么办", "问题求助"),
+                        ("货代怎么选", "选择咨询"),
+                        ("海运清关流程", "流程咨询"),
+                        ("国际物流报价", "报价咨询")
+                    ]
+                    keywords_data = [(None, kw, cat, None, 8) for kw, cat in default_keywords]
+                
+                self.log(f"使用 {len(keywords_data)} 个关键词搜索话题")
+                
+                # 2. 定义搜索平台（专注高质量内容平台）
+                platforms = [
+                    ("zhihu", "site:zhihu.com/question", "知乎问答"),
+                    ("xiaohongshu", "site:xiaohongshu.com", "小红书"),
+                ]
+                
+                all_topics = []
+                
+                # 3. 对每个关键词在每个平台搜索
+                for kw_data in keywords_data:
+                    kw_id, keyword, category, kw_platform, priority = kw_data
+                    results["keywords_used"].append(keyword)
+                    
+                    for platform_id, site_filter, platform_name in platforms:
+                        # 如果关键词指定了平台，只搜索该平台
+                        if kw_platform and kw_platform != platform_id:
+                            continue
+                        
+                        try:
+                            # 构建搜索查询（搜索最近的内容）
+                            query = f"{keyword} {site_filter}"
+                            self.log(f"🔍 搜索: {query}")
+                            
+                            search_results = await self._search_with_serper(query)
+                            
+                            if search_results:
+                                results["platforms_searched"].append(platform_name)
+                                
+                                for item in search_results[:5]:  # 每个关键词每个平台取前5条
+                                    url = item.get("url", "")
+                                    title = item.get("title", "")
+                                    
+                                    if not url or not title:
+                                        continue
+                                    
+                                    # 检查是否已存在
+                                    url_hash = hashlib.md5(url.encode()).hexdigest()
+                                    
+                                    existing = await db.execute(
+                                        text("SELECT id FROM hot_topics WHERE url_hash = :hash"),
+                                        {"hash": url_hash}
+                                    )
+                                    if existing.fetchone():
+                                        continue
+                                    
+                                    # 分析话题价值
+                                    topic_analysis = await self._analyze_topic_value({
+                                        "title": title,
+                                        "content": item.get("content", ""),
+                                        "url": url,
+                                        "platform": platform_id,
+                                        "category": category
+                                    })
+                                    
+                                    if topic_analysis.get("is_valuable", False):
+                                        topic_data = {
+                                            "title": title,
+                                            "url": url,
+                                            "url_hash": url_hash,
+                                            "platform": platform_id,
+                                            "category": category,
+                                            "keyword": keyword,
+                                            "value_score": topic_analysis.get("value_score", 50),
+                                            "ai_summary": topic_analysis.get("summary", ""),
+                                            "ai_answer_strategy": topic_analysis.get("answer_strategy", ""),
+                                            "ai_recommended_points": topic_analysis.get("recommended_points", []),
+                                            "priority": "high" if topic_analysis.get("value_score", 0) >= 70 else "medium"
+                                        }
+                                        all_topics.append(topic_data)
+                            
+                            # 控制请求频率
+                            await asyncio.sleep(0.5)
+                            
+                        except Exception as e:
+                            self.log(f"搜索话题失败 ({platform_name}, {keyword}): {e}", "error")
+                
+                # 4. 保存话题到数据库
+                for topic in all_topics:
+                    try:
+                        await db.execute(
+                            text("""
+                                INSERT INTO hot_topics 
+                                (title, url, url_hash, platform, category, keywords,
+                                 value_score, ai_summary, ai_answer_strategy, 
+                                 ai_recommended_points, priority, status)
+                                VALUES 
+                                (:title, :url, :url_hash, :platform, :category, :keywords,
+                                 :value_score, :summary, :strategy, :points, :priority, 'new')
+                                ON CONFLICT (url_hash) DO NOTHING
+                            """),
+                            {
+                                "title": topic["title"],
+                                "url": topic["url"],
+                                "url_hash": topic["url_hash"],
+                                "platform": topic["platform"],
+                                "category": topic["category"],
+                                "keywords": [topic["keyword"]],
+                                "value_score": topic["value_score"],
+                                "summary": topic["ai_summary"],
+                                "strategy": topic["ai_answer_strategy"],
+                                "points": topic["ai_recommended_points"],
+                                "priority": topic["priority"]
+                            }
+                        )
+                        
+                        results["topics_found"].append(topic)
+                        results["total_topics"] += 1
+                        if topic["value_score"] >= 70:
+                            results["high_value_topics"] += 1
+                            
+                    except Exception as e:
+                        self.log(f"保存话题失败: {e}", "error")
+                
+                await db.commit()
+                
+                # 5. 更新小猎的任务统计
+                await db.execute(
+                    text("""
+                        UPDATE ai_agents
+                        SET tasks_completed_today = tasks_completed_today + 1,
+                            tasks_completed_total = tasks_completed_total + 1,
+                            last_active_at = NOW(),
+                            updated_at = NOW()
+                        WHERE agent_type = 'lead_hunter'
+                    """)
+                )
+                await db.commit()
+                
+        except Exception as e:
+            self.log(f"话题发现出错: {e}", "error")
+            results["error"] = str(e)
+        
+        # 去重平台列表
+        results["platforms_searched"] = list(set(results["platforms_searched"]))
+        
+        duration = (datetime.now() - start_time).total_seconds()
+        results["duration_seconds"] = round(duration, 2)
+        
+        self.log(f"✅ 话题发现完成！耗时{duration:.1f}秒，发现 {results['total_topics']} 个话题，"
+                 f"高价值 {results['high_value_topics']} 个")
+        
+        return results
+    
+    async def _analyze_topic_value(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        分析话题价值，判断是否值得回答
+        """
+        title = input_data.get("title", "")
+        content = input_data.get("content", "")
+        url = input_data.get("url", "")
+        platform = input_data.get("platform", "")
+        category = input_data.get("category", "")
+        
+        if not title:
+            return {"is_valuable": False, "reason": "标题为空"}
+        
+        # 快速过滤广告和无效内容
+        ad_keywords = ["广告", "推广", "优惠", "限时", "加盟", "招商", "代理"]
+        if any(kw in title for kw in ad_keywords):
+            return {"is_valuable": False, "reason": "疑似广告"}
+        
+        # 使用AI分析话题价值
+        prompt = f"""请分析以下话题是否值得一个物流/货代公司去回答（内容引流目的）：
+
+平台：{platform}
+标题：{title}
+内容摘要：{content[:300] if content else '无'}
+
+请从以下角度分析：
+1. 这个话题是否与国际物流/货代服务相关？
+2. 提问者是否可能是潜在客户？
+3. 回答这个问题能否展示专业性？
+4. 预计能带来多少曝光？
+
+请以JSON格式返回：
+{{
+    "is_valuable": true/false,
+    "value_score": 0-100,
+    "summary": "话题核心是什么",
+    "answer_strategy": "建议如何回答这个问题",
+    "recommended_points": ["回答要点1", "回答要点2", "回答要点3"],
+    "potential_exposure": "high/medium/low",
+    "reason": "判断理由"
+}}"""
+        
+        try:
+            response = await self.think([{"role": "user", "content": prompt}])
+            
+            # 解析AI回复
+            json_start = response.find("{")
+            json_end = response.rfind("}") + 1
+            if json_start != -1 and json_end > json_start:
+                result = json.loads(response[json_start:json_end])
+                return result
+        except Exception as e:
+            self.log(f"AI分析话题失败: {e}", "warning")
+        
+        # 如果AI分析失败，使用规则判断
+        value_keywords = ["怎么", "如何", "推荐", "哪家", "多少钱", "费用", "流程", "问题"]
+        has_value = any(kw in title for kw in value_keywords)
+        
+        return {
+            "is_valuable": has_value,
+            "value_score": 60 if has_value else 30,
+            "summary": title[:50],
+            "answer_strategy": "提供专业建议，展示公司优势",
+            "recommended_points": ["专业解答", "案例分享", "联系方式"],
+            "reason": "规则判断"
+        }
+    
+    async def _generate_answer(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        为话题生成专业回答内容（调用小文）
+        """
+        topic_id = input_data.get("topic_id")
+        
+        if not topic_id:
+            return {"error": "缺少话题ID"}
+        
+        try:
+            from app.models.database import async_session_maker
+            from sqlalchemy import text
+            from app.agents.copywriter import copywriter_agent
+            
+            async with async_session_maker() as db:
+                # 获取话题信息
+                result = await db.execute(
+                    text("""
+                        SELECT title, url, platform, category, 
+                               ai_summary, ai_answer_strategy, ai_recommended_points
+                        FROM hot_topics WHERE id = :id
+                    """),
+                    {"id": topic_id}
+                )
+                topic = result.fetchone()
+                
+                if not topic:
+                    return {"error": "话题不存在"}
+                
+                title, url, platform, category, summary, strategy, points = topic
+                
+                # 获取公司信息
+                company_result = await db.execute(
+                    text("SELECT company_name, company_intro, advantages, contact_wechat, contact_phone FROM company_config LIMIT 1")
+                )
+                company = company_result.fetchone()
+                
+                company_name = company[0] if company else "我们公司"
+                company_intro = company[1] if company else ""
+                advantages = company[2] if company else []
+                contact_wechat = company[3] if company else ""
+                contact_phone = company[4] if company else ""
+                
+                # 调用小文生成内容
+                content_result = await copywriter_agent.process({
+                    "action": "generate",
+                    "content_type": "zhihu_answer" if platform == "zhihu" else "social_post",
+                    "topic": title,
+                    "context": {
+                        "platform": platform,
+                        "category": category,
+                        "summary": summary,
+                        "strategy": strategy,
+                        "recommended_points": points,
+                        "company_name": company_name,
+                        "company_intro": company_intro,
+                        "advantages": advantages,
+                        "contact_wechat": contact_wechat,
+                        "contact_phone": contact_phone
+                    }
+                })
+                
+                generated_content = content_result.get("content", "")
+                
+                if generated_content:
+                    # 保存生成的内容
+                    await db.execute(
+                        text("""
+                            UPDATE hot_topics 
+                            SET generated_content = :content,
+                                generated_at = NOW(),
+                                updated_at = NOW()
+                            WHERE id = :id
+                        """),
+                        {"content": generated_content, "id": topic_id}
+                    )
+                    await db.commit()
+                
+                return {
+                    "success": True,
+                    "topic_id": topic_id,
+                    "title": title,
+                    "platform": platform,
+                    "generated_content": generated_content,
+                    "url": url
+                }
+                
+        except Exception as e:
+            self.log(f"生成回答失败: {e}", "error")
+            return {"error": str(e)}
+    
+    async def _get_topic_stats(self) -> Dict[str, Any]:
+        """获取话题发现统计"""
+        try:
+            from app.models.database import async_session_maker
+            from sqlalchemy import text
+            
+            async with async_session_maker() as db:
+                # 总话题数
+                total_result = await db.execute(
+                    text("SELECT COUNT(*) FROM hot_topics")
+                )
+                total = total_result.scalar() or 0
+                
+                # 待回答话题数
+                new_result = await db.execute(
+                    text("SELECT COUNT(*) FROM hot_topics WHERE status = 'new'")
+                )
+                new_count = new_result.scalar() or 0
+                
+                # 已回答数
+                answered_result = await db.execute(
+                    text("SELECT COUNT(*) FROM hot_topics WHERE status = 'answered'")
+                )
+                answered_count = answered_result.scalar() or 0
+                
+                # 高价值话题数
+                high_value_result = await db.execute(
+                    text("SELECT COUNT(*) FROM hot_topics WHERE value_score >= 70 AND status = 'new'")
+                )
+                high_value_count = high_value_result.scalar() or 0
+                
+                # 按平台统计
+                platform_result = await db.execute(
+                    text("""
+                        SELECT platform, COUNT(*) 
+                        FROM hot_topics 
+                        WHERE status = 'new'
+                        GROUP BY platform
+                    """)
+                )
+                by_platform = {row[0]: row[1] for row in platform_result.fetchall()}
+                
+                return {
+                    "total": total,
+                    "new": new_count,
+                    "answered": answered_count,
+                    "high_value": high_value_count,
+                    "by_platform": by_platform
+                }
+                
+        except Exception as e:
+            self.log(f"获取话题统计失败: {e}", "error")
+            return {"error": str(e)}
 
 
 # 注册Agent

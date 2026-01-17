@@ -7,7 +7,8 @@ from app.api import (
     reports, knowledge, webchat,
     standards, monitoring, marketing,
     assets, settings, notifications, wechat_groups,
-    social_auth, erp, wechat_analyst2, content, email
+    social_auth, erp, wechat_analyst2, content, email,
+    topics  # 新增：热门话题（小猎话题发现模式）
 )
 
 router = APIRouter()
@@ -37,3 +38,4 @@ router.include_router(erp.router, prefix="/erp", tags=["ERP对接"])
 router.include_router(wechat_analyst2.router, tags=["企业微信-小析2"])
 router.include_router(content.router, prefix="/content", tags=["内容营销"])
 router.include_router(email.router, tags=["邮件营销"])
+router.include_router(topics.router, prefix="/topics", tags=["热门话题"])
