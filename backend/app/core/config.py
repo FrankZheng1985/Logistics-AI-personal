@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     # 企业微信配置 - 小欧间谍（欧洲海关监控员）
     WECHAT_EU_MONITOR_AGENT_ID: Optional[str] = None
     WECHAT_EU_MONITOR_SECRET: Optional[str] = None
+    WECHAT_EU_MONITOR_TOKEN: Optional[str] = None
+    WECHAT_EU_MONITOR_ENCODING_AES_KEY: Optional[str] = None
     
     # 邮件配置
     SMTP_HOST: str = ""
