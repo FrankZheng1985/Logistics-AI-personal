@@ -409,8 +409,15 @@ function AgentLiveModal({
       isMounted = false
       clearTimeout(connectTimeout)
       if (pingInterval) clearInterval(pingInterval)
-      if (ws && ws.readyState !== WebSocket.CLOSED) {
-        ws.close()
+      // 只在连接已建立时关闭，避免"closed before established"警告
+      if (ws) {
+        try {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.close(1000, 'Component unmounted')
+          }
+        } catch {
+          // 忽略关闭错误
+        }
       }
     }
   }, [agent, agentType])
