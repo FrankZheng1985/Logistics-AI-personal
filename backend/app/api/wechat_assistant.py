@@ -563,38 +563,3 @@ async def check_config_status():
     }
 
 
-@router.post("/cleanup-error-schedules", summary="清理错误的日程记录（临时）")
-async def cleanup_error_schedules():
-    """清理title为空或包含'查询'的错误记录"""
-    from sqlalchemy import text
-    from app.models.database import AsyncSessionLocal
-    
-    async with AsyncSessionLocal() as db:
-        # 查询错误的记录
-        result = await db.execute(
-            text("""
-                SELECT id, title, start_time 
-                FROM assistant_schedules 
-                WHERE title LIKE '%查询%' OR title IS NULL
-                ORDER BY created_at DESC
-            """)
-        )
-        records = result.fetchall()
-        
-        if not records:
-            return {"success": True, "message": "没有找到错误记录", "deleted_count": 0}
-        
-        record_list = [{"id": r[0], "title": r[1], "start_time": str(r[2])} for r in records]
-        
-        # 删除这些记录
-        result = await db.execute(
-            text("DELETE FROM assistant_schedules WHERE title LIKE '%查询%' OR title IS NULL")
-        )
-        await db.commit()
-        
-        return {
-            "success": True, 
-            "message": f"已删除 {result.rowcount} 条错误记录",
-            "deleted_count": result.rowcount,
-            "records": record_list
-        }
