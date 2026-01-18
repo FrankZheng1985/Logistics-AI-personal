@@ -471,26 +471,79 @@ class AssistantAgent(BaseAgent):
             if not search_keyword:
                 return {"success": False, "response": "请告诉我您要修改哪个日程？比如'修改先锋团队例会的时间为上午10点'"}
             
-            # 搜索匹配的日程
-            async with AsyncSessionLocal() as db:
-                result = await db.execute(
-                    text("""
-                        SELECT id, title, start_time, location
-                        FROM assistant_schedules
-                        WHERE title ILIKE :keyword
-                        AND is_completed = FALSE
-                        ORDER BY start_time ASC
-                        LIMIT 5
-                    """),
-                    {"keyword": f"%{search_keyword}%"}
-                )
-                schedules = result.fetchall()
+            # 繁简体转换映射（常用字）
+            simplified_to_traditional = {
+                '锋': '鋒', '团': '團', '队': '隊', '会': '會', '时': '時',
+                '间': '間', '与': '與', '开': '開', '议': '議', '报': '報',
+                '记': '記', '务': '務', '项': '項', '经': '經', '营': '營',
+                '销': '銷', '财': '財', '总': '總', '结': '結', '进': '進',
+            }
+            traditional_to_simplified = {v: k for k, v in simplified_to_traditional.items()}
             
-            if not schedules:
-                return {
-                    "success": False, 
-                    "response": f"没有找到包含'{search_keyword}'的日程，请确认日程名称。"
-                }
+            def to_simplified(text):
+                for t, s in traditional_to_simplified.items():
+                    text = text.replace(t, s)
+                return text
+            
+            def to_traditional(text):
+                for s, t in simplified_to_traditional.items():
+                    text = text.replace(s, t)
+                return text
+            
+            # 生成搜索关键词的多个变体
+            search_variants = [
+                search_keyword,
+                to_simplified(search_keyword),
+                to_traditional(search_keyword),
+            ]
+            # 提取核心词（去掉"例会"、"会议"等后缀）
+            core_keyword = search_keyword.replace('例会', '').replace('会议', '').replace('會議', '').strip()
+            if core_keyword and core_keyword != search_keyword:
+                search_variants.extend([core_keyword, to_simplified(core_keyword), to_traditional(core_keyword)])
+            
+            # 搜索匹配的日程（尝试多个变体）
+            schedules = []
+            async with AsyncSessionLocal() as db:
+                for variant in search_variants:
+                    if schedules:
+                        break
+                    result = await db.execute(
+                        text("""
+                            SELECT id, title, start_time, location
+                            FROM assistant_schedules
+                            WHERE title ILIKE :keyword
+                            AND is_completed = FALSE
+                            ORDER BY start_time ASC
+                            LIMIT 5
+                        """),
+                        {"keyword": f"%{variant}%"}
+                    )
+                    schedules = result.fetchall()
+                
+                # 如果还是没找到，获取所有日程供用户选择
+                if not schedules:
+                    result = await db.execute(
+                        text("""
+                            SELECT id, title, start_time, location
+                            FROM assistant_schedules
+                            WHERE is_completed = FALSE
+                            ORDER BY start_time ASC
+                            LIMIT 10
+                        """)
+                    )
+                    all_schedules = result.fetchall()
+                    
+                    if all_schedules:
+                        schedule_list = "\n".join([f"• {s[1]} ({s[2].strftime('%m月%d日 %H:%M')})" for s in all_schedules])
+                        return {
+                            "success": False, 
+                            "response": f"没有找到'{search_keyword}'相关的日程。\n\n📅 当前日程列表：\n{schedule_list}\n\n请告诉我要修改哪个？"
+                        }
+                    else:
+                        return {
+                            "success": False, 
+                            "response": "当前没有任何日程记录。请先添加日程，比如说'帮我记住明天下午3点开会'"
+                        }
             
             # 取最近的一条日程进行修改
             schedule = schedules[0]
