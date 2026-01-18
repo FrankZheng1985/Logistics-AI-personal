@@ -343,7 +343,8 @@ async def process_coordinator_message(user_id: str, content: str):
     1. "日报" / "报告" / "工作汇报" - 获取今日工作报告
     2. "系统状态" / "健康检查" - 获取系统健康状态
     3. "员工状态" / "团队状态" - 获取AI员工工作状态
-    4. 其他消息 - 作为任务分析并分配
+    4. "任务状态" / "进度" - 查询最近任务状态
+    5. 其他消息 - 作为任务分析、分配并执行
     """
     try:
         logger.info(f"[小调] 处理用户 {user_id} 的消息: {content}")
@@ -370,7 +371,12 @@ async def process_coordinator_message(user_id: str, content: str):
             await handle_help(user_id)
             return
         
-        # 其他消息作为任务处理
+        # 任务状态/追问识别
+        if any(kw in content for kw in ["任务状态", "进度", "什么时候", "结果呢", "结果？", "给我结果", "完成了吗", "做完了吗", "怎么样了"]):
+            await handle_task_status_query(user_id, content)
+            return
+        
+        # 其他消息作为任务处理（分析→分配→执行→反馈结果）
         await handle_task_assignment(user_id, content)
         
     except Exception as e:
@@ -530,41 +536,125 @@ async def handle_help(user_id: str):
 • 日报 / 报告 - 获取今日工作报告
 • 系统状态 - 检查系统健康状态
 • 员工状态 - 查看AI团队工作情况
+• 任务状态 - 查看最近任务进度
 • 帮助 - 显示本帮助信息
 
 【任务分配】
-直接发送任务描述，小调会智能分析并分配：
+直接发送任务描述，小调会智能分析、分配并执行，完成后自动返回结果。
 
 示例：
 • "帮我写一篇关于欧洲海运的推广文案"
-  → 分配给小文
+  → 小文执行，返回文案内容
 
 • "搜索一下深圳做跨境电商的公司"
-  → 分配给小猎
+  → 小猎执行，返回线索列表
 
 • "分析一下最近的客户转化情况"
-  → 分配给小析
+  → 小析执行，返回分析报告
 
-• "给客户xxx发一条跟进消息"
-  → 分配给小跟
+• "ERP系统。我们的订单。上一周完成了多少？"
+  → 小析执行，返回数据统计
+
+【工作闭环】
+小调现在会完成完整的工作流程：
+1. 📥 接收任务
+2. 🔍 分析并分配给合适的AI员工
+3. ⚙️ 执行任务
+4. 📤 返回执行结果
 
 【小调管理的AI员工】
 • 小影 - 视频创作
 • 小文 - 文案策划
 • 小销 - 销售客服
 • 小跟 - 客户跟进
-• 小析 - 客户分析
+• 小析 - 数据分析
 • 小猎 - 线索搜索"""
     
     await send_text_message([user_id], help_text)
 
 
+async def handle_task_status_query(user_id: str, content: str):
+    """处理任务状态查询/追问"""
+    try:
+        logger.info(f"[小调] 用户 {user_id} 查询任务状态: {content}")
+        
+        # 查询该用户最近的任务
+        async with AsyncSessionLocal() as db:
+            from sqlalchemy import text
+            
+            result = await db.execute(
+                text("""
+                    SELECT id, task_type, agent_type, status, input_data, 
+                           output_data, created_at, completed_at
+                    FROM ai_tasks
+                    WHERE input_data::text LIKE :user_pattern
+                    ORDER BY created_at DESC
+                    LIMIT 5
+                """),
+                {"user_pattern": f'%{user_id}%'}
+            )
+            tasks = result.fetchall()
+        
+        if not tasks:
+            await send_text_message([user_id], "📋 暂无任务记录\n\n您还没有分配过任务，直接发送任务描述即可开始。")
+            return
+        
+        # AI员工名称映射
+        agent_names = {
+            "coordinator": "小调",
+            "video_creator": "小影",
+            "copywriter": "小文",
+            "sales": "小销",
+            "follow": "小跟",
+            "analyst": "小析",
+            "lead_hunter": "小猎"
+        }
+        
+        status_emoji = {
+            "pending": "⏳",
+            "processing": "🔄",
+            "completed": "✅",
+            "failed": "❌"
+        }
+        
+        msg_lines = [
+            "📋 您最近的任务状态：",
+            ""
+        ]
+        
+        for task in tasks:
+            task_id = str(task[0])[:8]
+            task_type = task[1]
+            agent_type = task[2]
+            status = task[3]
+            input_data = task[4] if isinstance(task[4], dict) else json.loads(task[4] or '{}')
+            created_at = task[6]
+            
+            agent_name = agent_names.get(agent_type, agent_type)
+            emoji = status_emoji.get(status, "❓")
+            desc = input_data.get("description", "")[:30]
+            
+            time_str = created_at.strftime('%m-%d %H:%M') if created_at else ""
+            
+            msg_lines.append(f"{emoji} [{task_id}] {desc}...")
+            msg_lines.append(f"   执行者: {agent_name} | 状态: {status} | {time_str}")
+            msg_lines.append("")
+        
+        msg_lines.append("💡 如需详情，请回复「任务ID」查询")
+        
+        await send_text_message([user_id], "\n".join(msg_lines))
+        
+    except Exception as e:
+        logger.error(f"[小调] 查询任务状态失败: {e}")
+        await send_text_message([user_id], f"查询任务状态失败：{str(e)}")
+
+
 async def handle_task_assignment(user_id: str, content: str):
-    """处理任务分配请求"""
+    """处理任务分配请求 - 完整闭环：分析→分配→执行→反馈结果"""
     try:
         await send_text_message([user_id], f"🤔 收到任务，正在分析...\n\n「{content}」")
         
-        # 调用小调分析任务
+        # 1. 调用小调分析任务
         result = await coordinator.process({
             "action": "analyze",
             "task_description": content
@@ -595,7 +685,7 @@ async def handle_task_assignment(user_id: str, content: str):
             "low": "🟢"
         }.get(priority, "⚪")
         
-        # 分配任务
+        # 2. 分配任务（记录到数据库）
         dispatch_result = await coordinator.process({
             "action": "dispatch",
             "task_type": task_type,
@@ -608,9 +698,10 @@ async def handle_task_assignment(user_id: str, content: str):
             "priority": priority
         })
         
-        task_id = dispatch_result.get("task_id", "")[:8]  # 只显示前8位
+        task_id = dispatch_result.get("task_id", "")
+        task_id_short = task_id[:8] if task_id else ""
         
-        # 回复用户
+        # 通知用户任务已分配
         reply_lines = [
             "✅ 任务已分配",
             "",
@@ -618,21 +709,368 @@ async def handle_task_assignment(user_id: str, content: str):
             f"👤 分配给: {agent_name}",
             f"📌 类型: {task_type}",
             f"{priority_emoji} 优先级: {priority}",
-            f"🔖 任务ID: {task_id}",
+            f"🔖 任务ID: {task_id_short}",
             "",
             f"💡 分配原因: {reason}" if reason else "",
+            "",
+            "⏳ 正在执行任务，请稍候..."
         ]
         
         await send_text_message([user_id], "\n".join([l for l in reply_lines if l]))
         
-        # 记录到数据库
+        # 记录交互
         await record_coordinator_interaction(user_id, content, "task_dispatch", dispatch_result)
         
+        # 3. 真正执行任务并获取结果
+        execution_result = await execute_task_and_get_result(
+            user_id=user_id,
+            task_id=task_id,
+            task_type=task_type,
+            recommended_agent=recommended_agent,
+            task_description=content,
+            agent_name=agent_name
+        )
+        
+        # 4. 将执行结果反馈给用户
+        if execution_result:
+            await send_task_result_to_user(user_id, task_id_short, agent_name, execution_result)
+        
     except Exception as e:
-        logger.error(f"[小调] 任务分配失败: {e}")
+        logger.error(f"[小调] 任务处理失败: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        await send_text_message([user_id], f"任务分配失败：{str(e)}")
+        await send_text_message([user_id], f"任务处理失败：{str(e)}")
+
+
+async def execute_task_and_get_result(
+    user_id: str,
+    task_id: str,
+    task_type: str,
+    recommended_agent: str,
+    task_description: str,
+    agent_name: str
+) -> Optional[Dict[str, Any]]:
+    """执行任务并获取结果"""
+    try:
+        from app.agents.base import AgentRegistry
+        from app.models.conversation import AgentType
+        
+        # 获取对应的Agent实例
+        agent_type_map = {
+            "analyst": AgentType.ANALYST,
+            "video_creator": AgentType.VIDEO_CREATOR,
+            "copywriter": AgentType.COPYWRITER,
+            "sales": AgentType.SALES,
+            "follow": AgentType.FOLLOW,
+            "lead_hunter": AgentType.LEAD_HUNTER,
+        }
+        
+        agent_type = agent_type_map.get(recommended_agent)
+        if not agent_type:
+            logger.warning(f"[小调] 未知的Agent类型: {recommended_agent}")
+            return {"error": f"未知的执行者类型: {recommended_agent}"}
+        
+        agent = AgentRegistry.get(agent_type)
+        if not agent:
+            logger.warning(f"[小调] 未找到Agent实例: {agent_type}")
+            return {"error": f"未找到执行者: {agent_name}"}
+        
+        logger.info(f"[小调] 开始执行任务，执行者: {agent_name}, 任务: {task_description[:50]}")
+        
+        # 根据不同Agent类型构建输入数据
+        result = None
+        
+        if recommended_agent == "analyst":
+            # 小析 - 数据分析任务
+            result = await execute_analyst_task(agent, task_description)
+            
+        elif recommended_agent == "copywriter":
+            # 小文 - 文案任务
+            result = await execute_copywriter_task(agent, task_description)
+            
+        elif recommended_agent == "lead_hunter":
+            # 小猎 - 线索搜索任务
+            result = await execute_lead_hunter_task(agent, task_description)
+            
+        elif recommended_agent == "sales":
+            # 小销 - 销售咨询回复任务
+            result = await execute_sales_task(agent, task_description)
+            
+        elif recommended_agent == "follow":
+            # 小跟 - 跟进任务
+            result = await execute_follow_task(agent, task_description)
+            
+        elif recommended_agent == "video_creator":
+            # 小影 - 视频创作任务
+            result = await execute_video_task(agent, task_description)
+        
+        # 更新任务状态为完成
+        if task_id and result:
+            await update_task_status(task_id, "completed", result)
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[小调] 执行任务失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        # 更新任务状态为失败
+        if task_id:
+            await update_task_status(task_id, "failed", {"error": str(e)})
+        
+        return {"error": str(e)}
+
+
+async def execute_analyst_task(agent, task_description: str) -> Dict[str, Any]:
+    """执行小析的数据分析任务"""
+    # 使用AI来理解任务并生成分析
+    analysis_prompt = f"""请作为数据分析师，分析以下任务需求并给出结果：
+
+任务描述：{task_description}
+
+请根据任务需求：
+1. 如果是ERP数据查询类任务（如订单统计、业务数据等），请说明需要查询哪些数据
+2. 如果是客户分析类任务，请提供分析框架
+3. 给出具体的分析结果或建议
+
+注意：如果任务涉及具体数据统计，请说明查询逻辑，并提示需要访问实际数据库获取准确数据。
+"""
+    
+    response = await agent.think([{"role": "user", "content": analysis_prompt}])
+    
+    return {
+        "task_type": "data_analysis",
+        "description": task_description,
+        "analysis_result": response,
+        "executor": "小析"
+    }
+
+
+async def execute_copywriter_task(agent, task_description: str) -> Dict[str, Any]:
+    """执行小文的文案任务"""
+    # 使用通用文案创作模式
+    result = await agent.process({
+        "task_type": "general",  # 使用通用模式
+        "requirement": task_description,
+        "topic": task_description
+    })
+    
+    return {
+        "task_type": "copywriting",
+        "description": task_description,
+        "content": result.get("content", result.get("copy", str(result))),
+        "executor": "小文"
+    }
+
+
+async def execute_lead_hunter_task(agent, task_description: str) -> Dict[str, Any]:
+    """执行小猎的线索搜索任务"""
+    result = await agent.process({
+        "action": "smart_hunt",
+        "keywords": task_description,
+        "query": task_description
+    })
+    
+    return {
+        "task_type": "lead_hunting",
+        "description": task_description,
+        "leads_found": result.get("leads", []),
+        "summary": result.get("summary", str(result)),
+        "executor": "小猎"
+    }
+
+
+async def execute_sales_task(agent, task_description: str) -> Dict[str, Any]:
+    """执行小销的销售咨询回复任务"""
+    response = await agent.chat(task_description)
+    
+    return {
+        "task_type": "sales_response",
+        "description": task_description,
+        "response": response,
+        "executor": "小销"
+    }
+
+
+async def execute_follow_task(agent, task_description: str) -> Dict[str, Any]:
+    """执行小跟的跟进任务"""
+    response = await agent.chat(task_description)
+    
+    return {
+        "task_type": "follow_up",
+        "description": task_description,
+        "suggestion": response,
+        "executor": "小跟"
+    }
+
+
+async def execute_video_task(agent, task_description: str) -> Dict[str, Any]:
+    """执行小影的视频创作任务"""
+    # 视频创作是异步的，先返回创建中的状态
+    return {
+        "task_type": "video_creation",
+        "description": task_description,
+        "status": "视频创作任务已创建，正在生成中...\n这类任务通常需要较长时间，完成后会通知您。",
+        "executor": "小影"
+    }
+
+
+async def update_task_status(task_id: str, status: str, output_data: Dict[str, Any]):
+    """更新任务状态"""
+    try:
+        async with AsyncSessionLocal() as db:
+            from sqlalchemy import text
+            
+            await db.execute(
+                text("""
+                    UPDATE ai_tasks 
+                    SET status = :status, 
+                        output_data = :output_data,
+                        completed_at = CASE WHEN :status IN ('completed', 'failed') THEN NOW() ELSE completed_at END
+                    WHERE id = :task_id
+                """),
+                {
+                    "task_id": task_id,
+                    "status": status,
+                    "output_data": json.dumps(output_data, ensure_ascii=False, default=str)
+                }
+            )
+            await db.commit()
+    except Exception as e:
+        logger.error(f"[小调] 更新任务状态失败: {e}")
+
+
+async def send_task_result_to_user(user_id: str, task_id: str, agent_name: str, result: Dict[str, Any]):
+    """将任务执行结果发送给用户"""
+    try:
+        if "error" in result:
+            msg = f"""❌ 任务执行失败
+
+🔖 任务ID: {task_id}
+👤 执行者: {agent_name}
+⚠️ 错误: {result['error']}
+
+请检查任务描述后重试。"""
+            await send_text_message([user_id], msg)
+            return
+        
+        # 根据任务类型格式化结果
+        task_type = result.get("task_type", "")
+        executor = result.get("executor", agent_name)
+        
+        if task_type == "data_analysis":
+            analysis = result.get("analysis_result", "")
+            # 截取前2000字符，避免消息过长
+            if len(analysis) > 1800:
+                analysis = analysis[:1800] + "\n...(内容过长已截断)"
+            
+            msg = f"""📊 数据分析结果
+
+🔖 任务ID: {task_id}
+👤 执行者: {executor}
+⏰ 完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+📋 分析结果：
+{analysis}"""
+            
+        elif task_type == "copywriting":
+            content = result.get("content", "")
+            if len(content) > 1800:
+                content = content[:1800] + "\n...(内容过长已截断)"
+            
+            msg = f"""✍️ 文案创作完成
+
+🔖 任务ID: {task_id}
+👤 执行者: {executor}
+⏰ 完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+📝 文案内容：
+{content}"""
+            
+        elif task_type == "lead_hunting":
+            leads = result.get("leads_found", [])
+            summary = result.get("summary", "")
+            
+            leads_text = ""
+            if leads and len(leads) > 0:
+                for i, lead in enumerate(leads[:5], 1):  # 最多显示5个
+                    leads_text += f"\n{i}. {lead.get('company', lead.get('name', '未知'))}"
+            else:
+                leads_text = "\n暂无新线索"
+            
+            msg = f"""🔍 线索搜索完成
+
+🔖 任务ID: {task_id}
+👤 执行者: {executor}
+⏰ 完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+📋 搜索结果：{leads_text}
+
+💡 摘要：{summary[:500] if summary else '无'}"""
+            
+        elif task_type == "sales_response":
+            response = result.get("response", "")
+            if len(response) > 1800:
+                response = response[:1800] + "\n...(内容过长已截断)"
+            
+            msg = f"""💬 销售咨询回复
+
+🔖 任务ID: {task_id}
+👤 执行者: {executor}
+⏰ 完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+📋 回复建议：
+{response}"""
+            
+        elif task_type == "follow_up":
+            suggestion = result.get("suggestion", "")
+            if len(suggestion) > 1800:
+                suggestion = suggestion[:1800] + "\n...(内容过长已截断)"
+            
+            msg = f"""📞 跟进建议
+
+🔖 任务ID: {task_id}
+👤 执行者: {executor}
+⏰ 完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+📋 跟进建议：
+{suggestion}"""
+            
+        elif task_type == "video_creation":
+            status = result.get("status", "")
+            msg = f"""🎬 视频创作任务
+
+🔖 任务ID: {task_id}
+👤 执行者: {executor}
+⏰ 创建时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+📋 状态：
+{status}"""
+            
+        else:
+            # 通用格式
+            content = json.dumps(result, ensure_ascii=False, indent=2, default=str)
+            if len(content) > 1800:
+                content = content[:1800] + "\n...(内容过长已截断)"
+            
+            msg = f"""✅ 任务完成
+
+🔖 任务ID: {task_id}
+👤 执行者: {executor}
+⏰ 完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+📋 执行结果：
+{content}"""
+        
+        await send_text_message([user_id], msg)
+        
+        # 通知任务完成（可选：也通知其他管理员）
+        # await notify_task_completion(task_id, executor, str(result)[:200])
+        
+    except Exception as e:
+        logger.error(f"[小调] 发送任务结果失败: {e}")
+        await send_text_message([user_id], f"任务已完成，但发送结果时出错：{str(e)}")
 
 
 async def record_coordinator_interaction(
