@@ -41,13 +41,21 @@ class AssetCollectorAgent(BaseAgent):
         platforms = input_data.get("platforms", ["pexels", "pixabay"])
         keywords = input_data.get("keywords", self.SEARCH_KEYWORDS[:3])
         
-        assets = await self.run_collection_task(platforms=platforms, keywords=keywords)
+        # 开始任务会话（实时直播）
+        await self.start_task_session("collect_assets", f"素材采集: {', '.join(platforms)}")
         
-        return {
-            "status": "success",
-            "found": len(assets),
-            "assets": assets
-        }
+        try:
+            assets = await self.run_collection_task(platforms=platforms, keywords=keywords)
+            
+            await self.end_task_session(f"完成素材采集: 找到 {len(assets)} 个素材")
+            return {
+                "status": "success",
+                "found": len(assets),
+                "assets": assets
+            }
+        except Exception as e:
+            await self.end_task_session(error_message=str(e))
+            raise
     
     # 支持的平台
     PLATFORMS = {

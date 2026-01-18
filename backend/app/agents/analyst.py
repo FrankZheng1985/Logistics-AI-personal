@@ -53,46 +53,57 @@ class AnalystAgent(BaseAgent):
                 "should_notify": bool
             }
         """
-        customer_info = input_data.get("customer_info", {})
-        conversations = input_data.get("conversations", [])
-        intent_signals = input_data.get("intent_signals", [])
-        current_score = input_data.get("current_score", 0)
+        # 开始任务会话（实时直播）
+        await self.start_task_session("intent_analysis", "客户意向分析")
         
-        # 方法1：基于规则计算分数增量
-        rule_based_delta = self._calculate_score_delta(intent_signals)
-        
-        # 方法2：使用AI进行深度分析
-        if conversations:
-            ai_analysis = await self._ai_analyze(customer_info, conversations)
-        else:
-            ai_analysis = None
-        
-        # 综合评估
-        final_delta = rule_based_delta
-        new_score = max(0, current_score + final_delta)
-        intent_level = self._get_intent_level(new_score)
-        
-        # 是否需要通知老板
-        should_notify = (
-            new_score >= settings.HIGH_INTENT_THRESHOLD and 
-            current_score < settings.HIGH_INTENT_THRESHOLD
-        )
-        
-        result = {
-            "intent_score": new_score,
-            "intent_level": intent_level,
-            "score_delta": final_delta,
-            "signals_detected": intent_signals,
-            "analysis": ai_analysis,
-            "should_notify": should_notify
-        }
-        
-        self.log(f"意向分析完成: {intent_level}级 ({new_score}分, Δ{final_delta})")
-        
-        if should_notify:
-            self.log(f"⚡ 发现高意向客户！需要通知老板", "warning")
-        
-        return result
+        try:
+            customer_info = input_data.get("customer_info", {})
+            conversations = input_data.get("conversations", [])
+            intent_signals = input_data.get("intent_signals", [])
+            current_score = input_data.get("current_score", 0)
+            
+            await self.log_live_step("analyze", "开始分析客户意向", f"信号数量: {len(intent_signals)}")
+            
+            # 方法1：基于规则计算分数增量
+            rule_based_delta = self._calculate_score_delta(intent_signals)
+            
+            # 方法2：使用AI进行深度分析
+            if conversations:
+                await self.log_live_step("think", "AI深度分析对话内容", f"对话数量: {len(conversations)}")
+                ai_analysis = await self._ai_analyze(customer_info, conversations)
+            else:
+                ai_analysis = None
+            
+            # 综合评估
+            final_delta = rule_based_delta
+            new_score = max(0, current_score + final_delta)
+            intent_level = self._get_intent_level(new_score)
+            
+            # 是否需要通知老板
+            should_notify = (
+                new_score >= settings.HIGH_INTENT_THRESHOLD and 
+                current_score < settings.HIGH_INTENT_THRESHOLD
+            )
+            
+            result = {
+                "intent_score": new_score,
+                "intent_level": intent_level,
+                "score_delta": final_delta,
+                "signals_detected": intent_signals,
+                "analysis": ai_analysis,
+                "should_notify": should_notify
+            }
+            
+            self.log(f"意向分析完成: {intent_level}级 ({new_score}分, Δ{final_delta})")
+            
+            if should_notify:
+                self.log(f"⚡ 发现高意向客户！需要通知老板", "warning")
+            
+            await self.end_task_session(f"完成意向分析: {intent_level}级 ({new_score}分)")
+            return result
+        except Exception as e:
+            await self.end_task_session(error_message=str(e))
+            raise
     
     def _calculate_score_delta(self, signals: List[str]) -> int:
         """根据意向信号计算分数增量"""

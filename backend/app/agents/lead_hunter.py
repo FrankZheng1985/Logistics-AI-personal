@@ -116,27 +116,38 @@ class LeadHunterAgent(BaseAgent):
         """
         action = input_data.get("action", "smart_hunt")
         
-        # 线索搜索模式
-        if action == "search":
-            return await self._search_leads(input_data)
-        elif action == "analyze":
-            return await self._analyze_content(input_data)
-        elif action == "hunt":
-            return await self._full_hunt(input_data)
-        elif action == "smart_hunt":
-            return await self._smart_hunt(input_data)
-        elif action == "get_stats":
-            return await self._get_hunt_stats()
+        # 开始任务会话（实时直播）
+        await self.start_task_session(action, f"线索搜索任务: {action}")
         
-        # 话题发现模式（新增）
-        elif action == "discover_topics":
-            return await self._discover_topics(input_data)
-        elif action == "analyze_topic":
-            return await self._analyze_topic_value(input_data)
-        elif action == "get_topic_stats":
-            return await self._get_topic_stats()
-        elif action == "generate_answer":
-            return await self._generate_answer(input_data)
+        try:
+            # 线索搜索模式
+            if action == "search":
+                result = await self._search_leads(input_data)
+            elif action == "analyze":
+                result = await self._analyze_content(input_data)
+            elif action == "hunt":
+                result = await self._full_hunt(input_data)
+            elif action == "smart_hunt":
+                result = await self._smart_hunt(input_data)
+            elif action == "get_stats":
+                result = await self._get_hunt_stats()
+            # 话题发现模式（新增）
+            elif action == "discover_topics":
+                result = await self._discover_topics(input_data)
+            elif action == "analyze_topic":
+                result = await self._analyze_topic_value(input_data)
+            elif action == "get_topic_stats":
+                result = await self._get_topic_stats()
+            elif action == "generate_answer":
+                result = await self._generate_answer(input_data)
+            else:
+                result = {"error": f"未知操作: {action}"}
+            
+            await self.end_task_session(f"完成{action}任务")
+            return result
+        except Exception as e:
+            await self.end_task_session(error_message=str(e))
+            raise
         
         # 产品趋势发现模式（内容引流 + 市场洞察）
         elif action == "discover_products":

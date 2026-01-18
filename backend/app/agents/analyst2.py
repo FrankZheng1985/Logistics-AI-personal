@@ -123,27 +123,39 @@ class Analyst2Agent(BaseAgent):
                 "reason": "未匹配关键词"
             }
         
-        # 使用AI进行深度分析
-        analysis = await self._ai_analyze(content, group_name, sender_name)
+        # 开始任务会话（实时直播）- 只对需要AI分析的消息启动
+        await self.start_task_session("wechat_analyze", f"分析群消息: {group_name}")
         
-        # 提取联系方式
-        contact_info = self._extract_contact_info(content)
-        if contact_info:
-            analysis["key_info"] = analysis.get("key_info", {})
-            analysis["key_info"]["contact_info"] = contact_info
-        
-        # 添加元数据
-        analysis["group_id"] = group_id
-        analysis["group_name"] = group_name
-        analysis["sender_name"] = sender_name
-        analysis["keyword_matches"] = keyword_result["keywords"]
-        analysis["analyzed_at"] = datetime.now().isoformat()
-        
-        # 记录日志
-        if analysis.get("is_valuable"):
-            self.log(f"发现有价值信息: [{group_name}] {analysis.get('category')} - {analysis.get('summary', '')[:50]}")
-        
-        return analysis
+        try:
+            await self.log_live_step("analyze", "开始AI深度分析", f"来自: {sender_name}")
+            
+            # 使用AI进行深度分析
+            analysis = await self._ai_analyze(content, group_name, sender_name)
+            
+            # 提取联系方式
+            contact_info = self._extract_contact_info(content)
+            if contact_info:
+                analysis["key_info"] = analysis.get("key_info", {})
+                analysis["key_info"]["contact_info"] = contact_info
+                await self.log_live_step("result", "提取到联系方式", str(contact_info))
+            
+            # 添加元数据
+            analysis["group_id"] = group_id
+            analysis["group_name"] = group_name
+            analysis["sender_name"] = sender_name
+            analysis["keyword_matches"] = keyword_result["keywords"]
+            analysis["analyzed_at"] = datetime.now().isoformat()
+            
+            # 记录日志
+            if analysis.get("is_valuable"):
+                self.log(f"发现有价值信息: [{group_name}] {analysis.get('category')} - {analysis.get('summary', '')[:50]}")
+                await self.log_live_step("result", "发现有价值信息", f"{analysis.get('category')}: {analysis.get('summary', '')[:50]}")
+            
+            await self.end_task_session(f"完成消息分析: {'有价值' if analysis.get('is_valuable') else '无价值'}")
+            return analysis
+        except Exception as e:
+            await self.end_task_session(error_message=str(e))
+            raise
     
     def _quick_filter(self, content: str) -> bool:
         """快速过滤明显无关的内容"""

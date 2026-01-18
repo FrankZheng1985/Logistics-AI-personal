@@ -88,11 +88,22 @@ class VideoCreatorAgent(BaseAgent):
             }
         """
         mode = input_data.get("mode", "movie")
+        title = input_data.get("title", "视频生成")
         
-        if mode == "quick":
-            return await self._process_quick_video(input_data)
-        else:
-            return await self._process_movie_video(input_data)
+        # 开始任务会话（实时直播）
+        await self.start_task_session(f"video_{mode}", f"视频生成: {title}")
+        
+        try:
+            if mode == "quick":
+                result = await self._process_quick_video(input_data)
+            else:
+                result = await self._process_movie_video(input_data)
+            
+            await self.end_task_session(f"完成视频生成: {title}")
+            return result
+        except Exception as e:
+            await self.end_task_session(error_message=str(e))
+            raise
     
     async def _process_quick_video(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """快速生成短视频（5-10秒）"""

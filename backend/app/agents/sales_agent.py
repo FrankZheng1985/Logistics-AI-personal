@@ -286,6 +286,10 @@ class SalesAgent(BaseAgent):
         context = input_data.get("context", {})
         user_type = context.get("user_type", "external")
         
+        # 开始任务会话（实时直播）
+        task_desc = "内部同事对话" if user_type == "internal" else "客户咨询"
+        await self.start_task_session("chat", f"{task_desc}: {message[:30]}...")
+        
         # 获取公司上下文信息
         company_context = await self._get_company_context()
         
@@ -362,6 +366,9 @@ class SalesAgent(BaseAgent):
         
         log_prefix = "同事" if user_type == "internal" else "客户"
         self.log(f"回复{log_prefix} {customer_id[:8]}...: {reply[:50]}...")
+        
+        # 结束任务会话
+        await self.end_task_session(f"完成{log_prefix}对话")
         
         return {
             "reply": reply,

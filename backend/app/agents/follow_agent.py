@@ -59,6 +59,9 @@ class FollowAgent(BaseAgent):
         language = input_data.get("language", "auto")
         channel = input_data.get("channel", "wechat")
         
+        # 开始任务会话（实时直播）
+        await self.start_task_session("follow_up", f"跟进任务: {purpose}")
+        
         # 获取有效语言（auto默认中文）
         from app.services.language_detector import language_detector
         effective_language = language_detector.get_effective_language(language, fallback='zh')
@@ -128,6 +131,9 @@ This is a follow-up email, please:
                     follow_subject = "Follow-up from XF Logistics"
                 else:
                     follow_subject = "先锋物流跟进"
+        
+        # 结束任务会话
+        await self.end_task_session(f"完成跟进消息生成: {intent_level}级客户")
         
         return {
             "follow_message": follow_message,

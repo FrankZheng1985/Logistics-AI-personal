@@ -67,16 +67,26 @@ class CoordinatorAgent(BaseAgent):
         """
         action = input_data.get("action", "analyze")
         
-        if action == "dispatch":
-            return await self._dispatch_task(input_data)
-        elif action == "report":
-            return await self._generate_report(input_data)
-        elif action == "monitor":
-            return await self._monitor_system(input_data)
-        elif action == "coordinate":
-            return await self._coordinate_workflow(input_data)
-        else:
-            return await self._analyze_task(input_data)
+        # 开始任务会话（实时直播）
+        await self.start_task_session(action, f"调度任务: {action}")
+        
+        try:
+            if action == "dispatch":
+                result = await self._dispatch_task(input_data)
+            elif action == "report":
+                result = await self._generate_report(input_data)
+            elif action == "monitor":
+                result = await self._monitor_system(input_data)
+            elif action == "coordinate":
+                result = await self._coordinate_workflow(input_data)
+            else:
+                result = await self._analyze_task(input_data)
+            
+            await self.end_task_session(f"完成调度任务: {action}")
+            return result
+        except Exception as e:
+            await self.end_task_session(error_message=str(e))
+            raise
     
     async def _analyze_task(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """分析任务并决定路由"""
