@@ -153,26 +153,29 @@ class EmailService:
                     if company_name:
                         html_parts.append(f'<p style="margin: 5px 0;">{company_name}</p>')
                     
-                    # 地址在电话前面
+                    # 地址
                     if address:
                         html_parts.append(f'<p style="margin: 5px 0;">📍 地址：{address}</p>')
                     
+                    # 电话
                     if contact_phone:
                         html_parts.append(f'<p style="margin: 5px 0;">📞 电话：{contact_phone}</p>')
                     
+                    # 邮箱
                     if contact_email:
                         html_parts.append(f'<p style="margin: 5px 0;">📧 邮箱：{contact_email}</p>')
                     
-                    # 微信号和二维码
-                    if contact_wechat:
-                        if wechat_qrcode:
-                            html_parts.append(f'<p style="margin: 5px 0;">💬 微信：{contact_wechat}</p>')
-                            html_parts.append(f'<p style="margin: 10px 0;"><img src="{wechat_qrcode}" alt="微信二维码" style="max-width: 120px; height: auto;" /></p>')
-                        else:
-                            html_parts.append(f'<p style="margin: 5px 0;">💬 微信：{contact_wechat}</p>')
-                    
+                    # 官网
                     if company_website:
                         html_parts.append(f'<p style="margin: 5px 0;">🌐 官网：<a href="{company_website}" style="color: #0066cc;">{company_website}</a></p>')
+                    
+                    # 微信号
+                    if contact_wechat:
+                        html_parts.append(f'<p style="margin: 5px 0;">💬 微信：{contact_wechat}</p>')
+                    
+                    # 二维码放最下面
+                    if wechat_qrcode:
+                        html_parts.append(f'<p style="margin: 10px 0;"><img src="{wechat_qrcode}" alt="微信二维码" style="max-width: 120px; height: auto;" /></p>')
                     
                     html_parts.append('</div>')
                     
@@ -189,10 +192,10 @@ class EmailService:
                         text_parts.append(f"电话：{contact_phone}")
                     if contact_email:
                         text_parts.append(f"邮箱：{contact_email}")
-                    if contact_wechat:
-                        text_parts.append(f"微信：{contact_wechat}")
                     if company_website:
                         text_parts.append(f"官网：{company_website}")
+                    if contact_wechat:
+                        text_parts.append(f"微信：{contact_wechat}")
                     
                     return {
                         "html": "\n".join(html_parts),
