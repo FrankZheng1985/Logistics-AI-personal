@@ -338,6 +338,52 @@ class BaseAgent(ABC):
             logger.error(f"{self.name} 思考出错: {e}")
             raise
     
+    async def think_and_stream(
+        self,
+        messages: List[Dict[str, str]],
+        title: str = "正在生成内容",
+        temperature: float = 0.7,
+        chunk_size: int = 2,
+        delay: float = 0.015
+    ) -> str:
+        """
+        调用LLM进行思考，并将结果以打字机效果流式传输到前端
+        
+        Args:
+            messages: 对话消息列表
+            title: 显示的标题
+            temperature: 创造性参数
+            chunk_size: 每次发送的字符数
+            delay: 每次发送之间的延迟（秒）
+        
+        Returns:
+            AI回复内容
+        """
+        try:
+            # 1. 先调用LLM获取完整回复
+            response = await chat_completion(
+                messages=messages,
+                system_prompt=self.system_prompt,
+                temperature=temperature
+            )
+            
+            # 2. 如果启用了直播，流式传输内容
+            if self.enable_live_broadcast and self._current_session_id:
+                from app.services.websocket_manager import websocket_manager
+                await websocket_manager.stream_content(
+                    agent_type=self.agent_type.value if self.agent_type else "unknown",
+                    session_id=str(self._current_session_id),
+                    content=response,
+                    title=title,
+                    chunk_size=chunk_size,
+                    delay=delay
+                )
+            
+            return response
+        except Exception as e:
+            logger.error(f"{self.name} 思考出错: {e}")
+            raise
+    
     async def chat(self, user_message: str, context: Optional[str] = None) -> str:
         """
         简单的单轮对话

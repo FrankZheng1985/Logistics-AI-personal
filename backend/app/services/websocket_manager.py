@@ -131,6 +131,56 @@ class WebSocketManager:
         direct = len(self.active_connections.get(agent_type, []))
         all_subscribers = len(self.active_connections.get("all", []))
         return direct + all_subscribers
+    
+    async def stream_content(self, agent_type: str, session_id: str, content: str, 
+                             title: str = "正在生成内容", chunk_size: int = 3, delay: float = 0.02):
+        """流式传输内容（打字机效果）
+        
+        Args:
+            agent_type: 员工类型
+            session_id: 任务会话ID
+            content: 要流式传输的完整内容
+            title: 标题
+            chunk_size: 每次发送的字符数
+            delay: 每次发送之间的延迟（秒）
+        """
+        # 首先发送开始流式传输的消息
+        start_msg = {
+            "type": "stream_start",
+            "agent_type": agent_type,
+            "session_id": session_id,
+            "title": title,
+            "total_length": len(content)
+        }
+        await self.broadcast_step(start_msg)
+        
+        # 逐块发送内容
+        current_content = ""
+        for i in range(0, len(content), chunk_size):
+            chunk = content[i:i+chunk_size]
+            current_content += chunk
+            
+            stream_msg = {
+                "type": "stream_content",
+                "agent_type": agent_type,
+                "session_id": session_id,
+                "chunk": chunk,
+                "current_content": current_content,
+                "progress": min(100, int((i + chunk_size) / len(content) * 100))
+            }
+            await self.broadcast_step(stream_msg)
+            await asyncio.sleep(delay)
+        
+        # 发送流式传输结束消息
+        end_msg = {
+            "type": "stream_end",
+            "agent_type": agent_type,
+            "session_id": session_id,
+            "title": title,
+            "final_content": content,
+            "total_length": len(content)
+        }
+        await self.broadcast_step(end_msg)
 
 
 # 创建全局实例

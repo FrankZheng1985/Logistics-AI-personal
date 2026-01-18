@@ -23,9 +23,11 @@ import {
   PenTool,
   AlertCircle,
   Play,
-  ExternalLink
+  ExternalLink,
+  FileText
 } from 'lucide-react'
 import Link from 'next/link'
+import { TypewriterText } from '@/components/TypewriterText'
 
 // 员工类型映射
 const AGENT_TYPE_MAP: Record<string, string> = {
@@ -244,6 +246,14 @@ function getIconColor(stepType: string, status: string) {
   }
 }
 
+// 流式内容状态
+interface StreamingState {
+  isStreaming: boolean
+  title: string
+  content: string
+  progress: number
+}
+
 // AI员工实时工作直播弹窗
 function AgentLiveModal({ 
   agent, 
@@ -255,6 +265,12 @@ function AgentLiveModal({
   const [steps, setSteps] = useState<LiveStep[]>([])
   const [connected, setConnected] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [streaming, setStreaming] = useState<StreamingState>({
+    isStreaming: false,
+    title: '',
+    content: '',
+    progress: 0
+  })
   const wsRef = useRef<WebSocket | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   
@@ -311,9 +327,58 @@ function AgentLiveModal({
         ws.onmessage = (event) => {
           if (!isMounted) return
           try {
-            const step = JSON.parse(event.data)
-            if (step.type === 'connected' || step.type === 'pong') return
-            setSteps(prev => [...prev, step])
+            const msg = JSON.parse(event.data)
+            
+            // 处理基本消息
+            if (msg.type === 'connected' || msg.type === 'pong') return
+            
+            // 处理流式内容消息
+            if (msg.type === 'stream_start') {
+              setStreaming({
+                isStreaming: true,
+                title: msg.title || '正在生成内容',
+                content: '',
+                progress: 0
+              })
+              return
+            }
+            
+            if (msg.type === 'stream_content') {
+              setStreaming(prev => ({
+                ...prev,
+                content: msg.current_content || prev.content + (msg.chunk || ''),
+                progress: msg.progress || prev.progress
+              }))
+              return
+            }
+            
+            if (msg.type === 'stream_end') {
+              // 流式结束，添加到步骤列表
+              setSteps(prev => [...prev, {
+                id: `stream-${Date.now()}`,
+                agent_type: msg.agent_type,
+                agent_name: '',
+                session_id: msg.session_id,
+                step_type: 'write',
+                step_title: msg.title || '内容生成完成',
+                step_content: `生成了 ${msg.total_length || 0} 字符的内容`,
+                status: 'completed',
+                created_at: new Date().toISOString()
+              }])
+              // 清除流式状态
+              setTimeout(() => {
+                setStreaming({
+                  isStreaming: false,
+                  title: '',
+                  content: '',
+                  progress: 0
+                })
+              }, 1000)
+              return
+            }
+            
+            // 普通步骤消息
+            setSteps(prev => [...prev, msg])
           } catch {
             // 忽略解析错误
           }
@@ -420,40 +485,90 @@ function AgentLiveModal({
             <div className="flex items-center justify-center h-full">
               <Loader2 className="w-8 h-8 animate-spin text-cyber-blue" />
             </div>
-          ) : steps.length === 0 ? (
+          ) : steps.length === 0 && !streaming.isStreaming ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-500">
               <Eye className="w-12 h-12 mb-2 opacity-50" />
               <p>等待工作开始...</p>
               <p className="text-xs mt-1">当员工开始工作时，这里会实时显示工作过程</p>
             </div>
           ) : (
-            steps.map((step, index) => (
-              <motion.div
-                key={step.id || index}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                className={`p-3 rounded-lg border ${getStepColor(step.step_type, step.status)}`}
-              >
-                <div className="flex items-start gap-3">
-                  <div className={`mt-0.5 ${getIconColor(step.step_type, step.status)}`}>
-                    {step.status === 'running' ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      getStepIcon(step.step_type)
-                    )}
+            <>
+              {steps.map((step, index) => (
+                <motion.div
+                  key={step.id || index}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className={`p-3 rounded-lg border ${getStepColor(step.step_type, step.status)}`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className={`mt-0.5 ${getIconColor(step.step_type, step.status)}`}>
+                      {step.status === 'running' ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        getStepIcon(step.step_type)
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm">{step.step_title}</p>
+                      {step.step_content && (
+                        <p className="text-xs text-gray-400 mt-1 truncate">{step.step_content}</p>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-500 whitespace-nowrap">
+                      {formatTime(step.created_at)}
+                    </span>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm">{step.step_title}</p>
-                    {step.step_content && (
-                      <p className="text-xs text-gray-400 mt-1 truncate">{step.step_content}</p>
-                    )}
-                  </div>
-                  <span className="text-xs text-gray-500 whitespace-nowrap">
-                    {formatTime(step.created_at)}
-                  </span>
-                </div>
-              </motion.div>
-            ))
+                </motion.div>
+              ))}
+              
+              {/* 流式内容显示 - 打字机效果 */}
+              <AnimatePresence>
+                {streaming.isStreaming && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    className="bg-gradient-to-r from-cyan-900/30 to-blue-900/30 border border-cyan-500/40 rounded-lg overflow-hidden"
+                  >
+                    {/* 标题栏 */}
+                    <div className="flex items-center justify-between px-4 py-2 bg-black/30 border-b border-cyan-500/20">
+                      <div className="flex items-center gap-2">
+                        <motion.div
+                          className="w-2 h-2 rounded-full bg-cyan-400"
+                          animate={{ scale: [1, 1.3, 1], opacity: [1, 0.5, 1] }}
+                          transition={{ duration: 1, repeat: Infinity }}
+                        />
+                        <FileText className="w-4 h-4 text-cyan-400" />
+                        <span className="text-sm text-cyan-300 font-medium">{streaming.title}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-cyan-400">{streaming.progress}%</span>
+                        <span className="text-xs text-gray-500">{streaming.content.length} 字</span>
+                      </div>
+                    </div>
+                    
+                    {/* 进度条 */}
+                    <div className="h-1 bg-gray-800/50">
+                      <motion.div
+                        className="h-full bg-gradient-to-r from-cyan-500 via-blue-500 to-purple-500"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${streaming.progress}%` }}
+                        transition={{ duration: 0.2 }}
+                      />
+                    </div>
+                    
+                    {/* 内容区域 - 打字机效果 */}
+                    <div className="p-4 max-h-[250px] overflow-auto bg-black/20">
+                      <TypewriterText
+                        content={streaming.content}
+                        isStreaming={true}
+                        className="text-sm text-gray-200 leading-relaxed font-mono"
+                      />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </>
           )}
         </div>
         

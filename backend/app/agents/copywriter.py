@@ -202,7 +202,13 @@ class CopywriterAgent(BaseAgent):
         # 记录正在写作（实时直播）
         await self.log_write("视频脚本", f"正在为《{title}》构思分镜和文案...")
         
-        script = await self.think([{"role": "user", "content": prompt}])
+        # 使用流式输出，让用户看到实时生成过程
+        script = await self.think_and_stream(
+            [{"role": "user", "content": prompt}],
+            title=f"撰写视频脚本: {title}",
+            chunk_size=3,
+            delay=0.02
+        )
         keywords = self._extract_keywords(script)
         
         # 记录写作完成（实时直播）
@@ -294,7 +300,14 @@ xxx
         # 记录正在写作（实时直播）
         await self.log_write("长视频脚本", f"正在为《{title}》构思电影级分镜...")
         
-        script = await self.think([{"role": "user", "content": prompt}], temperature=0.8)
+        # 使用流式输出
+        script = await self.think_and_stream(
+            [{"role": "user", "content": prompt}],
+            title=f"撰写长视频脚本: {title}",
+            temperature=0.8,
+            chunk_size=3,
+            delay=0.02
+        )
         keywords = self._extract_keywords(script)
         
         # 解析分镜结构
@@ -333,7 +346,13 @@ xxx
             target_audience=target_audience
         )
         
-        copy = await self.think([{"role": "user", "content": prompt}])
+        # 使用流式输出
+        copy = await self.think_and_stream(
+            [{"role": "user", "content": prompt}],
+            title=f"撰写朋友圈文案: {topic}",
+            chunk_size=2,
+            delay=0.015
+        )
         
         await self.log_write_complete("朋友圈文案", f"完成主题《{topic}》的文案创作")
         self.log(f"完成朋友圈文案: {topic}")
