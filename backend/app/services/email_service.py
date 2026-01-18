@@ -143,7 +143,7 @@ class EmailService:
                     
                     # Logo显示在最上方
                     if email_logo:
-                        html_parts.append(f'<p style="margin: 0 0 15px 0;"><img src="{email_logo}" alt="Logo" style="max-height: 50px; width: auto;" /></p>')
+                        html_parts.append(f'<p style="margin: 0 0 15px 0;"><img src="{email_logo}" alt="Logo" style="max-height: 80px; width: auto;" /></p>')
                     
                     if brand_slogan:
                         html_parts.append(f'<p style="margin: 0 0 10px 0; color: #333; font-style: italic;">"{brand_slogan}"</p>')
