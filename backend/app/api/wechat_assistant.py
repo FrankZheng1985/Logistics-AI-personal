@@ -17,10 +17,8 @@ from fastapi import APIRouter, Request, Query, BackgroundTasks
 from fastapi.responses import PlainTextResponse
 from loguru import logger
 import httpx
-from sqlalchemy import text
 
 from app.core.config import settings
-from app.core.database import AsyncSessionLocal
 
 router = APIRouter(prefix="/wechat_assistant", tags=["小助企业微信"])
 
@@ -568,6 +566,9 @@ async def check_config_status():
 @router.post("/cleanup-error-schedules", summary="清理错误的日程记录（临时）")
 async def cleanup_error_schedules():
     """清理title为空或为'查询今日日程安排'的错误记录"""
+    from sqlalchemy import text
+    from app.models.database import AsyncSessionLocal
+    
     async with AsyncSessionLocal() as db:
         # 查询错误的记录
         result = await db.execute(
