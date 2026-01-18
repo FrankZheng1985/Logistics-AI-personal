@@ -86,9 +86,10 @@ function StatCard({ title, value, icon: Icon, color }: {
 }
 
 // 日程卡片
-function ScheduleCard({ schedule, onComplete, onDelete }: {
+function ScheduleCard({ schedule, onComplete, onEdit, onDelete }: {
   schedule: any
   onComplete: (id: string) => void
+  onEdit: (schedule: any) => void
   onDelete: (id: string) => void
 }) {
   const { date, weekday, time } = formatDateTime(schedule.start_time)
@@ -138,13 +139,22 @@ function ScheduleCard({ schedule, onComplete, onDelete }: {
         </div>
         <div className="flex items-center gap-2">
           {!isCompleted && (
-            <button 
-              onClick={() => onComplete(schedule.id)}
-              className="p-2 hover:bg-cyber-green/20 rounded-lg transition-colors"
-              title="标记完成"
-            >
-              <Check className="w-4 h-4 text-cyber-green" />
-            </button>
+            <>
+              <button 
+                onClick={() => onEdit(schedule)}
+                className="p-2 hover:bg-cyber-blue/20 rounded-lg transition-colors"
+                title="编辑"
+              >
+                <Edit className="w-4 h-4 text-cyber-blue" />
+              </button>
+              <button 
+                onClick={() => onComplete(schedule.id)}
+                className="p-2 hover:bg-cyber-green/20 rounded-lg transition-colors"
+                title="标记完成"
+              >
+                <Check className="w-4 h-4 text-cyber-green" />
+              </button>
+            </>
           )}
           <button 
             onClick={() => onDelete(schedule.id)}
@@ -331,6 +341,139 @@ function AddScheduleModal({ isOpen, onClose, onAdd }: {
   )
 }
 
+// 编辑日程弹窗
+function EditScheduleModal({ isOpen, onClose, onSave, schedule }: {
+  isOpen: boolean
+  onClose: () => void
+  onSave: (id: string, data: any) => void
+  schedule: any
+}) {
+  const [title, setTitle] = useState('')
+  const [startTime, setStartTime] = useState('')
+  const [location, setLocation] = useState('')
+  const [priority, setPriority] = useState('normal')
+  const [description, setDescription] = useState('')
+  
+  // 当schedule变化时，初始化表单
+  useEffect(() => {
+    if (schedule) {
+      setTitle(schedule.title || '')
+      // 将ISO时间转换为datetime-local格式
+      if (schedule.start_time) {
+        const dt = new Date(schedule.start_time)
+        const localTime = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000)
+          .toISOString()
+          .slice(0, 16)
+        setStartTime(localTime)
+      }
+      setLocation(schedule.location || '')
+      setPriority(schedule.priority || 'normal')
+      setDescription(schedule.description || '')
+    }
+  }, [schedule])
+  
+  if (!isOpen || !schedule) return null
+  
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!title || !startTime) return
+    onSave(schedule.id, {
+      title,
+      start_time: new Date(startTime).toISOString(),
+      location: location || null,
+      priority,
+      description: description || null
+    })
+    onClose()
+  }
+  
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+      <motion.div 
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="glass-card w-full max-w-md mx-4 p-6"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold">编辑日程</h2>
+          <button onClick={onClose} className="p-1 hover:bg-white/10 rounded">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">日程标题 *</label>
+            <input
+              type="text"
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyber-blue outline-none"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">开始时间 *</label>
+            <input
+              type="datetime-local"
+              value={startTime}
+              onChange={e => setStartTime(e.target.value)}
+              className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyber-blue outline-none"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">地点</label>
+            <input
+              type="text"
+              value={location}
+              onChange={e => setLocation(e.target.value)}
+              className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyber-blue outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">优先级</label>
+            <select
+              value={priority}
+              onChange={e => setPriority(e.target.value)}
+              className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyber-blue outline-none"
+            >
+              <option value="low">低</option>
+              <option value="normal">普通</option>
+              <option value="high">高</option>
+              <option value="urgent">紧急</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">备注</label>
+            <textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyber-blue outline-none resize-none"
+              rows={2}
+            />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 border border-white/20 rounded-lg hover:bg-white/5 transition-colors"
+            >
+              取消
+            </button>
+            <button
+              type="submit"
+              className="flex-1 px-4 py-2 bg-cyber-blue rounded-lg hover:bg-cyber-blue/80 transition-colors font-medium"
+            >
+              保存
+            </button>
+          </div>
+        </form>
+      </motion.div>
+    </div>
+  )
+}
+
 // 添加待办弹窗
 function AddTodoModal({ isOpen, onClose, onAdd }: {
   isOpen: boolean
@@ -451,6 +594,8 @@ export default function AssistantWorkPage() {
   const [todos, setTodos] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddSchedule, setShowAddSchedule] = useState(false)
+  const [showEditSchedule, setShowEditSchedule] = useState(false)
+  const [editingSchedule, setEditingSchedule] = useState<any>(null)
   const [showAddTodo, setShowAddTodo] = useState(false)
   const [activeTab, setActiveTab] = useState<'schedules' | 'todos'>('schedules')
   
@@ -504,6 +649,30 @@ export default function AssistantWorkPage() {
       }
     } catch (error) {
       console.error('添加日程失败:', error)
+    }
+  }
+  
+  // 编辑日程
+  const handleEditSchedule = (schedule: any) => {
+    setEditingSchedule(schedule)
+    setShowEditSchedule(true)
+  }
+  
+  // 保存编辑的日程
+  const handleSaveSchedule = async (id: string, data: any) => {
+    try {
+      const res = await fetch(`/api/assistant/schedules/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      })
+      if (res.ok) {
+        fetchData()
+        setShowEditSchedule(false)
+        setEditingSchedule(null)
+      }
+    } catch (error) {
+      console.error('编辑日程失败:', error)
     }
   }
   
@@ -731,6 +900,7 @@ export default function AssistantWorkPage() {
                     key={schedule.id}
                     schedule={schedule}
                     onComplete={handleCompleteSchedule}
+                    onEdit={handleEditSchedule}
                     onDelete={handleDeleteSchedule}
                   />
                 ))
@@ -770,6 +940,12 @@ export default function AssistantWorkPage() {
         isOpen={showAddSchedule}
         onClose={() => setShowAddSchedule(false)}
         onAdd={handleAddSchedule}
+      />
+      <EditScheduleModal 
+        isOpen={showEditSchedule}
+        onClose={() => { setShowEditSchedule(false); setEditingSchedule(null); }}
+        onSave={handleSaveSchedule}
+        schedule={editingSchedule}
       />
       <AddTodoModal 
         isOpen={showAddTodo}

@@ -241,7 +241,7 @@ class AIUsageService:
             
             async with AsyncSessionLocal() as db:
                 # 构建查询条件
-                conditions = ["created_at >= :start_date", "created_at < :end_date + INTERVAL '1 day'"]
+                conditions = ["created_at >= :start_date::timestamp", "created_at < (:end_date::timestamp + INTERVAL '1 day')"]
                 params = {"start_date": start_date, "end_date": end_date}
                 
                 if agent_name:
@@ -445,11 +445,11 @@ class AIUsageService:
                     params["model_name"] = f"%{model_name}%"
                 
                 if start_date:
-                    conditions.append("created_at >= :start_date")
+                    conditions.append("created_at >= :start_date::timestamp")
                     params["start_date"] = start_date
                 
                 if end_date:
-                    conditions.append("created_at < :end_date + INTERVAL '1 day'")
+                    conditions.append("created_at < (:end_date::timestamp + INTERVAL '1 day')")
                     params["end_date"] = end_date
                 
                 where_clause = " AND ".join(conditions)
