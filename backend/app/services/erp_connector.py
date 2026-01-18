@@ -118,6 +118,7 @@ class ReadOnlyERPConnector:
         auth_token = self._config.get('auth_token', '')
         
         # BP Logistics ERP 支持多种认证方式
+        # 注意: query_param 类型在请求时通过URL参数传递，不在这里设置
         if auth_type == 'bearer':
             headers['Authorization'] = f'Bearer {auth_token}'
         elif auth_type == 'x_api_key':
@@ -131,6 +132,7 @@ class ReadOnlyERPConnector:
             headers['apikey'] = auth_token
         elif auth_type == 'token':
             headers['Authorization'] = f'Token {auth_token}'
+        # query_param 类型不在header中处理
         
         return headers
     
@@ -189,7 +191,12 @@ class ReadOnlyERPConnector:
         
         # 执行请求
         try:
-            response = await self._client.get(endpoint, params=params)
+            # 如果是 query_param 认证类型，将 apiKey 添加到参数中
+            request_params = params.copy() if params else {}
+            if self._config and self._config.get('auth_type') == 'query_param':
+                request_params['apiKey'] = self._config.get('auth_token', '')
+            
+            response = await self._client.get(endpoint, params=request_params)
             response.raise_for_status()
             data = response.json()
             
@@ -633,7 +640,12 @@ class ReadOnlyERPConnector:
                 }
             
             # 使用健康检查接口测试连接
-            response = await self._client.get('/internal-api/health')
+            # 如果是 query_param 认证类型，将 apiKey 添加到参数中
+            params = {}
+            if self._config and self._config.get('auth_type') == 'query_param':
+                params['apiKey'] = self._config.get('auth_token', '')
+            
+            response = await self._client.get('/internal-api/health', params=params if params else None)
             response.raise_for_status()
             
             return {
