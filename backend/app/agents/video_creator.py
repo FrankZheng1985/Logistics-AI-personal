@@ -456,13 +456,8 @@ class VideoCreatorAgent(BaseAgent):
         
         return None
     
-    async def _call_video_api(self, prompt_result: Dict[str, Any]) -> Dict[str, Any]:
-        """调用可灵AI视频生成API（快速模式）"""
-        token = self._generate_jwt_token()
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
-        }
+    async def _call_video_api(self, prompt_result: Dict[str, Any], max_retries: int = 3) -> Dict[str, Any]:
+        """调用可灵AI视频生成API（快速模式），支持自动重试"""
         
         # 从提示词结果中提取主提示词
         main_prompt = prompt_result.get("main_prompt", "")
@@ -479,52 +474,91 @@ class VideoCreatorAgent(BaseAgent):
             "duration": "5"
         }
         
-        try:
-            self.log(f"[快速模式] 调用可灵AI API...")
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{self.keling_api_url}/v1/videos/text2video",
-                    headers=headers,
-                    json=payload,
-                    timeout=60.0
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    task_id = result.get("data", {}).get("task_id")
-                    
-                    if task_id:
-                        self.log(f"[快速模式] 视频任务已创建: {task_id}，等待生成完成...")
-                        video_url = await self._poll_video_status(task_id, headers)
-                        
-                        if video_url:
-                            return {
-                                "status": "success",
-                                "task_id": task_id,
-                                "video_url": video_url,
-                                "message": "视频生成成功"
-                            }
-                        else:
-                            return {
-                                "status": "processing",
-                                "task_id": task_id,
-                                "message": "视频仍在生成中，请稍后查询"
-                            }
-                
-                self.log(f"[快速模式] API返回错误: {response.status_code}", "error")
-                return {
-                    "status": "failed",
-                    "error": f"API返回: {response.status_code}",
-                    "message": f"视频生成失败，API状态码: {response.status_code}"
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                # 每次请求重新生成token
+                token = self._generate_jwt_token()
+                headers = {
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json"
                 }
                 
-        except Exception as e:
-            self.log(f"[快速模式] 调用API异常: {e}", "error")
-            return {
-                "status": "failed",
-                "error": str(e),
-                "message": f"视频生成失败: {str(e)}"
-            }
+                self.log(f"[快速模式] 调用可灵AI API (尝试 {attempt + 1}/{max_retries})...")
+                
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        f"{self.keling_api_url}/v1/videos/text2video",
+                        headers=headers,
+                        json=payload,
+                        timeout=60.0
+                    )
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        task_id = result.get("data", {}).get("task_id")
+                        
+                        if task_id:
+                            self.log(f"[快速模式] 视频任务已创建: {task_id}，等待生成完成...")
+                            video_url = await self._poll_video_status(task_id, headers)
+                            
+                            if video_url:
+                                return {
+                                    "status": "success",
+                                    "task_id": task_id,
+                                    "video_url": video_url,
+                                    "message": "视频生成成功"
+                                }
+                            else:
+                                return {
+                                    "status": "processing",
+                                    "task_id": task_id,
+                                    "message": "视频仍在生成中，请稍后查询"
+                                }
+                    
+                    # 处理429限流错误 - 等待后重试
+                    elif response.status_code == 429:
+                        wait_time = 30 * (attempt + 1)  # 递增等待时间：30秒、60秒、90秒
+                        self.log(f"[快速模式] API限流(429)，等待{wait_time}秒后重试...", "warning")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    
+                    # 其他错误
+                    else:
+                        last_error = f"API返回: {response.status_code}"
+                        self.log(f"[快速模式] API返回错误: {response.status_code}", "error")
+                        
+                        # 5xx服务器错误也可以重试
+                        if 500 <= response.status_code < 600:
+                            await asyncio.sleep(10)
+                            continue
+                        
+                        # 4xx客户端错误（除了429）不重试
+                        break
+                        
+            except Exception as e:
+                last_error = str(e)
+                self.log(f"[快速模式] 调用API异常: {e}", "error")
+                await asyncio.sleep(5)
+                continue
+        
+        # 所有重试都失败
+        error_msg = last_error or "未知错误"
+        friendly_msg = error_msg
+        
+        if "429" in error_msg:
+            friendly_msg = "可灵AI服务繁忙，请稍后再试（API限流）"
+        elif "timeout" in error_msg.lower():
+            friendly_msg = "API请求超时，请稍后再试"
+        elif "500" in error_msg or "502" in error_msg or "503" in error_msg:
+            friendly_msg = "可灵AI服务暂时不可用，请稍后再试"
+        
+        return {
+            "status": "failed",
+            "error": error_msg,
+            "message": f"视频生成失败: {friendly_msg}"
+        }
     
     async def _compose_final_video(
         self,
