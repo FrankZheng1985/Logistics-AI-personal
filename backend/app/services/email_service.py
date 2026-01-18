@@ -103,20 +103,20 @@ class EmailService:
             async with async_session_maker() as db:
                 # 获取公司配置
                 result = await db.execute(
-                    text("SELECT config_data FROM company_config WHERE id = (SELECT MIN(id) FROM company_config)")
+                    text("""SELECT company_name, contact_phone, contact_email, contact_wechat, 
+                                   address, company_website, brand_slogan 
+                            FROM company_config LIMIT 1""")
                 )
                 row = result.fetchone()
                 
-                if row and row[0]:
-                    config = row[0] if isinstance(row[0], dict) else json.loads(row[0])
-                    
-                    company_name = config.get("company_name", "")
-                    contact_phone = config.get("contact_phone", "")
-                    contact_email = config.get("contact_email", self.smtp_user)
-                    contact_wechat = config.get("contact_wechat", "")
-                    address = config.get("address", "")
-                    company_website = config.get("company_website", "")
-                    brand_slogan = config.get("brand_slogan", "")
+                if row:
+                    company_name = row[0] or ""
+                    contact_phone = row[1] or ""
+                    contact_email = row[2] or self.smtp_user
+                    contact_wechat = row[3] or ""
+                    address = row[4] or ""
+                    company_website = row[5] or ""
+                    brand_slogan = row[6] or ""
                     
                     # 构建 HTML 签名
                     html_parts = [
