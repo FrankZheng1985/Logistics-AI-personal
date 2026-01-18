@@ -24,6 +24,7 @@ class AgentType(str, enum.Enum):
     ANALYST2 = "analyst2"         # 小析2 - 群聊情报员
     ASSET_COLLECTOR = "asset_collector"  # 小采 - 素材采集员
     CONTENT_CREATOR = "content_creator"  # 小媒 - 内容运营
+    EU_CUSTOMS_MONITOR = "eu_customs_monitor"  # 小欧间谍 - 欧洲海关监控员
 
 
 class MessageType(str, enum.Enum):

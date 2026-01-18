@@ -333,6 +333,22 @@ async def trigger_agent_task(
                 result = {"message": "效果分析功能正在开发中，请在内容工作台查看发布状态", "action": "redirect", "url": "/content"}
             else:
                 result = await content_marketing_service.generate_daily_content()
+        
+        elif agent_type == AgentType.EU_CUSTOMS_MONITOR:
+            from app.agents.eu_customs_monitor import eu_customs_monitor_agent
+            # 根据任务类型执行不同操作
+            if task_type == "欧洲海关新闻采集":
+                result = await eu_customs_monitor_agent.process({"action": "monitor", "max_results": 20})
+            elif task_type == "反倾销政策监控":
+                result = await eu_customs_monitor_agent.process({"action": "monitor", "max_results": 15})
+            elif task_type == "关税调整追踪":
+                result = await eu_customs_monitor_agent.process({"action": "monitor", "max_results": 15})
+            elif task_type == "企业微信通知":
+                # 获取统计信息并发送通知
+                stats = await eu_customs_monitor_agent._get_monitor_stats()
+                result = {"message": "统计信息已获取", "stats": stats}
+            else:
+                result = await eu_customs_monitor_agent.process({"action": "monitor", "max_results": 20})
             
         else:
             result = {"message": f"{agent_type.value} 暂不支持手动触发"}

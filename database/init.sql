@@ -16,7 +16,7 @@ CREATE TYPE intent_level AS ENUM ('S', 'A', 'B', 'C');
 CREATE TYPE customer_source AS ENUM ('wechat', 'website', 'referral', 'ad', 'other');
 
 -- AI员工类型
-CREATE TYPE agent_type AS ENUM ('coordinator', 'video_creator', 'copywriter', 'sales', 'follow', 'analyst', 'lead_hunter', 'analyst2');
+CREATE TYPE agent_type AS ENUM ('coordinator', 'video_creator', 'copywriter', 'sales', 'follow', 'analyst', 'lead_hunter', 'analyst2', 'asset_collector', 'content_creator', 'eu_customs_monitor');
 
 -- AI员工状态
 CREATE TYPE agent_status AS ENUM ('online', 'busy', 'offline');
@@ -380,7 +380,10 @@ INSERT INTO ai_agents (name, agent_type, description, status) VALUES
     ('小跟', 'follow', '跟进专员 - 老客户维护、意向客户跟进、促成转化', 'online'),
     ('小析', 'analyst', '客户分析师 - 意向评分、客户画像、数据报表', 'online'),
     ('小猎', 'lead_hunter', '线索猎手 - 自动搜索互联网上的潜在客户线索，发现物流需求商机', 'online'),
-    ('小析2', 'analyst2', '群聊情报员 - 监控微信群消息，提取有价值信息入库，知识库更新', 'online')
+    ('小析2', 'analyst2', '群聊情报员 - 监控微信群消息，提取有价值信息入库，知识库更新', 'online'),
+    ('小采', 'asset_collector', '素材采集员 - 收集整理营销素材、图片、视频等资源', 'online'),
+    ('小媒', 'content_creator', '内容运营 - 创作营销内容、管理发布渠道', 'online'),
+    ('小欧间谍', 'eu_customs_monitor', '欧洲海关监控员 - 每天监控欧洲海关新闻，关注反倾销、关税调整、进口政策等', 'online')
 ON CONFLICT (agent_type) DO NOTHING;
 
 -- 插入默认系统配置

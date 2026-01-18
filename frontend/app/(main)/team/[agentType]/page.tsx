@@ -98,6 +98,13 @@ const AGENT_INFO: Record<string, {
     description: '负责每日内容生成、多平台发布、效果追踪，自动生成抖音、小红书、公众号等营销内容。',
     color: 'from-rose-500 to-pink-500',
     tasks: ['每日内容生成', '多平台发布', '内容规划', '效果分析']
+  },
+  eu_customs_monitor: {
+    name: '小欧间谍',
+    role: '欧洲海关监控员',
+    description: '负责每天监控欧洲海关新闻，关注反倾销、关税调整、进口政策等，发现重要新闻立即通知。',
+    color: 'from-blue-600 to-indigo-600',
+    tasks: ['欧洲海关新闻采集', '反倾销政策监控', '关税调整追踪', '企业微信通知']
   }
 }
 
@@ -226,6 +233,43 @@ export default function AgentDetailPage() {
       hour: '2-digit',
       minute: '2-digit'
     })
+  }
+
+  // 解析日志内容，提取类型和内容
+  const parseLogContent = (summary: string) => {
+    // 检测不同类型的日志
+    if (summary.includes('🚨') || summary.includes('发现重要新闻')) {
+      const content = summary.replace(/🚨\s*发现重要新闻!?:?\s*/g, '').trim()
+      return { type: 'important', label: '重要新闻', content, icon: '🚨' }
+    }
+    if (summary.includes('正在访问网页') || summary.includes('https://') || summary.includes('http://')) {
+      const urlMatch = summary.match(/(https?:\/\/[^\s]+)/)
+      const url = urlMatch ? urlMatch[1] : ''
+      const domain = url ? new URL(url).hostname.replace('www.', '') : ''
+      return { type: 'visit', label: '访问网页', content: domain || url, icon: '🔗' }
+    }
+    if (summary.includes('AI正在分析') || summary.includes('分析')) {
+      const content = summary.replace(/AI正在分析\.+:?\s*/g, '').trim()
+      return { type: 'analyze', label: '内容分析', content, icon: '🔍' }
+    }
+    if (summary.includes('搜索') || summary.includes('查询')) {
+      return { type: 'search', label: '搜索', content: summary, icon: '🔎' }
+    }
+    if (summary.includes('保存') || summary.includes('存储')) {
+      return { type: 'save', label: '数据存储', content: summary, icon: '💾' }
+    }
+    if (summary.includes('通知') || summary.includes('企业微信')) {
+      return { type: 'notify', label: '发送通知', content: summary, icon: '📢' }
+    }
+    // 默认类型
+    return { type: 'default', label: '执行', content: summary, icon: '⚡' }
+  }
+
+  // 截断文本
+  const truncateText = (text: string, maxLength: number = 50) => {
+    if (!text) return ''
+    if (text.length <= maxLength) return text
+    return text.slice(0, maxLength) + '...'
   }
 
   return (
@@ -357,69 +401,101 @@ export default function AgentDetailPage() {
             <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
               <Activity className="w-5 h-5 text-neon-purple" />
               工作日志
+              <span className="text-xs text-gray-500 font-normal ml-2">
+                共 {workLogs.length} 条记录
+              </span>
             </h2>
             
-            <div className="space-y-3">
+            <div className="space-y-2">
               {workLogs.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <Calendar className="w-12 h-12 mx-auto mb-2 opacity-50" />
                   <p>暂无工作日志</p>
                 </div>
               ) : (
-                workLogs.map((log, index) => (
-                  <motion.div
-                    key={log.id}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                    className={`p-4 rounded-lg border ${
-                      log.status === 'success' ? 'bg-cyber-green/5 border-cyber-green/20' :
-                      log.status === 'failed' ? 'bg-alert-red/5 border-alert-red/20' :
-                      'bg-cyber-blue/5 border-cyber-blue/20'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
+                workLogs.map((log, index) => {
+                  const parsed = parseLogContent(log.result_summary || log.task_type)
+                  
+                  return (
+                    <motion.div
+                      key={log.id}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.03 }}
+                      className={`p-3 rounded-lg border transition-all hover:scale-[1.01] ${
+                        parsed.type === 'important' 
+                          ? 'bg-amber-500/10 border-amber-500/30 hover:border-amber-500/50' 
+                          : log.status === 'success' 
+                            ? 'bg-cyber-green/5 border-cyber-green/20 hover:border-cyber-green/40' 
+                            : log.status === 'failed' 
+                              ? 'bg-alert-red/5 border-alert-red/20 hover:border-alert-red/40' 
+                              : 'bg-cyber-blue/5 border-cyber-blue/20 hover:border-cyber-blue/40'
+                      }`}
+                    >
                       <div className="flex items-center gap-3">
-                        {log.status === 'success' ? (
-                          <CheckCircle className="w-5 h-5 text-cyber-green flex-shrink-0" />
-                        ) : log.status === 'failed' ? (
-                          <XCircle className="w-5 h-5 text-alert-red flex-shrink-0" />
-                        ) : (
-                          <Loader2 className="w-5 h-5 text-cyber-blue animate-spin flex-shrink-0" />
-                        )}
+                        {/* 左侧：类型图标 */}
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                          parsed.type === 'important' ? 'bg-amber-500/20' :
+                          parsed.type === 'visit' ? 'bg-blue-500/20' :
+                          parsed.type === 'analyze' ? 'bg-purple-500/20' :
+                          parsed.type === 'notify' ? 'bg-green-500/20' :
+                          'bg-gray-500/20'
+                        }`}>
+                          <span className="text-base">{parsed.icon}</span>
+                        </div>
+                        
+                        {/* 中间：内容 */}
                         <div className="min-w-0 flex-1">
-                          <p className="font-medium">
-                            {log.result_summary || log.task_type}
-                          </p>
-                          <p className="text-sm text-gray-500">
-                            {formatTime(log.started_at)}
-                            {log.completed_at && ` → ${formatTime(log.completed_at)}`}
+                          <div className="flex items-center gap-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                              parsed.type === 'important' ? 'bg-amber-500/30 text-amber-300' :
+                              parsed.type === 'visit' ? 'bg-blue-500/30 text-blue-300' :
+                              parsed.type === 'analyze' ? 'bg-purple-500/30 text-purple-300' :
+                              parsed.type === 'notify' ? 'bg-green-500/30 text-green-300' :
+                              'bg-gray-500/30 text-gray-300'
+                            }`}>
+                              {parsed.label}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {formatTime(log.started_at)}
+                            </span>
+                          </div>
+                          <p className={`text-sm mt-1 truncate ${
+                            parsed.type === 'important' ? 'text-amber-200 font-medium' : 'text-gray-300'
+                          }`} title={parsed.content}>
+                            {truncateText(parsed.content, 60)}
                           </p>
                         </div>
+                        
+                        {/* 右侧：状态 */}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {log.status === 'success' ? (
+                            <CheckCircle className="w-4 h-4 text-cyber-green" />
+                          ) : log.status === 'failed' ? (
+                            <XCircle className="w-4 h-4 text-alert-red" />
+                          ) : (
+                            <Loader2 className="w-4 h-4 text-cyber-blue animate-spin" />
+                          )}
+                          <span className={`text-xs ${
+                            log.status === 'success' ? 'text-cyber-green' :
+                            log.status === 'failed' ? 'text-alert-red' :
+                            'text-cyber-blue'
+                          }`}>
+                            {log.status === 'success' ? '完成' : log.status === 'failed' ? '失败' : '进行中'}
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-right flex-shrink-0 ml-4">
-                        <span className={`px-2 py-1 rounded text-xs ${
-                          log.status === 'success' ? 'bg-cyber-green/20 text-cyber-green' :
-                          log.status === 'failed' ? 'bg-alert-red/20 text-alert-red' :
-                          'bg-cyber-blue/20 text-cyber-blue'
-                        }`}>
-                          {log.status === 'success' ? '完成' : log.status === 'failed' ? '失败' : '进行中'}
-                        </span>
-                        {log.duration_ms && (
-                          <p className="text-sm text-gray-500 mt-1">
-                            耗时: {formatDuration(log.duration_ms)}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    {log.error_message && (
-                      <div className="mt-2 p-2 bg-alert-red/10 rounded text-sm text-alert-red flex items-start gap-2">
-                        <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                        {log.error_message}
-                      </div>
-                    )}
-                  </motion.div>
-                ))
+                      
+                      {/* 错误信息 */}
+                      {log.error_message && (
+                        <div className="mt-2 ml-11 p-2 bg-alert-red/10 rounded text-xs text-alert-red flex items-start gap-2">
+                          <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                          <span className="truncate">{log.error_message}</span>
+                        </div>
+                      )}
+                    </motion.div>
+                  )
+                })
               )}
             </div>
           </div>

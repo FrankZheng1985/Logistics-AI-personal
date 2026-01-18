@@ -337,6 +337,69 @@ async def send_boss_weekly_report():
         return {"error": str(e)}
 
 
+async def collect_eu_customs_news():
+    """
+    采集欧洲海关新闻
+    每日6:00执行，由小欧间谍负责
+    
+    监控内容：
+    - 反倾销、进口配额、关税调整
+    - 欧洲偷税、欧洲洗黑钱
+    - 欧盟海关政策、第三国进口
+    - 清关新规、VAT变化
+    """
+    logger.info("🕵️ 开始执行: 欧洲海关新闻采集（小欧间谍）")
+    
+    try:
+        from app.agents.eu_customs_monitor import eu_customs_monitor_agent
+        
+        # 执行完整监控任务
+        result = await eu_customs_monitor_agent.process({
+            "action": "monitor",
+            "max_results": 50  # 每次最多分析50条新闻
+        })
+        
+        total_news = result.get("total_news", 0)
+        important_count = result.get("important_count", 0)
+        notification_sent = result.get("notification_sent", False)
+        
+        logger.info(f"🕵️ 欧洲海关新闻采集完成: "
+                   f"共采集 {total_news} 条, 重要 {important_count} 条, "
+                   f"已通知: {'是' if notification_sent else '否'}")
+        
+        # 更新每日统计
+        async with async_session_maker() as db:
+            today = datetime.now().date()
+            await db.execute(
+                text("""
+                    INSERT INTO eu_customs_monitor_stats 
+                    (stat_date, total_news, important_news, notifications_sent,
+                     sources_searched, keywords_used)
+                    VALUES (:date, :total, :important, :notified, :sources, :keywords)
+                    ON CONFLICT (stat_date) DO UPDATE SET
+                        total_news = eu_customs_monitor_stats.total_news + :total,
+                        important_news = eu_customs_monitor_stats.important_news + :important,
+                        notifications_sent = eu_customs_monitor_stats.notifications_sent + :notified,
+                        updated_at = NOW()
+                """),
+                {
+                    "date": today,
+                    "total": total_news,
+                    "important": important_count,
+                    "notified": 1 if notification_sent else 0,
+                    "sources": result.get("sources_searched", []),
+                    "keywords": []
+                }
+            )
+            await db.commit()
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"欧洲海关新闻采集失败: {e}")
+        return {"error": str(e)}
+
+
 async def check_urgent_intel():
     """
     检查紧急情报

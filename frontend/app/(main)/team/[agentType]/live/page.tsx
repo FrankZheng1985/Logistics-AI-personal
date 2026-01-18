@@ -91,6 +91,12 @@ const AGENT_INFO: Record<string, {
     role: '内容运营',
     description: '负责每日内容生成、多平台发布、效果追踪，自动生成抖音、小红书、公众号等营销内容。',
     color: 'from-rose-500 to-pink-500'
+  },
+  eu_customs_monitor: {
+    name: '小欧间谍',
+    role: '欧洲海关监控员',
+    description: '负责每天监控欧洲海关新闻，关注反倾销、关税调整、进口政策等，发现重要新闻立即通知。',
+    color: 'from-blue-600 to-indigo-600'
   }
 }
 

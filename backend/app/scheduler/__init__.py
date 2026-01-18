@@ -47,7 +47,8 @@ async def init_scheduler():
         collect_market_intelligence,
         send_boss_daily_report,
         send_boss_weekly_report,
-        check_urgent_intel
+        check_urgent_intel,
+        collect_eu_customs_news
     )
     
     # 内容发布任务
@@ -198,6 +199,18 @@ async def init_scheduler():
         replace_existing=True
     )
     logger.info("📅 注册任务: [小析] 紧急情报检查 - 每小时")
+    
+    # ==================== 小欧间谍任务 ====================
+    
+    # 欧洲海关新闻采集 - 每日早上6点
+    scheduler.add_job(
+        collect_eu_customs_news,
+        CronTrigger(hour=6, minute=0),
+        id="eu_customs_news_collect",
+        name="[小欧间谍] 欧洲海关新闻采集",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小欧间谍] 欧洲海关新闻采集 - 06:00")
     
     # ==================== 小视任务 ====================
     
