@@ -117,11 +117,11 @@ async def get_agent_performance():
                     aa.name,
                     aa.status,
                     COUNT(wl.id) as tasks_today,
-                    SUM(CASE WHEN wl.status = 'completed' THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN wl.status = 'success' THEN 1 ELSE 0 END) as completed,
                     SUM(CASE WHEN wl.status = 'failed' THEN 1 ELSE 0 END) as failed,
                     AVG(wl.duration_ms) as avg_duration
                 FROM ai_agents aa
-                LEFT JOIN work_logs wl ON aa.id = wl.agent_id AND DATE(wl.created_at) = :today
+                LEFT JOIN agent_work_logs wl ON aa.agent_type = wl.agent_type AND DATE(wl.created_at) = :today
                 GROUP BY aa.id, aa.agent_type, aa.name, aa.status
                 ORDER BY aa.agent_type
             """), {"today": today})
@@ -153,10 +153,42 @@ async def get_agent_performance():
 @router.get("/api-status", response_model=List[APIStatus])
 async def check_api_status():
     """检查外部API状态"""
-    apis_to_check = [
-        {"name": "OpenAI/DeepSeek", "url": f"{settings.DEEPSEEK_API_BASE}/models", "headers": {"Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}"}},
-        {"name": "Keling AI", "url": "https://api.klingai.com", "headers": {}},
-    ]
+    apis_to_check = []
+    
+    # 根据配置动态添加需要检查的API
+    # 优先检查通义千问（如果配置了）
+    if settings.DASHSCOPE_API_KEY:
+        apis_to_check.append({
+            "name": "通义千问",
+            "url": f"{settings.DASHSCOPE_BASE_URL}/models",
+            "headers": {"Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}"}
+        })
+    
+    # DeepSeek API（如果配置了）
+    if settings.DEEPSEEK_API_KEY:
+        apis_to_check.append({
+            "name": "DeepSeek",
+            "url": f"{settings.DEEPSEEK_API_BASE}/models",
+            "headers": {"Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}"}
+        })
+    
+    # 可灵视频API
+    if settings.KELING_ACCESS_KEY:
+        apis_to_check.append({
+            "name": "可灵AI",
+            "url": f"{settings.KELING_API_URL}",
+            "headers": {}
+        })
+    
+    # 如果没有配置任何API，返回未配置状态
+    if not apis_to_check:
+        return [APIStatus(
+            api_name="未配置AI API",
+            status="not_configured",
+            response_time_ms=None,
+            last_check=datetime.now(),
+            error_message="请在.env文件中配置AI API密钥"
+        )]
     
     results = []
     
@@ -298,12 +330,12 @@ async def generate_team_report(period: str = "daily"):
                     aa.name,
                     aa.agent_type,
                     COUNT(wl.id) as total_tasks,
-                    SUM(CASE WHEN wl.status = 'completed' THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN wl.status = 'success' THEN 1 ELSE 0 END) as completed,
                     AVG(wl.duration_ms) as avg_duration,
                     aa.status
                 FROM ai_agents aa
-                LEFT JOIN work_logs wl ON aa.id = wl.agent_id AND wl.created_at >= :start
-                GROUP BY aa.id
+                LEFT JOIN agent_work_logs wl ON aa.agent_type = wl.agent_type AND wl.created_at >= :start
+                GROUP BY aa.id, aa.name, aa.agent_type, aa.status
             """), {"start": start_date})
             
             for row in result.fetchall():

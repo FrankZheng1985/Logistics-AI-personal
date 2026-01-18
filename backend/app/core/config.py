@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     DASHSCOPE_MODEL: str = "qwen-plus"  # 可选: qwen-turbo, qwen-plus, qwen-max
     
+    # DeepSeek配置
+    DEEPSEEK_API_KEY: Optional[str] = None
+    DEEPSEEK_API_BASE: str = "https://api.deepseek.com/v1"
+    
     AI_PRIMARY_MODEL: str = "qwen-plus"
     AI_FALLBACK_MODEL: str = "gpt-4-turbo-preview"
     AI_TEMPERATURE: float = 0.7
