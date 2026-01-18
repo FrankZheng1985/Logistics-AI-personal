@@ -45,6 +45,7 @@ class SMTPConfig(BaseModel):
     smtp_user: Optional[str] = None
     smtp_password: Optional[str] = None
     sender_name: Optional[str] = "物流智能体"
+    email_logo: Optional[str] = None  # 邮件专用Logo (base64)
 
 
 class SettingsResponse(BaseModel):
@@ -235,11 +236,15 @@ async def get_smtp_settings():
                 "smtp_port": int(os.getenv("SMTP_PORT", "465")),
                 "smtp_user": os.getenv("SMTP_USER", ""),
                 "smtp_password": "",  # 不返回密码
-                "sender_name": os.getenv("EMAIL_SENDER_NAME", "物流智能体")
+                "sender_name": os.getenv("EMAIL_SENDER_NAME", "物流智能体"),
+                "email_logo": ""
             }
         else:
             # 不返回密码明文
             smtp_config["smtp_password"] = "********" if smtp_config.get("smtp_password") else ""
+            # 确保email_logo字段存在
+            if "email_logo" not in smtp_config:
+                smtp_config["email_logo"] = ""
         
         # 检查是否已配置
         is_configured = bool(
