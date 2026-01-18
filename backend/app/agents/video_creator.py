@@ -456,6 +456,76 @@ class VideoCreatorAgent(BaseAgent):
         
         return None
     
+    async def _call_video_api(self, prompt_result: Dict[str, Any]) -> Dict[str, Any]:
+        """调用可灵AI视频生成API（快速模式）"""
+        token = self._generate_jwt_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+        
+        # 从提示词结果中提取主提示词
+        main_prompt = prompt_result.get("main_prompt", "")
+        if not main_prompt:
+            main_prompt = "Professional logistics warehouse scene, cinematic quality, smooth camera movement"
+        
+        payload = {
+            "model": "kling-v1-5",
+            "prompt": main_prompt,
+            "negative_prompt": "text, title, subtitle, watermark, logo, blurry, low quality, amateur",
+            "cfg_scale": 0.5,
+            "mode": "std",  # 快速模式使用标准模式
+            "aspect_ratio": "16:9",
+            "duration": "5"
+        }
+        
+        try:
+            self.log(f"[快速模式] 调用可灵AI API...")
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.keling_api_url}/v1/videos/text2video",
+                    headers=headers,
+                    json=payload,
+                    timeout=60.0
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    task_id = result.get("data", {}).get("task_id")
+                    
+                    if task_id:
+                        self.log(f"[快速模式] 视频任务已创建: {task_id}，等待生成完成...")
+                        video_url = await self._poll_video_status(task_id, headers)
+                        
+                        if video_url:
+                            return {
+                                "status": "success",
+                                "task_id": task_id,
+                                "video_url": video_url,
+                                "message": "视频生成成功"
+                            }
+                        else:
+                            return {
+                                "status": "processing",
+                                "task_id": task_id,
+                                "message": "视频仍在生成中，请稍后查询"
+                            }
+                
+                self.log(f"[快速模式] API返回错误: {response.status_code}", "error")
+                return {
+                    "status": "failed",
+                    "error": f"API返回: {response.status_code}",
+                    "message": f"视频生成失败，API状态码: {response.status_code}"
+                }
+                
+        except Exception as e:
+            self.log(f"[快速模式] 调用API异常: {e}", "error")
+            return {
+                "status": "failed",
+                "error": str(e),
+                "message": f"视频生成失败: {str(e)}"
+            }
+    
     async def _compose_final_video(
         self,
         segments: List[Dict[str, Any]],
