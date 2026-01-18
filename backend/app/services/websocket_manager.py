@@ -144,6 +144,13 @@ class WebSocketManager:
             chunk_size: 每次发送的字符数
             delay: 每次发送之间的延迟（秒）
         """
+        subscribers = self.get_subscribers(agent_type)
+        logger.info(f"📺 开始流式传输: agent={agent_type}, subscribers={subscribers}, content_length={len(content)}")
+        
+        if subscribers == 0:
+            logger.info(f"⚠️ 没有WebSocket订阅者，跳过流式传输")
+            return
+        
         # 首先发送开始流式传输的消息
         start_msg = {
             "type": "stream_start",
