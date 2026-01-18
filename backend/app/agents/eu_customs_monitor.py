@@ -525,47 +525,105 @@ URL：{url}
         }
     
     async def _send_wechat_notification(self, important_news: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """发送企业微信通知"""
+        """使用小欧间谍专用企业微信应用发送通知"""
         try:
-            from app.services.notification import notification_service
-            
             # 构建通知内容
             today = datetime.now().strftime("%Y年%m月%d日")
             
-            content = f"""🔔 【欧洲海关情报日报】{today}
+            content = f"""# 🔔 欧洲海关情报日报
 
-━━━━━━━━━━━━━━━━━━━━
+**日期**：{today}
 
-📊 今日发现 {len(important_news)} 条重要新闻：
+---
+
+📊 今日发现 **{len(important_news)}** 条重要新闻：
 
 """
             
             for i, news in enumerate(important_news[:5], 1):  # 最多显示5条
                 urgency_emoji = "🚨" if news.get("urgency") == "紧急" else "⚠️" if news.get("urgency") == "重要" else "📌"
-                content += f"""{urgency_emoji} {i}. {news.get('title_cn', news.get('title', ''))[:50]}
-   类型：{news.get('news_type', '未知')} | 重要度：{news.get('importance_score', 0)}分
-   摘要：{news.get('summary_cn', '')[:80]}...
-   建议：{news.get('business_suggestion', '暂无')[:50]}
+                content += f"""{urgency_emoji} **{i}. {news.get('title_cn', news.get('title', ''))[:50]}**
+> 类型：{news.get('news_type', '未知')} | 重要度：<font color="warning">{news.get('importance_score', 0)}分</font>
+> 摘要：{news.get('summary_cn', '')[:80]}...
+> 建议：{news.get('business_suggestion', '暂无')[:50]}
 
 """
             
             if len(important_news) > 5:
-                content += f"... 还有 {len(important_news) - 5} 条重要新闻，请登录系统查看\n\n"
+                content += f"\n... 还有 **{len(important_news) - 5}** 条重要新闻，请登录系统查看\n"
             
-            content += """━━━━━━━━━━━━━━━━━━━━
-由小欧间谍自动监控 | 物流获客AI"""
+            content += """
+---
+*由小欧间谍自动监控 | 物流获客AI*"""
             
-            # 发送通知
-            await notification_service.send_to_boss(
-                title=f"🔔 欧洲海关情报日报 {today}",
-                content=content
-            )
+            # 使用小欧间谍专用应用发送
+            result = await self._send_with_eu_monitor_app(content)
             
-            self.log("✅ 企业微信通知已发送")
-            return {"success": True}
+            if result.get("success"):
+                self.log("✅ 企业微信通知已发送（小欧间谍应用）")
+            else:
+                self.log(f"⚠️ 企业微信通知发送失败: {result.get('error')}", "warning")
+            
+            return result
             
         except Exception as e:
             self.log(f"发送企业微信通知失败: {e}", "error")
+            return {"success": False, "error": str(e)}
+    
+    async def _send_with_eu_monitor_app(self, content: str) -> Dict[str, Any]:
+        """使用小欧间谍专用企业微信应用发送消息"""
+        try:
+            corp_id = settings.WECHAT_CORP_ID
+            agent_id = getattr(settings, 'WECHAT_EU_MONITOR_AGENT_ID', None)
+            secret = getattr(settings, 'WECHAT_EU_MONITOR_SECRET', None)
+            notify_users = getattr(settings, 'NOTIFY_WECHAT_USERS', '')
+            
+            # 如果小欧间谍专用应用未配置，回退到通用应用
+            if not agent_id or not secret:
+                self.log("小欧间谍专用应用未配置，使用通用应用发送", "warning")
+                from app.services.notification import notification_service
+                await notification_service.send_to_boss(
+                    title="欧洲海关情报日报",
+                    content=content
+                )
+                return {"success": True, "app": "fallback"}
+            
+            if not corp_id or not notify_users:
+                return {"success": False, "error": "企业微信基础配置缺失"}
+            
+            # 获取access_token
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                token_resp = await client.get(
+                    "https://qyapi.weixin.qq.com/cgi-bin/gettoken",
+                    params={"corpid": corp_id, "corpsecret": secret}
+                )
+                token_data = token_resp.json()
+                
+                if token_data.get("errcode") != 0:
+                    return {"success": False, "error": f"获取token失败: {token_data}"}
+                
+                access_token = token_data.get("access_token")
+                
+                # 发送Markdown消息
+                user_list = [u.strip() for u in notify_users.split(',') if u.strip()]
+                
+                send_resp = await client.post(
+                    f"https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token={access_token}",
+                    json={
+                        "touser": "|".join(user_list),
+                        "msgtype": "markdown",
+                        "agentid": int(agent_id),
+                        "markdown": {"content": content}
+                    }
+                )
+                send_data = send_resp.json()
+                
+                if send_data.get("errcode") == 0:
+                    return {"success": True, "app": "eu_monitor"}
+                else:
+                    return {"success": False, "error": f"发送失败: {send_data}"}
+                    
+        except Exception as e:
             return {"success": False, "error": str(e)}
     
     async def _search_news(self, input_data: Dict[str, Any]) -> Dict[str, Any]:

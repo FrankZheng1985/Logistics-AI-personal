@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     WECHAT_ANALYST2_TOKEN: Optional[str] = None
     WECHAT_ANALYST2_ENCODING_AES_KEY: Optional[str] = None
     
+    # 企业微信配置 - 小欧间谍（欧洲海关监控员）
+    WECHAT_EU_MONITOR_AGENT_ID: Optional[str] = None
+    WECHAT_EU_MONITOR_SECRET: Optional[str] = None
+    
     # 邮件配置
     SMTP_HOST: str = ""
     SMTP_PORT: int = 465
