@@ -239,10 +239,14 @@ class AIUsageService:
             if not start_date:
                 start_date = end_date - timedelta(days=30)
             
+            # 转换为datetime以避免SQL类型转换问题
+            start_datetime = datetime.combine(start_date, datetime.min.time())
+            end_datetime = datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+            
             async with AsyncSessionLocal() as db:
                 # 构建查询条件
-                conditions = ["created_at >= :start_date::timestamp", "created_at < (:end_date::timestamp + INTERVAL '1 day')"]
-                params = {"start_date": start_date, "end_date": end_date}
+                conditions = ["created_at >= :start_datetime", "created_at < :end_datetime"]
+                params = {"start_datetime": start_datetime, "end_datetime": end_datetime}
                 
                 if agent_name:
                     conditions.append("agent_name = :agent_name")
@@ -445,12 +449,14 @@ class AIUsageService:
                     params["model_name"] = f"%{model_name}%"
                 
                 if start_date:
-                    conditions.append("created_at >= :start_date::timestamp")
-                    params["start_date"] = start_date
+                    start_datetime = datetime.combine(start_date, datetime.min.time())
+                    conditions.append("created_at >= :start_datetime")
+                    params["start_datetime"] = start_datetime
                 
                 if end_date:
-                    conditions.append("created_at < (:end_date::timestamp + INTERVAL '1 day')")
-                    params["end_date"] = end_date
+                    end_datetime = datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+                    conditions.append("created_at < :end_datetime")
+                    params["end_datetime"] = end_datetime
                 
                 where_clause = " AND ".join(conditions)
                 
@@ -688,13 +694,14 @@ class AIUsageService:
                         continue
                     
                     # 计算当前费用
+                    start_datetime = datetime.combine(start_date, datetime.min.time())
                     cost_result = await db.execute(
                         text("""
                             SELECT SUM(cost_estimate)
                             FROM ai_usage_logs
-                            WHERE created_at >= :start_date
+                            WHERE created_at >= :start_datetime
                         """),
-                        {"start_date": start_date}
+                        {"start_datetime": start_datetime}
                     )
                     current_cost = cost_result.scalar() or 0
                     
