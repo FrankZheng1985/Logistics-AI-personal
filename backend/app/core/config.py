@@ -94,9 +94,13 @@ class Settings(BaseSettings):
     NOTIFY_EMAIL: str = ""  # 接收通知的邮箱
     EMAIL_SENDER_NAME: str = "物流获客AI"
     
+    # 腾讯云配置（统一凭证，用于COS、ASR等服务）
+    TENCENT_SECRET_ID: Optional[str] = None
+    TENCENT_SECRET_KEY: Optional[str] = None
+    
     # 腾讯云COS配置
-    COS_SECRET_ID: Optional[str] = None
-    COS_SECRET_KEY: Optional[str] = None
+    COS_SECRET_ID: Optional[str] = None  # 如不设置，使用TENCENT_SECRET_ID
+    COS_SECRET_KEY: Optional[str] = None  # 如不设置，使用TENCENT_SECRET_KEY
     COS_BUCKET: Optional[str] = None
     COS_REGION: str = "ap-guangzhou"
     

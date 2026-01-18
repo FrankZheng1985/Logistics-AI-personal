@@ -21,9 +21,9 @@ class SpeechRecognitionService:
     """语音识别服务（腾讯云ASR）"""
     
     def __init__(self):
-        # 腾讯云配置
-        self.secret_id = getattr(settings, 'TENCENT_SECRET_ID', '')
-        self.secret_key = getattr(settings, 'TENCENT_SECRET_KEY', '')
+        # 腾讯云配置（使用统一凭证）
+        self.secret_id = getattr(settings, 'TENCENT_SECRET_ID', '') or ''
+        self.secret_key = getattr(settings, 'TENCENT_SECRET_KEY', '') or ''
         self.region = "ap-guangzhou"
         self.service = "asr"
         self.host = "asr.tencentcloudapi.com"
@@ -32,6 +32,15 @@ class SpeechRecognitionService:
         # 轮询间隔（秒）
         self.poll_interval = 5
         self.max_wait_time = 3600  # 最长等待1小时
+    
+    def get_config_status(self) -> dict:
+        """获取配置状态"""
+        return {
+            "configured": self.is_configured(),
+            "secret_id": bool(self.secret_id),
+            "secret_key": bool(self.secret_key),
+            "message": "语音识别已配置" if self.is_configured() else "请配置TENCENT_SECRET_ID和TENCENT_SECRET_KEY"
+        }
     
     def is_configured(self) -> bool:
         """检查是否已配置腾讯云凭证"""
