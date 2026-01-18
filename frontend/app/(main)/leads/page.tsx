@@ -332,20 +332,20 @@ function TopicCard({
 
 function TopicStatsCards({ stats, loading }: { stats: TopicStats | null; loading: boolean }) {
   return (
-    <div className="grid grid-cols-4 gap-4 mb-6">
+    <div className="stats-grid mb-6">
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="glass-card p-4 text-center"
+        className="glass-card p-3 md:p-4 text-center"
       >
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <MessageSquare className="w-5 h-5 text-cyber-blue" />
-          <span className="text-gray-400">待回答</span>
+        <div className="flex items-center justify-center gap-1 md:gap-2 mb-2">
+          <MessageSquare className="w-4 h-4 md:w-5 md:h-5 text-cyber-blue" />
+          <span className="text-gray-400 text-xs md:text-sm">待回答</span>
         </div>
         {loading ? (
-          <Loader2 className="w-8 h-8 animate-spin text-cyber-blue mx-auto" />
+          <Loader2 className="w-6 h-6 md:w-8 md:h-8 animate-spin text-cyber-blue mx-auto" />
         ) : (
-          <p className="text-3xl font-number font-bold text-cyber-blue">{stats?.new || 0}</p>
+          <p className="text-xl md:text-3xl font-number font-bold text-cyber-blue">{stats?.new || 0}</p>
         )}
       </motion.div>
 
@@ -353,16 +353,16 @@ function TopicStatsCards({ stats, loading }: { stats: TopicStats | null; loading
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="glass-card p-4 text-center"
+        className="glass-card p-3 md:p-4 text-center"
       >
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <Zap className="w-5 h-5 text-cyber-green" />
-          <span className="text-gray-400">高价值</span>
+        <div className="flex items-center justify-center gap-1 md:gap-2 mb-2">
+          <Zap className="w-4 h-4 md:w-5 md:h-5 text-cyber-green" />
+          <span className="text-gray-400 text-xs md:text-sm">高价值</span>
         </div>
         {loading ? (
-          <Loader2 className="w-8 h-8 animate-spin text-cyber-green mx-auto" />
+          <Loader2 className="w-6 h-6 md:w-8 md:h-8 animate-spin text-cyber-green mx-auto" />
         ) : (
-          <p className="text-3xl font-number font-bold text-cyber-green">{stats?.high_value || 0}</p>
+          <p className="text-xl md:text-3xl font-number font-bold text-cyber-green">{stats?.high_value || 0}</p>
         )}
       </motion.div>
 
@@ -370,16 +370,16 @@ function TopicStatsCards({ stats, loading }: { stats: TopicStats | null; loading
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
-        className="glass-card p-4 text-center"
+        className="glass-card p-3 md:p-4 text-center"
       >
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <CheckCircle2 className="w-5 h-5 text-neon-purple" />
-          <span className="text-gray-400">已回答</span>
+        <div className="flex items-center justify-center gap-1 md:gap-2 mb-2">
+          <CheckCircle2 className="w-4 h-4 md:w-5 md:h-5 text-neon-purple" />
+          <span className="text-gray-400 text-xs md:text-sm">已回答</span>
         </div>
         {loading ? (
-          <Loader2 className="w-8 h-8 animate-spin text-neon-purple mx-auto" />
+          <Loader2 className="w-6 h-6 md:w-8 md:h-8 animate-spin text-neon-purple mx-auto" />
         ) : (
-          <p className="text-3xl font-number font-bold text-neon-purple">{stats?.answered || 0}</p>
+          <p className="text-xl md:text-3xl font-number font-bold text-neon-purple">{stats?.answered || 0}</p>
         )}
       </motion.div>
 
@@ -387,16 +387,16 @@ function TopicStatsCards({ stats, loading }: { stats: TopicStats | null; loading
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3 }}
-        className="glass-card p-4 text-center"
+        className="glass-card p-3 md:p-4 text-center"
       >
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <TrendingUp className="w-5 h-5 text-energy-orange" />
-          <span className="text-gray-400">今日发现</span>
+        <div className="flex items-center justify-center gap-1 md:gap-2 mb-2">
+          <TrendingUp className="w-4 h-4 md:w-5 md:h-5 text-energy-orange" />
+          <span className="text-gray-400 text-xs md:text-sm">今日发现</span>
         </div>
         {loading ? (
-          <Loader2 className="w-8 h-8 animate-spin text-energy-orange mx-auto" />
+          <Loader2 className="w-6 h-6 md:w-8 md:h-8 animate-spin text-energy-orange mx-auto" />
         ) : (
-          <p className="text-3xl font-number font-bold text-energy-orange">{stats?.today || 0}</p>
+          <p className="text-xl md:text-3xl font-number font-bold text-energy-orange">{stats?.today || 0}</p>
         )}
       </motion.div>
     </div>
@@ -660,20 +660,18 @@ export default function LeadsPage() {
   }, [mode, fetchTopics])
 
   return (
-    <div className="min-h-screen p-6">
+    <div className="min-h-screen">
       {/* 头部 */}
-      <header className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
+      <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
+        <div className="flex items-center gap-3 md:gap-4">
           <Link href="/dashboard" className="p-2 glass-card hover:border-cyber-blue/50 transition-colors">
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold flex items-center gap-3">
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-neon-purple to-cyber-blue">
-                {mode === 'topics' ? '话题发现' : '线索狩猎'}
-              </span>
+            <h1 className="page-title text-xl md:text-2xl">
+              {mode === 'topics' ? '话题发现' : '线索狩猎'}
             </h1>
-            <p className="text-gray-400 text-sm">
+            <p className="page-subtitle text-xs md:text-sm">
               {mode === 'topics' 
                 ? '发现热门话题，用专业内容引流获客' 
                 : '搜索互联网上的潜在客户线索'}
@@ -681,45 +679,47 @@ export default function LeadsPage() {
           </div>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
           {/* 模式切换 */}
-          <div className="flex glass-card p-1">
+          <div className="flex glass-card p-1 flex-1 lg:flex-none">
             <button
               onClick={() => setMode('topics')}
-              className={`px-4 py-2 rounded text-sm transition-all ${
+              className={`flex-1 lg:flex-none px-3 md:px-4 py-2 rounded text-xs md:text-sm transition-all flex items-center justify-center gap-1 ${
                 mode === 'topics' 
                   ? 'bg-gradient-to-r from-neon-purple to-cyber-blue text-white' 
                   : 'text-gray-400 hover:text-white'
               }`}
             >
-              <Sparkles className="w-4 h-4 inline mr-1" />
-              话题发现
+              <Sparkles className="w-3 h-3 md:w-4 md:h-4" />
+              <span className="hidden sm:inline">话题发现</span>
+              <span className="sm:hidden">话题</span>
             </button>
             <button
               onClick={() => setMode('leads')}
-              className={`px-4 py-2 rounded text-sm transition-all ${
+              className={`flex-1 lg:flex-none px-3 md:px-4 py-2 rounded text-xs md:text-sm transition-all flex items-center justify-center gap-1 ${
                 mode === 'leads' 
                   ? 'bg-gradient-to-r from-cyber-blue to-neon-purple text-white' 
                   : 'text-gray-400 hover:text-white'
               }`}
             >
-              <Target className="w-4 h-4 inline mr-1" />
-              线索搜索
+              <Target className="w-3 h-3 md:w-4 md:h-4" />
+              <span className="hidden sm:inline">线索搜索</span>
+              <span className="sm:hidden">线索</span>
             </button>
           </div>
           
-        <button
+          <button
             onClick={async () => {
-            setLoading(true)
+              setLoading(true)
               if (mode === 'topics') {
                 await Promise.all([fetchTopics(), fetchTopicStats()])
               }
               setLoading(false)
-          }}
-          className="p-2 glass-card hover:border-cyber-blue/50 transition-colors"
-        >
-          <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+            }}
+            className="p-2 glass-card hover:border-cyber-blue/50 transition-colors flex-shrink-0"
+          >
+            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
         </div>
       </header>
 

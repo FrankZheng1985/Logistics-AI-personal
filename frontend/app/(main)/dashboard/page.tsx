@@ -155,18 +155,18 @@ function StatCard({
   return (
     <motion.div 
       variants={itemVariants}
-      className="glass-card-hover p-6"
+      className="glass-card-hover p-4 md:p-6"
     >
       <div className="flex items-start justify-between">
-        <div>
-          <p className="text-gray-400 text-sm mb-1">{title}</p>
-          <p className={`text-3xl font-bold font-number text-${color}`}>{value}</p>
+        <div className="min-w-0 flex-1">
+          <p className="text-gray-400 text-xs md:text-sm mb-1 truncate">{title}</p>
+          <p className={`text-xl md:text-3xl font-bold font-number text-${color}`}>{value}</p>
           {change && (
-            <p className="text-cyber-green text-sm mt-1">{change}</p>
+            <p className="text-cyber-green text-xs md:text-sm mt-1 truncate">{change}</p>
           )}
         </div>
-        <div className={`p-3 rounded-lg bg-${color}/10`}>
-          <Icon className={`w-6 h-6 text-${color}`} />
+        <div className={`p-2 md:p-3 rounded-lg bg-${color}/10 flex-shrink-0 ml-2`}>
+          <Icon className={`w-4 h-4 md:w-6 md:h-6 text-${color}`} />
         </div>
       </div>
     </motion.div>
@@ -403,16 +403,16 @@ export default function Dashboard() {
   }
   
   return (
-    <div className="min-h-screen p-6">
+    <div className="min-h-screen">
       {/* 顶部导航 */}
-      <header className="flex items-center justify-between mb-8">
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 md:mb-8">
         <div>
-          <h1 className="text-3xl font-tech font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyber-blue to-neon-purple">
+          <h1 className="page-title">
             AI获客控制中心
           </h1>
-          <p className="text-gray-400 mt-1">物流行业智能获客系统</p>
+          <p className="page-subtitle">物流行业智能获客系统</p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           <button 
             onClick={() => setShowNotifications(true)}
             className="p-2 glass-card hover:border-cyber-blue/50 transition-colors relative"
@@ -430,7 +430,7 @@ export default function Dashboard() {
           >
             <Settings className="w-5 h-5 text-gray-400" />
           </Link>
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyber-blue to-neon-purple flex items-center justify-center font-bold">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-cyber-blue to-neon-purple flex items-center justify-center font-bold text-sm sm:text-base">
             A
           </div>
         </div>
@@ -443,7 +443,7 @@ export default function Dashboard() {
         className="space-y-6"
       >
         {/* 统计卡片 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="stats-grid">
           <StatCard 
             title="今日新客户" 
             value={stats.newCustomers}
@@ -510,23 +510,23 @@ export default function Dashboard() {
         
         {/* 快捷操作 */}
         <motion.div variants={itemVariants}>
-          <h2 className="text-xl font-bold mb-4">快捷操作</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Link href="/videos/create" className="btn-cyber text-center py-4">
-              <Video className="w-5 h-5 mx-auto mb-2" />
-              生成视频
+          <h2 className="text-lg md:text-xl font-bold mb-4">快捷操作</h2>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+            <Link href="/videos/create" className="btn-cyber text-center py-3 md:py-4">
+              <Video className="w-4 h-4 md:w-5 md:h-5 mx-auto mb-1 md:mb-2" />
+              <span className="text-xs md:text-sm">生成视频</span>
             </Link>
-            <Link href="/customers" className="btn-cyber text-center py-4">
-              <Users className="w-5 h-5 mx-auto mb-2" />
-              客户列表
+            <Link href="/customers" className="btn-cyber text-center py-3 md:py-4">
+              <Users className="w-4 h-4 md:w-5 md:h-5 mx-auto mb-1 md:mb-2" />
+              <span className="text-xs md:text-sm">客户列表</span>
             </Link>
-            <Link href="/conversations" className="btn-cyber text-center py-4">
-              <MessageSquare className="w-5 h-5 mx-auto mb-2" />
-              对话记录
+            <Link href="/conversations" className="btn-cyber text-center py-3 md:py-4">
+              <MessageSquare className="w-4 h-4 md:w-5 md:h-5 mx-auto mb-1 md:mb-2" />
+              <span className="text-xs md:text-sm">对话记录</span>
             </Link>
-            <Link href="/team" className="btn-cyber text-center py-4">
-              <Bot className="w-5 h-5 mx-auto mb-2" />
-              AI团队
+            <Link href="/team" className="btn-cyber text-center py-3 md:py-4">
+              <Bot className="w-4 h-4 md:w-5 md:h-5 mx-auto mb-1 md:mb-2" />
+              <span className="text-xs md:text-sm">AI团队</span>
             </Link>
           </div>
         </motion.div>

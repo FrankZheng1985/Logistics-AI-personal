@@ -14,7 +14,9 @@ from app.api import (
     wechat_eu_monitor,  # 小欧间谍企业微信回调
     wechat_coordinator,  # 小调企业微信回调
     wechat_assistant,  # 小助企业微信回调
-    email_accounts  # 多邮箱账户管理
+    email_accounts,  # 多邮箱账户管理
+    assistant_work,  # 小助工作台
+    ai_usage,  # AI用量监控
 )
 
 router = APIRouter()
@@ -51,3 +53,5 @@ router.include_router(wechat_eu_monitor.router, prefix="/wechat/eu-monitor", tag
 router.include_router(wechat_coordinator.router, tags=["企业微信-小调"])
 router.include_router(wechat_assistant.router, tags=["企业微信-小助"])
 router.include_router(email_accounts.router, tags=["多邮箱管理"])
+router.include_router(assistant_work.router, prefix="/assistant", tags=["小助工作台"])
+router.include_router(ai_usage.router, tags=["AI用量监控"])

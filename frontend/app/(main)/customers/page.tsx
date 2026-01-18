@@ -230,41 +230,41 @@ function CustomerDetailModal({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80"
       onClick={onClose}
     >
       <motion.div 
-        initial={{ scale: 0.9, y: 20 }}
+        initial={{ scale: 0.95, y: 20 }}
         animate={{ scale: 1, y: 0 }}
-        exit={{ scale: 0.9, y: 20 }}
-        className="glass-card w-full max-w-2xl mx-4 max-h-[80vh] overflow-y-auto"
+        exit={{ scale: 0.95, y: 20 }}
+        className="glass-card w-full sm:max-w-2xl sm:mx-4 max-h-[90vh] sm:max-h-[80vh] overflow-y-auto rounded-t-2xl sm:rounded-xl"
         onClick={e => e.stopPropagation()}
       >
         {/* 头部 */}
-        <div className="flex items-center justify-between p-6 border-b border-white/10">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-dark-purple to-cyber-blue/30 flex items-center justify-center text-2xl font-bold">
+        <div className="flex items-center justify-between p-4 md:p-6 border-b border-white/10 sticky top-0 bg-dark-purple/95 backdrop-blur-xl z-10">
+          <div className="flex items-center gap-3 md:gap-4">
+            <div className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-gradient-to-br from-dark-purple to-cyber-blue/30 flex items-center justify-center text-xl md:text-2xl font-bold flex-shrink-0">
               {customer.name?.[0] || '?'}
             </div>
-            <div>
-              <h2 className="text-xl font-bold">{customer.name}</h2>
-              <div className="flex items-center gap-2 mt-1">
+            <div className="min-w-0">
+              <h2 className="text-lg md:text-xl font-bold truncate">{customer.name}</h2>
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <IntentBadge level={customer.intentLevel} />
-                <span className="text-gray-400 text-sm">意向分: <span className="text-cyber-blue font-number">{customer.intentScore}</span></span>
+                <span className="text-gray-400 text-xs md:text-sm">意向分: <span className="text-cyber-blue font-number">{customer.intentScore}</span></span>
               </div>
             </div>
           </div>
           <button 
             onClick={onClose}
-            className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+            className="p-2 hover:bg-white/10 rounded-lg transition-colors flex-shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
         
         {/* 信息 */}
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+        <div className="p-4 md:p-6 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
             <div className="glass-card p-4">
               <div className="flex items-center gap-2 text-gray-400 mb-1">
                 <Building className="w-4 h-4" />
@@ -717,29 +717,29 @@ export default function CustomersPage() {
   }
   
   return (
-    <div className="min-h-screen p-6">
+    <div className="min-h-screen">
       {/* 头部 */}
-      <header className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-4">
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 md:mb-8">
+        <div className="flex items-center gap-3 md:gap-4">
           <Link href="/dashboard" className="p-2 glass-card hover:border-cyber-blue/50 transition-colors">
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold">客户管理</h1>
-            <p className="text-gray-400 text-sm">共 {total} 位客户 {loading && <Loader2 className="inline w-4 h-4 animate-spin ml-2" />}</p>
+            <h1 className="page-title text-xl md:text-2xl">客户管理</h1>
+            <p className="page-subtitle text-xs md:text-sm">共 {total} 位客户 {loading && <Loader2 className="inline w-4 h-4 animate-spin ml-2" />}</p>
           </div>
         </div>
         <button 
           onClick={showHighIntent}
-          className="btn-cyber flex items-center gap-2"
+          className="btn-cyber flex items-center justify-center gap-2 w-full sm:w-auto"
         >
           <TrendingUp className="w-4 h-4" />
-          查看高意向
+          <span>查看高意向</span>
         </button>
       </header>
       
       {/* 搜索和筛选 */}
-      <div className="flex items-center gap-4 mb-6">
+      <div className="flex flex-col md:flex-row gap-3 md:gap-4 mb-6">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
           <input
@@ -747,13 +747,13 @@ export default function CustomersPage() {
             placeholder="搜索客户名称、公司..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-3 bg-dark-purple/50 border border-white/10 rounded-lg focus:border-cyber-blue/50 focus:outline-none transition-colors"
+            className="form-input pl-10"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
           <button
             onClick={() => setFilterLevel(null)}
-            className={`px-3 py-2 rounded-lg transition-colors ${
+            className={`px-3 py-2 rounded-lg transition-colors whitespace-nowrap text-sm ${
               !filterLevel 
                 ? 'bg-cyber-blue text-black' 
                 : 'glass-card hover:border-cyber-blue/50'
@@ -765,7 +765,7 @@ export default function CustomersPage() {
             <button
               key={level}
               onClick={() => setFilterLevel(filterLevel === level ? null : level)}
-              className={`px-3 py-2 rounded-lg transition-colors ${
+              className={`px-3 py-2 rounded-lg transition-colors whitespace-nowrap text-sm ${
                 filterLevel === level 
                   ? 'bg-cyber-blue text-black' 
                   : 'glass-card hover:border-cyber-blue/50'
@@ -779,40 +779,42 @@ export default function CustomersPage() {
       
       {/* 客户表格 */}
       <div className="glass-card overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-white/10 text-left">
-              <th className="p-4 text-gray-400 font-medium">客户</th>
-              <th className="p-4 text-gray-400 font-medium">意向等级</th>
-              <th className="p-4 text-gray-400 font-medium">分数</th>
-              <th className="p-4 text-gray-400 font-medium">电话</th>
-              <th className="p-4 text-gray-400 font-medium">来源</th>
-              <th className="p-4 text-gray-400 font-medium">最近联系</th>
-              <th className="p-4 text-gray-400 font-medium">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {customers.map((customer) => (
-              <CustomerRow 
-                key={customer.id} 
-                customer={customer}
-                onSelect={() => setSelectedCustomer(customer)}
-                onQuickMessage={() => setSelectedCustomer(customer)}
-              />
-            ))}
-          </tbody>
-        </table>
+        <div className="table-responsive">
+          <table className="w-full min-w-[800px]">
+            <thead>
+              <tr className="border-b border-white/10 text-left">
+                <th className="p-3 md:p-4 text-gray-400 font-medium text-sm">客户</th>
+                <th className="p-3 md:p-4 text-gray-400 font-medium text-sm">意向等级</th>
+                <th className="p-3 md:p-4 text-gray-400 font-medium text-sm">分数</th>
+                <th className="p-3 md:p-4 text-gray-400 font-medium text-sm">电话</th>
+                <th className="p-3 md:p-4 text-gray-400 font-medium text-sm">来源</th>
+                <th className="p-3 md:p-4 text-gray-400 font-medium text-sm">最近联系</th>
+                <th className="p-3 md:p-4 text-gray-400 font-medium text-sm">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {customers.map((customer) => (
+                <CustomerRow 
+                  key={customer.id} 
+                  customer={customer}
+                  onSelect={() => setSelectedCustomer(customer)}
+                  onQuickMessage={() => setSelectedCustomer(customer)}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
         
         {loading ? (
-          <div className="text-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-cyber-blue mx-auto mb-4" />
-            <p className="text-gray-500">加载客户数据...</p>
+          <div className="text-center py-8 md:py-12">
+            <Loader2 className="w-6 h-6 md:w-8 md:h-8 animate-spin text-cyber-blue mx-auto mb-4" />
+            <p className="text-gray-500 text-sm">加载客户数据...</p>
           </div>
         ) : customers.length === 0 ? (
-          <div className="text-center py-12">
-            <Users className="w-12 h-12 text-gray-500 mx-auto mb-4" />
+          <div className="text-center py-8 md:py-12 px-4">
+            <Users className="w-10 h-10 md:w-12 md:h-12 text-gray-500 mx-auto mb-4" />
             <p className="text-gray-400 mb-2">暂无客户数据</p>
-            <p className="text-gray-500 text-sm">当客户通过企业微信联系你时，客户记录会自动创建</p>
+            <p className="text-gray-500 text-xs md:text-sm">当客户通过企业微信联系你时，客户记录会自动创建</p>
           </div>
         ) : null}
       </div>

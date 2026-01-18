@@ -733,20 +733,20 @@ function TeamStats({ agents, loading }: { agents: Agent[], loading: boolean }) {
     : 0
   
   return (
-    <div className="grid grid-cols-4 gap-4 mb-8">
+    <div className="stats-grid mb-6 md:mb-8">
       <motion.div 
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="glass-card p-4 text-center"
+        className="glass-card p-3 md:p-4 text-center"
       >
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <Zap className="w-5 h-5 text-cyber-green" />
-          <span className="text-gray-400">在线员工</span>
+        <div className="flex items-center justify-center gap-1 md:gap-2 mb-2">
+          <Zap className="w-4 h-4 md:w-5 md:h-5 text-cyber-green" />
+          <span className="text-gray-400 text-xs md:text-sm">在线员工</span>
         </div>
         {loading ? (
-          <Loader2 className="w-8 h-8 animate-spin text-cyber-green mx-auto" />
+          <Loader2 className="w-6 h-6 md:w-8 md:h-8 animate-spin text-cyber-green mx-auto" />
         ) : (
-          <p className="text-3xl font-number font-bold text-cyber-green">{onlineCount}</p>
+          <p className="text-xl md:text-3xl font-number font-bold text-cyber-green">{onlineCount}</p>
         )}
       </motion.div>
       
@@ -754,16 +754,16 @@ function TeamStats({ agents, loading }: { agents: Agent[], loading: boolean }) {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="glass-card p-4 text-center"
+        className="glass-card p-3 md:p-4 text-center"
       >
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <Clock className="w-5 h-5 text-energy-orange" />
-          <span className="text-gray-400">忙碌员工</span>
+        <div className="flex items-center justify-center gap-1 md:gap-2 mb-2">
+          <Clock className="w-4 h-4 md:w-5 md:h-5 text-energy-orange" />
+          <span className="text-gray-400 text-xs md:text-sm">忙碌员工</span>
         </div>
         {loading ? (
-          <Loader2 className="w-8 h-8 animate-spin text-energy-orange mx-auto" />
+          <Loader2 className="w-6 h-6 md:w-8 md:h-8 animate-spin text-energy-orange mx-auto" />
         ) : (
-          <p className="text-3xl font-number font-bold text-energy-orange">{busyCount}</p>
+          <p className="text-xl md:text-3xl font-number font-bold text-energy-orange">{busyCount}</p>
         )}
       </motion.div>
       
@@ -771,16 +771,16 @@ function TeamStats({ agents, loading }: { agents: Agent[], loading: boolean }) {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
-        className="glass-card p-4 text-center"
+        className="glass-card p-3 md:p-4 text-center"
       >
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <CheckCircle className="w-5 h-5 text-cyber-blue" />
-          <span className="text-gray-400">今日任务</span>
+        <div className="flex items-center justify-center gap-1 md:gap-2 mb-2">
+          <CheckCircle className="w-4 h-4 md:w-5 md:h-5 text-cyber-blue" />
+          <span className="text-gray-400 text-xs md:text-sm">今日任务</span>
         </div>
         {loading ? (
-          <Loader2 className="w-8 h-8 animate-spin text-cyber-blue mx-auto" />
+          <Loader2 className="w-6 h-6 md:w-8 md:h-8 animate-spin text-cyber-blue mx-auto" />
         ) : (
-          <p className="text-3xl font-number font-bold text-cyber-blue">{totalTasksToday}</p>
+          <p className="text-xl md:text-3xl font-number font-bold text-cyber-blue">{totalTasksToday}</p>
         )}
       </motion.div>
       
@@ -788,16 +788,16 @@ function TeamStats({ agents, loading }: { agents: Agent[], loading: boolean }) {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3 }}
-        className="glass-card p-4 text-center"
+        className="glass-card p-3 md:p-4 text-center"
       >
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <BarChart3 className="w-5 h-5 text-neon-purple" />
-          <span className="text-gray-400">平均成功率</span>
+        <div className="flex items-center justify-center gap-1 md:gap-2 mb-2">
+          <BarChart3 className="w-4 h-4 md:w-5 md:h-5 text-neon-purple" />
+          <span className="text-gray-400 text-xs md:text-sm">平均成功率</span>
         </div>
         {loading ? (
-          <Loader2 className="w-8 h-8 animate-spin text-neon-purple mx-auto" />
+          <Loader2 className="w-6 h-6 md:w-8 md:h-8 animate-spin text-neon-purple mx-auto" />
         ) : (
-          <p className="text-3xl font-number font-bold text-neon-purple">{avgSuccessRate}%</p>
+          <p className="text-xl md:text-3xl font-number font-bold text-neon-purple">{avgSuccessRate}%</p>
         )}
       </motion.div>
     </div>
@@ -1009,20 +1009,20 @@ export default function TeamPage() {
   }
   
   return (
-    <div className="min-h-screen p-6">
+    <div className="min-h-screen">
       {/* 头部 */}
-      <header className="flex items-center gap-4 mb-8">
+      <header className="flex items-center gap-3 md:gap-4 mb-6 md:mb-8">
         <Link href="/dashboard" className="p-2 glass-card hover:border-cyber-blue/50 transition-colors">
           <ArrowLeft className="w-5 h-5" />
         </Link>
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-bold flex flex-wrap items-center gap-2 md:gap-3">
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyber-blue to-neon-purple">
               AI员工团队
             </span>
-            <span className="text-sm font-normal text-gray-400">{agents.length} 名员工</span>
+            <span className="text-xs md:text-sm font-normal text-gray-400">{agents.length} 名员工</span>
           </h1>
-          <p className="text-gray-400 text-sm">管理和监控AI员工工作状态 • 点击员工卡片查看详情</p>
+          <p className="text-gray-400 text-xs md:text-sm mt-1">管理和监控AI员工工作状态</p>
         </div>
       </header>
       
@@ -1030,7 +1030,7 @@ export default function TeamPage() {
       <TeamStats agents={agents} loading={loading} />
       
       {/* AI员工卡片网格 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
         {agents.map((agent, index) => (
           <motion.div
             key={agent.name}

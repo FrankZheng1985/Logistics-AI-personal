@@ -1,12 +1,14 @@
 """
 LLM（大语言模型）调用封装
-支持 Claude 和 GPT-4，包含重试机制
+支持 Claude 和 GPT-4，包含重试机制和用量记录
 """
 from typing import Optional, List, Dict, Any, Callable, TypeVar
 from abc import ABC, abstractmethod
 import httpx
 import asyncio
 import random
+import time
+import uuid
 from functools import wraps
 from loguru import logger
 
@@ -31,6 +33,30 @@ RETRYABLE_EXCEPTIONS = (
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 T = TypeVar('T')
+
+# 当前调用上下文（用于传递agent_name等信息）
+_current_context: Dict[str, Any] = {}
+
+
+def set_llm_context(agent_name: str = None, task_type: str = None, agent_id: int = None):
+    """设置LLM调用上下文"""
+    global _current_context
+    _current_context = {
+        "agent_name": agent_name,
+        "task_type": task_type,
+        "agent_id": agent_id
+    }
+
+
+def clear_llm_context():
+    """清除LLM调用上下文"""
+    global _current_context
+    _current_context = {}
+
+
+def get_llm_context() -> Dict[str, Any]:
+    """获取当前LLM调用上下文"""
+    return _current_context.copy()
 
 
 async def retry_with_exponential_backoff(
@@ -104,8 +130,28 @@ async def retry_with_exponential_backoff(
         raise last_exception
 
 
+def estimate_tokens(text: str) -> int:
+    """
+    估算文本的token数量
+    粗略估算：中文约1.5字/token，英文约4字符/token
+    """
+    if not text:
+        return 0
+    
+    # 统计中文字符
+    chinese_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+    # 统计其他字符
+    other_chars = len(text) - chinese_chars
+    
+    # 中文按1.5字/token，其他按4字符/token估算
+    estimated = int(chinese_chars / 1.5 + other_chars / 4)
+    return max(1, estimated)
+
+
 class BaseLLM(ABC):
     """LLM基类"""
+    
+    provider: str = "unknown"  # 提供商标识
     
     @abstractmethod
     async def chat(
@@ -117,10 +163,45 @@ class BaseLLM(ABC):
     ) -> str:
         """发送聊天消息"""
         pass
+    
+    async def _record_usage(
+        self,
+        model_name: str,
+        input_tokens: int,
+        output_tokens: int,
+        response_time_ms: int,
+        is_success: bool = True,
+        error_message: str = None,
+        request_id: str = None
+    ):
+        """记录API调用用量"""
+        try:
+            from app.services.ai_usage_service import record_ai_usage
+            
+            context = get_llm_context()
+            
+            await record_ai_usage(
+                provider=self.provider,
+                model_name=model_name,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                agent_name=context.get("agent_name"),
+                agent_id=context.get("agent_id"),
+                task_type=context.get("task_type"),
+                request_id=request_id or str(uuid.uuid4())[:8],
+                response_time_ms=response_time_ms,
+                is_success=is_success,
+                error_message=error_message
+            )
+        except Exception as e:
+            # 用量记录失败不应影响主流程
+            logger.warning(f"记录LLM用量失败: {e}")
 
 
 class ClaudeLLM(BaseLLM):
     """Claude API 封装"""
+    
+    provider = "anthropic"
     
     def __init__(self, api_key: str):
         self.api_key = api_key
@@ -134,7 +215,7 @@ class ClaudeLLM(BaseLLM):
         max_tokens: int = 2000,
         system_prompt: Optional[str] = None
     ) -> str:
-        """发送聊天消息到Claude（带重试机制）"""
+        """发送聊天消息到Claude（带重试机制和用量记录）"""
         headers = {
             "x-api-key": self.api_key,
             "anthropic-version": "2023-06-01",
@@ -151,6 +232,15 @@ class ClaudeLLM(BaseLLM):
         if system_prompt:
             payload["system"] = system_prompt
         
+        # 估算输入tokens
+        input_text = system_prompt or ""
+        for msg in messages:
+            input_text += msg.get("content", "")
+        estimated_input_tokens = estimate_tokens(input_text)
+        
+        start_time = time.time()
+        request_id = str(uuid.uuid4())[:8]
+        
         async def _make_request():
             async with httpx.AsyncClient() as client:
                 response = await client.post(
@@ -160,12 +250,46 @@ class ClaudeLLM(BaseLLM):
                     timeout=60.0
                 )
                 response.raise_for_status()
-                data = response.json()
-                return data["content"][0]["text"]
+                return response.json()
         
         try:
-            return await retry_with_exponential_backoff(_make_request)
+            data = await retry_with_exponential_backoff(_make_request)
+            response_text = data["content"][0]["text"]
+            
+            # 计算响应时间
+            response_time_ms = int((time.time() - start_time) * 1000)
+            
+            # 获取实际token使用量（Claude API返回的）
+            usage = data.get("usage", {})
+            input_tokens = usage.get("input_tokens", estimated_input_tokens)
+            output_tokens = usage.get("output_tokens", estimate_tokens(response_text))
+            
+            # 记录用量
+            await self._record_usage(
+                model_name=self.model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                response_time_ms=response_time_ms,
+                is_success=True,
+                request_id=request_id
+            )
+            
+            return response_text
+            
         except Exception as e:
+            response_time_ms = int((time.time() - start_time) * 1000)
+            
+            # 记录失败
+            await self._record_usage(
+                model_name=self.model,
+                input_tokens=estimated_input_tokens,
+                output_tokens=0,
+                response_time_ms=response_time_ms,
+                is_success=False,
+                error_message=str(e),
+                request_id=request_id
+            )
+            
             logger.error(f"Claude API调用失败（已重试）: {e}")
             raise
 
@@ -177,6 +301,14 @@ class OpenAILLM(BaseLLM):
         self.api_key = api_key
         self.base_url = base_url or "https://api.openai.com/v1"
         self.model = model or settings.AI_FALLBACK_MODEL
+        
+        # 根据base_url判断provider
+        if "dashscope" in self.base_url:
+            self.provider = "dashscope"
+        elif "deepseek" in self.base_url:
+            self.provider = "deepseek"
+        else:
+            self.provider = "openai"
     
     async def chat(
         self,
@@ -185,7 +317,7 @@ class OpenAILLM(BaseLLM):
         max_tokens: int = 2000,
         system_prompt: Optional[str] = None
     ) -> str:
-        """发送聊天消息到GPT（带重试机制）"""
+        """发送聊天消息到GPT（带重试机制和用量记录）"""
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -203,6 +335,15 @@ class OpenAILLM(BaseLLM):
             "max_tokens": max_tokens
         }
         
+        # 估算输入tokens
+        input_text = ""
+        for msg in full_messages:
+            input_text += msg.get("content", "")
+        estimated_input_tokens = estimate_tokens(input_text)
+        
+        start_time = time.time()
+        request_id = str(uuid.uuid4())[:8]
+        
         async def _make_request():
             async with httpx.AsyncClient() as client:
                 response = await client.post(
@@ -212,12 +353,46 @@ class OpenAILLM(BaseLLM):
                     timeout=60.0
                 )
                 response.raise_for_status()
-                data = response.json()
-                return data["choices"][0]["message"]["content"]
+                return response.json()
         
         try:
-            return await retry_with_exponential_backoff(_make_request)
+            data = await retry_with_exponential_backoff(_make_request)
+            response_text = data["choices"][0]["message"]["content"]
+            
+            # 计算响应时间
+            response_time_ms = int((time.time() - start_time) * 1000)
+            
+            # 获取实际token使用量（API返回的）
+            usage = data.get("usage", {})
+            input_tokens = usage.get("prompt_tokens", estimated_input_tokens)
+            output_tokens = usage.get("completion_tokens", estimate_tokens(response_text))
+            
+            # 记录用量
+            await self._record_usage(
+                model_name=self.model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                response_time_ms=response_time_ms,
+                is_success=True,
+                request_id=request_id
+            )
+            
+            return response_text
+            
         except Exception as e:
+            response_time_ms = int((time.time() - start_time) * 1000)
+            
+            # 记录失败
+            await self._record_usage(
+                model_name=self.model,
+                input_tokens=estimated_input_tokens,
+                output_tokens=0,
+                response_time_ms=response_time_ms,
+                is_success=False,
+                error_message=str(e),
+                request_id=request_id
+            )
+            
             logger.error(f"OpenAI API调用失败（已重试）: {e}")
             raise
 
@@ -267,10 +442,13 @@ async def chat_completion(
     temperature: float = None,
     max_tokens: int = None,
     use_fallback: bool = False,
-    auto_fallback: bool = True
+    auto_fallback: bool = True,
+    agent_name: str = None,
+    task_type: str = None,
+    agent_id: int = None
 ) -> str:
     """
-    统一的聊天完成接口（带自动降级）
+    统一的聊天完成接口（带自动降级和用量记录）
     
     Args:
         messages: 消息列表 [{"role": "user", "content": "..."}]
@@ -279,10 +457,17 @@ async def chat_completion(
         max_tokens: 最大token数
         use_fallback: 是否使用备用模型
         auto_fallback: 主模型失败时是否自动切换到备用模型
+        agent_name: AI员工名称（用于用量统计）
+        task_type: 任务类型（用于用量统计）
+        agent_id: AI员工ID（用于用量统计）
     
     Returns:
         AI回复内容
     """
+    # 设置调用上下文
+    if agent_name or task_type or agent_id:
+        set_llm_context(agent_name=agent_name, task_type=task_type, agent_id=agent_id)
+    
     kwargs = {
         "messages": messages,
         "system_prompt": system_prompt,
@@ -290,25 +475,29 @@ async def chat_completion(
         "max_tokens": max_tokens or settings.AI_MAX_TOKENS
     }
     
-    if use_fallback:
-        llm = LLMFactory.get_fallback()
-        return await llm.chat(**kwargs)
-    
-    # 先尝试主模型
     try:
-        llm = LLMFactory.get_primary()
-        return await llm.chat(**kwargs)
-    except Exception as e:
-        if auto_fallback:
-            logger.warning(f"主LLM调用失败，尝试备用模型: {e}")
-            try:
-                fallback_llm = LLMFactory.get_fallback()
-                # 避免使用同一个实例
-                if fallback_llm is not llm:
-                    return await fallback_llm.chat(**kwargs)
-            except ValueError:
-                # 没有配置备用模型
-                pass
-            except Exception as fallback_error:
-                logger.error(f"备用LLM也调用失败: {fallback_error}")
-        raise
+        if use_fallback:
+            llm = LLMFactory.get_fallback()
+            return await llm.chat(**kwargs)
+        
+        # 先尝试主模型
+        try:
+            llm = LLMFactory.get_primary()
+            return await llm.chat(**kwargs)
+        except Exception as e:
+            if auto_fallback:
+                logger.warning(f"主LLM调用失败，尝试备用模型: {e}")
+                try:
+                    fallback_llm = LLMFactory.get_fallback()
+                    # 避免使用同一个实例
+                    if fallback_llm is not llm:
+                        return await fallback_llm.chat(**kwargs)
+                except ValueError:
+                    # 没有配置备用模型
+                    pass
+                except Exception as fallback_error:
+                    logger.error(f"备用LLM也调用失败: {fallback_error}")
+            raise
+    finally:
+        # 清除调用上下文
+        clear_llm_context()

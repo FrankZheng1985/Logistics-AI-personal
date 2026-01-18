@@ -195,11 +195,28 @@ class AssistantAgent(BaseAgent):
         """处理添加日程"""
         await self.log_live_step("think", "解析日程信息", "提取时间、事项、地点")
         
+        # 计算各星期几的具体日期
+        now = datetime.now()
+        weekday_dates = {}
+        for i in range(7):
+            future_date = now + timedelta(days=i)
+            weekday_name = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][future_date.weekday()]
+            if weekday_name not in weekday_dates:  # 只取最近的
+                weekday_dates[weekday_name] = future_date.strftime('%Y-%m-%d')
+        
+        weekday_info = "\n".join([f"- {k}: {v}" for k, v in weekday_dates.items()])
+        today_weekday = ["周一","周二","周三","周四","周五","周六","周日"][now.weekday()]
+        
         # 使用AI提取日程信息
         extract_prompt = f"""从用户消息中提取日程信息，返回JSON格式：
 
 用户消息：{message}
-当前时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}（用于理解"明天"、"下周"等相对时间）
+当前时间：{now.strftime('%Y-%m-%d %H:%M')}，今天是{today_weekday}
+
+【重要】接下来7天的日期对照表（必须使用）：
+{weekday_info}
+
+用户说"周一"或"每周一"时，请查上表找到下一个周一的具体日期！
 
 返回格式：
 {{
@@ -208,7 +225,9 @@ class AssistantAgent(BaseAgent):
     "end_time": "YYYY-MM-DD HH:MM"（如果没有则为null）,
     "location": "地点"（如果没有则为null）,
     "description": "备注"（如果没有则为null）,
-    "priority": "normal"（low/normal/high/urgent）
+    "priority": "normal"（low/normal/high/urgent）,
+    "is_recurring": false（如果用户说"每周"、"每天"等重复日程，设为true）,
+    "recurring_pattern": null（如果is_recurring为true，填写 "daily"/"weekly"/"monthly"）
 }}
 
 只返回JSON，不要其他内容。
@@ -278,10 +297,18 @@ class AssistantAgent(BaseAgent):
             
             location_str = f" 📍{schedule_data['location']}" if schedule_data.get('location') else ""
             
+            # 检查是否为重复日程
+            is_recurring = schedule_data.get('is_recurring', False)
+            recurring_note = ""
+            if is_recurring:
+                pattern = schedule_data.get('recurring_pattern', 'weekly')
+                pattern_text = {"daily": "每天", "weekly": "每周", "monthly": "每月"}.get(pattern, "定期")
+                recurring_note = f"\n\n📝 注：您说的是{pattern_text}重复日程，目前已记录最近一次。后续版本将支持自动重复提醒。"
+            
             response_text = f"""✅ 日程已记录！
 
 📅 {schedule_data['title']}
-⏰ {time_str}{location_str}
+⏰ {time_str}{location_str}{recurring_note}
 
 我会提前提醒你的。"""
             
