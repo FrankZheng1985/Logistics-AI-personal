@@ -346,7 +346,7 @@ async def test_smtp_connection():
         to_email = smtp_user  # 发送给自己
         
         # 使用带签名的客户邮件格式发送测试
-        result = await email_service.send_customer_email(
+        result = await email_service.send_simple_customer_email(
             to_email=to_email,
             subject="📧 SMTP配置测试 - 邮件签名预览",
             body="这是一封测试邮件，用于验证SMTP配置是否正确。\n\n如果您收到这封邮件，说明邮件服务已正确配置，系统可以正常发送客户跟进邮件了。\n\n下方是邮件签名效果预览：",

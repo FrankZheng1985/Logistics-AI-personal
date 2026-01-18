@@ -248,7 +248,7 @@ class EmailService:
             logger.error(f"📧 邮件发送失败: {e}")
             return {"status": "error", "message": str(e)}
     
-    async def send_customer_email(
+    async def send_simple_customer_email(
         self,
         to_email: str,
         subject: str,
@@ -256,12 +256,13 @@ class EmailService:
         customer_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        发送客户跟进邮件（自动附加签名）
+        发送简单客户跟进邮件（自动附加签名）
+        用于AI生成的跟进邮件等简单场景
         
         Args:
             to_email: 客户邮箱
             subject: 邮件主题
-            body: 邮件正文内容
+            body: 邮件正文内容（纯文本）
             customer_name: 客户姓名（可选，用于称呼）
         
         Returns:
