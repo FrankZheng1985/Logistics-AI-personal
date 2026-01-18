@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from loguru import logger
 import json
 import re
+import pytz
 
 from app.agents.base import BaseAgent, AgentRegistry
 from app.models.conversation import AgentType
@@ -30,6 +31,20 @@ class AssistantAgent(BaseAgent):
     name = "小助"
     agent_type = AgentType.ASSISTANT
     description = "个人助理 - 日程管理、会议纪要、邮件管理、ERP数据跟踪"
+    
+    # 中国时区
+    CHINA_TZ = pytz.timezone('Asia/Shanghai')
+    
+    @staticmethod
+    def to_china_time(dt):
+        """转换为中国时区时间"""
+        if dt is None:
+            return None
+        # 如果没有时区信息，假设是UTC
+        if dt.tzinfo is None:
+            dt = pytz.UTC.localize(dt)
+        # 转换到中国时区
+        return dt.astimezone(AssistantAgent.CHINA_TZ)
     
     # 意图分类
     INTENT_TYPES = {
@@ -372,7 +387,8 @@ class AssistantAgent(BaseAgent):
         lines = [f"📅 {date_label}安排（{query_date.month}月{query_date.day}日 {weekday}）", "━" * 18]
         
         for s in schedules:
-            time_str = s[1].strftime("%H:%M")
+            china_time = self.to_china_time(s[1])
+            time_str = china_time.strftime("%H:%M")
             location_str = f" - {s[3]}" if s[3] else ""
             priority_icon = {"urgent": "🔴", "high": "🟡"}.get(s[4], "")
             lines.append(f"{time_str} {priority_icon}{s[0]}{location_str}")
@@ -404,13 +420,14 @@ class AssistantAgent(BaseAgent):
         current_date = None
         
         for s in schedules:
-            schedule_date = s[1].date()
+            china_time = self.to_china_time(s[1])
+            schedule_date = china_time.date()
             if schedule_date != current_date:
                 current_date = schedule_date
                 weekday = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][schedule_date.weekday()]
                 lines.append(f"\n📆 {schedule_date.month}月{schedule_date.day}日 {weekday}")
             
-            time_str = s[1].strftime("%H:%M")
+            time_str = china_time.strftime("%H:%M")
             location_str = f" - {s[2]}" if s[2] else ""
             lines.append(f"  {time_str} {s[0]}{location_str}")
         
@@ -534,7 +551,12 @@ class AssistantAgent(BaseAgent):
                     all_schedules = result.fetchall()
                     
                     if all_schedules:
-                        schedule_list = "\n".join([f"• {s[1]} ({s[2].strftime('%m月%d日 %H:%M')})" for s in all_schedules])
+                        # 转换为中国时区并格式化
+                        schedule_items = []
+                        for s in all_schedules:
+                            china_time = self.to_china_time(s[2])
+                            schedule_items.append(f"• {s[1]} ({china_time.strftime('%m月%d日 %H:%M')})")
+                        schedule_list = "\n".join(schedule_items)
                         return {
                             "success": False, 
                             "response": f"没有找到'{search_keyword}'相关的日程。\n\n📅 当前日程列表：\n{schedule_list}\n\n请告诉我要修改哪个？"
@@ -981,7 +1003,8 @@ class AssistantAgent(BaseAgent):
         lines = [f"📅 明日安排预览（{tomorrow.month}月{tomorrow.day}日 {weekday}）", "━" * 18]
         
         for s in schedules:
-            time_str = s[1].strftime("%H:%M")
+            china_time = self.to_china_time(s[1])
+            time_str = china_time.strftime("%H:%M")
             location_str = f" - {s[2]}" if s[2] else ""
             priority_icon = {"urgent": "🔴", "high": "🟡"}.get(s[3], "")
             lines.append(f"{time_str} {priority_icon}{s[0]}{location_str}")

@@ -17,6 +17,7 @@ from app.api import (
     email_accounts,  # 多邮箱账户管理
     assistant_work,  # 小助工作台
     ai_usage,  # AI用量监控
+    website,  # WordPress网站对接
 )
 
 router = APIRouter()
@@ -55,3 +56,4 @@ router.include_router(wechat_assistant.router, tags=["企业微信-小助"])
 router.include_router(email_accounts.router, tags=["多邮箱管理"])
 router.include_router(assistant_work.router, prefix="/assistant", tags=["小助工作台"])
 router.include_router(ai_usage.router, tags=["AI用量监控"])
+router.include_router(website.router, tags=["WordPress网站对接"])
