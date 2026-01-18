@@ -63,24 +63,41 @@ class CoordinatorWeChatCrypto:
         
         try:
             encrypted_bytes = base64.b64decode(encrypted)
+            logger.debug(f"[小调] 加密数据长度: {len(encrypted_bytes)}, AES key长度: {len(self.aes_key)}")
+            
             cipher = AES.new(self.aes_key, AES.MODE_CBC, self.aes_key[:16])
             decrypted = cipher.decrypt(encrypted_bytes)
+            
+            logger.debug(f"[小调] 解密后数据长度: {len(decrypted)}")
             
             # PKCS7去除补位
             pad = decrypted[-1]
             pad_len = pad if isinstance(pad, int) else ord(pad)
             
-            # 验证padding是否合法
-            if pad_len < 1 or pad_len > 32:
-                pad_len = 0
+            logger.debug(f"[小调] Padding长度: {pad_len}")
             
-            content = decrypted[:-pad_len] if pad_len > 0 else decrypted
+            # 验证padding是否合法 (AES块大小是16)
+            if pad_len < 1 or pad_len > 16:
+                logger.warning(f"[小调] 非法padding: {pad_len}, 尝试不去除padding")
+                content = decrypted
+            else:
+                content = decrypted[:-pad_len]
+            
+            logger.debug(f"[小调] 去除padding后长度: {len(content)}")
             
             if len(content) < 20:
                 raise ValueError(f"解密后内容太短: {len(content)} bytes")
             
+            # 解析内容: 16字节随机数 + 4字节消息长度 + 消息内容 + CorpId
             msg_len = struct.unpack(">I", content[16:20])[0]
+            logger.debug(f"[小调] 消息长度: {msg_len}")
+            
+            if msg_len > len(content) - 20:
+                logger.warning(f"[小调] 消息长度异常: msg_len={msg_len}, content_len={len(content)}")
+                msg_len = len(content) - 20
+            
             msg = content[20:20+msg_len].decode("utf-8")
+            logger.debug(f"[小调] 解密消息: {msg}")
             
             return msg
         except Exception as e:
