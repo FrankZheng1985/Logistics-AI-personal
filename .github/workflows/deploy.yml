@@ -127,6 +127,11 @@ jobs:
               echo "  🔨 重新构建..."
               npm run build
               
+              # 复制静态文件到standalone目录（Next.js standalone模式必需）
+              echo "  📁 复制静态文件..."
+              cp -r .next/static .next/standalone/.next/
+              cp -r public .next/standalone/ 2>/dev/null || true
+              
               cd ..
               
               # 重启前端服务
