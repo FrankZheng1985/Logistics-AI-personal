@@ -85,6 +85,12 @@ const AGENT_INFO: Record<string, {
     role: '素材采集员',
     description: '负责从小红书、抖音、Pexels等社交媒体和素材网站自动采集物流相关视频、图片和音频素材。',
     color: 'from-emerald-500 to-teal-500'
+  },
+  content_creator: {
+    name: '小媒',
+    role: '内容运营',
+    description: '负责每日内容生成、多平台发布、效果追踪，自动生成抖音、小红书、公众号等营销内容。',
+    color: 'from-rose-500 to-pink-500'
   }
 }
 

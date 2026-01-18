@@ -66,25 +66,49 @@ class CoordinatorAgent(BaseAgent):
             }
         """
         action = input_data.get("action", "analyze")
+        action_names = {
+            "dispatch": "任务分配",
+            "report": "生成报告",
+            "monitor": "系统监控",
+            "coordinate": "流程协调",
+            "analyze": "任务分析"
+        }
+        action_name = action_names.get(action, action)
         
         # 开始任务会话（实时直播）
-        await self.start_task_session(action, f"调度任务: {action}")
+        await self.start_task_session(action, f"小调开始执行: {action_name}")
         
         try:
             if action == "dispatch":
+                await self.log_live_step("think", f"正在分析任务分配策略", "评估各AI员工负载和能力")
                 result = await self._dispatch_task(input_data)
+                await self.log_live_step("result", f"任务分配完成", f"已分配给: {result.get('target_agent', '未知')}")
             elif action == "report":
+                report_type = input_data.get("report_type", "daily")
+                await self.log_live_step("think", f"正在生成{report_type}报告", "汇总AI团队工作数据")
                 result = await self._generate_report(input_data)
+                await self.log_live_step("result", f"报告生成完成", f"报告类型: {report_type}")
             elif action == "monitor":
+                check_type = input_data.get("check_type", "all")
+                await self.log_live_step("search", f"正在检查系统状态", f"检查类型: {check_type}")
                 result = await self._monitor_system(input_data)
+                status = result.get("result", {}).get("overall_status", "unknown")
+                await self.log_live_step("result", f"系统监控完成", f"系统状态: {status}")
             elif action == "coordinate":
+                workflow_type = input_data.get("workflow_type", "")
+                await self.log_live_step("think", f"正在协调工作流", f"工作流类型: {workflow_type}")
                 result = await self._coordinate_workflow(input_data)
+                await self.log_live_step("result", f"工作流协调完成", f"已启动 {len(result.get('steps', []))} 个步骤")
             else:
+                await self.log_live_step("think", f"正在分析任务", "评估任务内容和路由")
                 result = await self._analyze_task(input_data)
+                recommended = result.get("recommended_agent", "未知")
+                await self.log_live_step("result", f"任务分析完成", f"推荐分配给: {recommended}")
             
-            await self.end_task_session(f"完成调度任务: {action}")
+            await self.end_task_session(f"完成{action_name}")
             return result
         except Exception as e:
+            await self.log_live_step("error", f"执行失败", str(e))
             await self.end_task_session(error_message=str(e))
             raise
     

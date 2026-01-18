@@ -619,7 +619,7 @@ function AgentDetailCard({ agent, onOpenConfig, onOpenLive }: { agent: Agent; on
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ scale: 1.02 }}
-      className="glass-card p-6 cursor-pointer group"
+      className="glass-card p-6 cursor-pointer group h-full flex flex-col"
       onClick={onOpenConfig}
     >
       {/* 头部 */}
@@ -667,8 +667,8 @@ function AgentDetailCard({ agent, onOpenConfig, onOpenLive }: { agent: Agent; on
         </div>
       </div>
       
-      {/* 描述 */}
-      <p className="text-gray-400 text-sm mb-4">{agent.description}</p>
+      {/* 描述 - 固定高度，限制2行 */}
+      <p className="text-gray-400 text-sm mb-4 h-10 line-clamp-2">{agent.description}</p>
       
       {/* 统计 */}
       <div className="grid grid-cols-3 gap-4">
@@ -686,24 +686,33 @@ function AgentDetailCard({ agent, onOpenConfig, onOpenLive }: { agent: Agent; on
         </div>
       </div>
       
-      {/* 当前任务 */}
-      {agent.currentTask && (
-        <div className="mt-4 p-3 bg-cyber-blue/10 border border-cyber-blue/30 rounded-lg">
-          <div className="flex items-center gap-2 text-sm">
-            <Clock className="w-4 h-4 text-cyber-blue animate-pulse" />
-            <span className="text-gray-300">当前任务：</span>
-            <span className="text-cyber-blue">{agent.currentTask}</span>
+      {/* 当前任务 - 固定高度区域 */}
+      <div className="mt-4 h-12 flex items-center">
+        {agent.currentTask ? (
+          <div className="w-full p-3 bg-cyber-blue/10 border border-cyber-blue/30 rounded-lg">
+            <div className="flex items-center gap-2 text-sm">
+              <Clock className="w-4 h-4 text-cyber-blue animate-pulse flex-shrink-0" />
+              <span className="text-gray-300">当前任务：</span>
+              <span className="text-cyber-blue truncate">{agent.currentTask}</span>
+            </div>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="w-full p-3 bg-white/5 rounded-lg">
+            <div className="flex items-center gap-2 text-sm">
+              <Clock className="w-4 h-4 text-gray-500 flex-shrink-0" />
+              <span className="text-gray-500">暂无进行中的任务</span>
+            </div>
+          </div>
+        )}
+      </div>
       
-      {/* 查看工作按钮 */}
+      {/* 查看工作按钮 - 固定在底部 */}
       <button
         onClick={(e) => {
           e.stopPropagation()
           onOpenLive()
         }}
-        className="mt-4 w-full py-2 glass-card hover:border-cyber-blue/50 hover:bg-cyber-blue/10 transition-all flex items-center justify-center gap-2 text-sm"
+        className="mt-auto pt-4 w-full py-2 glass-card hover:border-cyber-blue/50 hover:bg-cyber-blue/10 transition-all flex items-center justify-center gap-2 text-sm"
       >
         <Eye className="w-4 h-4 text-cyber-blue" />
         <span>查看工作直播</span>

@@ -144,6 +144,7 @@ class BaseAgent(ABC):
                 from sqlalchemy import text
                 
                 async with AsyncSessionLocal() as db:
+                    # 更新任务会话状态
                     await db.execute(
                         text("""
                             UPDATE agent_task_sessions 
@@ -162,6 +163,20 @@ class BaseAgent(ABC):
                             "error_message": error_message
                         }
                     )
+                    
+                    # 更新AI员工任务统计（仅在任务成功完成时）
+                    if status == "completed" and self.agent_type:
+                        await db.execute(
+                            text("""
+                                UPDATE ai_agents 
+                                SET tasks_completed_today = tasks_completed_today + 1,
+                                    total_tasks_completed = total_tasks_completed + 1,
+                                    last_active_at = NOW()
+                                WHERE agent_type = :agent_type
+                            """),
+                            {"agent_type": self.agent_type.value}
+                        )
+                    
                     await db.commit()
                 
                 # 发送任务结束通知

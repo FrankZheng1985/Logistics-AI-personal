@@ -91,6 +91,13 @@ const AGENT_INFO: Record<string, {
     description: '负责从小红书、抖音、Pexels等社交媒体和素材网站自动采集物流相关视频、图片和音频素材。',
     color: 'from-emerald-500 to-teal-500',
     tasks: ['素材搜索', '视频采集', '图片采集', '素材入库']
+  },
+  content_creator: {
+    name: '小媒',
+    role: '内容运营',
+    description: '负责每日内容生成、多平台发布、效果追踪，自动生成抖音、小红书、公众号等营销内容。',
+    color: 'from-rose-500 to-pink-500',
+    tasks: ['每日内容生成', '多平台发布', '内容规划', '效果分析']
   }
 }
 
@@ -104,6 +111,7 @@ interface WorkLog {
   input_data?: any
   output_data?: any
   error_message?: string
+  result_summary?: string  // 任务执行内容摘要
 }
 
 interface AgentStats {
@@ -373,21 +381,23 @@ export default function AgentDetailPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         {log.status === 'success' ? (
-                          <CheckCircle className="w-5 h-5 text-cyber-green" />
+                          <CheckCircle className="w-5 h-5 text-cyber-green flex-shrink-0" />
                         ) : log.status === 'failed' ? (
-                          <XCircle className="w-5 h-5 text-alert-red" />
+                          <XCircle className="w-5 h-5 text-alert-red flex-shrink-0" />
                         ) : (
-                          <Loader2 className="w-5 h-5 text-cyber-blue animate-spin" />
+                          <Loader2 className="w-5 h-5 text-cyber-blue animate-spin flex-shrink-0" />
                         )}
-                        <div>
-                          <p className="font-medium">{log.task_type}</p>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium">
+                            {log.result_summary || log.task_type}
+                          </p>
                           <p className="text-sm text-gray-500">
                             {formatTime(log.started_at)}
                             {log.completed_at && ` → ${formatTime(log.completed_at)}`}
                           </p>
                         </div>
                       </div>
-                      <div className="text-right">
+                      <div className="text-right flex-shrink-0 ml-4">
                         <span className={`px-2 py-1 rounded text-xs ${
                           log.status === 'success' ? 'bg-cyber-green/20 text-cyber-green' :
                           log.status === 'failed' ? 'bg-alert-red/20 text-alert-red' :

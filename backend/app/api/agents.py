@@ -210,8 +210,129 @@ async def trigger_agent_task(
             result = await analyst_agent.process({"action": "market_intel"})
             
         elif agent_type == AgentType.VIDEO_CREATOR:
-            # 视频创作需要先有脚本
-            result = {"message": "请先通过小文创建视频脚本，再触发视频生成"}
+            from app.agents.video_creator import video_creator_agent
+            # 根据任务类型执行不同操作
+            if task_type == "视频生成":
+                # 使用快速模式生成演示视频
+                result = await video_creator_agent.process({
+                    "mode": "quick",
+                    "title": "物流服务宣传视频",
+                    "keywords": ["国际物流", "快速配送", "安全可靠"],
+                    "video_type": "ad"
+                })
+            elif task_type == "脚本配合":
+                # 先让小文生成脚本
+                from app.agents.copywriter import copywriter_agent
+                script_result = await copywriter_agent.process({
+                    "task_type": "script",
+                    "title": "物流服务宣传",
+                    "duration": 60
+                })
+                result = {"message": "脚本已生成，可在视频中心查看", "script": script_result}
+            elif task_type == "画面优化":
+                result = {"message": "画面优化需要选择已生成的视频进行处理，请在视频中心操作", "action": "redirect", "url": "/videos"}
+            elif task_type == "视频发布":
+                result = {"message": "请在视频中心选择视频进行发布", "action": "redirect", "url": "/videos"}
+            else:
+                result = await video_creator_agent.process({
+                    "mode": "quick",
+                    "title": "物流服务宣传视频",
+                    "keywords": ["国际物流", "快速配送"],
+                    "video_type": "ad"
+                })
+            
+        elif agent_type == AgentType.COORDINATOR:
+            from app.agents.coordinator import coordinator_agent
+            # 根据任务类型执行不同操作
+            if task_type == "任务分配":
+                result = await coordinator_agent.process({"action": "dispatch", "task_description": "系统自动调度"})
+            elif task_type == "优先级调度":
+                result = await coordinator_agent.process({"action": "coordinate", "workflow_type": "lead_processing"})
+            elif task_type == "负载均衡":
+                result = await coordinator_agent.process({"action": "monitor", "check_type": "all"})
+            elif task_type == "异常处理":
+                result = await coordinator_agent.process({"action": "monitor", "check_type": "all"})
+            else:
+                result = await coordinator_agent.process({"action": "report", "report_type": "daily"})
+                
+        elif agent_type == AgentType.SALES:
+            from app.agents.sales_agent import sales_agent
+            # 销售客服 - 不同任务类型
+            if task_type == "客户接待":
+                # 模拟演示对话
+                result = await sales_agent.process({
+                    "customer_id": "demo",
+                    "message": "你好，我想咨询一下国际物流服务",
+                    "context": {"user_type": "external", "demo_mode": True}
+                })
+            elif task_type == "需求收集":
+                result = {"message": "需求收集需要在实际客户对话中进行，请在客户管理中查看待处理客户", "action": "redirect", "url": "/customers"}
+            elif task_type == "报价咨询":
+                result = {"message": "报价咨询需要客户提供具体货物信息，请在对话记录中处理", "action": "redirect", "url": "/conversations"}
+            elif task_type == "成交促进":
+                result = {"message": "成交促进需要针对具体客户操作，请在客户管理中查看高意向客户", "action": "redirect", "url": "/customers"}
+            else:
+                result = {"message": "小销功能需要在客户对话场景中使用，请在客户管理或对话记录中操作", "action": "redirect", "url": "/customers"}
+            
+        elif agent_type == AgentType.FOLLOW:
+            from app.agents.follow_agent import follow_agent
+            result = await follow_agent.process({"action": "check_followups"})
+            
+        elif agent_type == AgentType.ANALYST2:
+            # 群聊情报员 - 基于监控的功能，无法手动触发实际任务
+            # 但可以提供状态查询和跳转
+            if task_type == "群消息监控":
+                # 查询当前监控的群数量
+                async with AsyncSessionLocal() as db:
+                    from sqlalchemy import text
+                    result_db = await db.execute(text("SELECT COUNT(*) FROM wechat_groups WHERE is_monitoring = TRUE"))
+                    count = result_db.scalar() or 0
+                result = {"message": f"当前正在监控 {count} 个微信群", "monitoring_count": count, "action": "redirect", "url": "/wechat-groups"}
+            elif task_type == "信息提取":
+                # 查询今日提取的有价值信息数量
+                async with AsyncSessionLocal() as db:
+                    from sqlalchemy import text
+                    result_db = await db.execute(text("""
+                        SELECT COUNT(*) FROM knowledge_base 
+                        WHERE created_at >= CURRENT_DATE AND source = 'wechat_group'
+                    """))
+                    count = result_db.scalar() or 0
+                result = {"message": f"今日已提取 {count} 条有价值信息", "extracted_count": count, "action": "redirect", "url": "/knowledge"}
+            elif task_type == "知识库更新":
+                result = {"message": "知识库更新基于群消息自动进行，请在知识库中查看最新内容", "action": "redirect", "url": "/knowledge"}
+            elif task_type == "线索发现":
+                # 查询今日发现的线索数量
+                async with AsyncSessionLocal() as db:
+                    from sqlalchemy import text
+                    result_db = await db.execute(text("""
+                        SELECT COUNT(*) FROM leads 
+                        WHERE created_at >= CURRENT_DATE AND source = 'wechat'
+                    """))
+                    count = result_db.scalar() or 0
+                result = {"message": f"今日从群聊发现 {count} 条潜在线索", "leads_count": count, "action": "redirect", "url": "/leads"}
+            else:
+                result = {"message": "小析2功能需要配合微信群监控使用，请在微信群管理中配置", "action": "redirect", "url": "/wechat-groups"}
+            
+        elif agent_type == AgentType.CONTENT_CREATOR:
+            from app.services.content_marketing_service import content_marketing_service
+            # 根据任务类型执行不同操作
+            if task_type == "每日内容生成":
+                result = await content_marketing_service.generate_daily_content()
+            elif task_type == "多平台发布":
+                result = {"message": "请在内容工作台查看待发布内容并执行发布", "action": "redirect", "url": "/content"}
+            elif task_type == "内容规划":
+                # 生成未来7天内容
+                from datetime import date, timedelta
+                results = []
+                for i in range(1, 8):
+                    target = date.today() + timedelta(days=i)
+                    daily_result = await content_marketing_service.generate_daily_content(target)
+                    results.append({"date": str(target), "result": daily_result})
+                result = {"message": f"已生成未来7天内容规划", "details": results}
+            elif task_type == "效果分析":
+                result = {"message": "效果分析功能正在开发中，请在内容工作台查看发布状态", "action": "redirect", "url": "/content"}
+            else:
+                result = await content_marketing_service.generate_daily_content()
             
         else:
             result = {"message": f"{agent_type.value} 暂不支持手动触发"}
