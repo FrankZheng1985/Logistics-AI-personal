@@ -106,7 +106,8 @@ class LeadHunterAgent(BaseAgent):
         Args:
             input_data: {
                 "action": "search" | "analyze" | "hunt" | "smart_hunt" | 
-                          "discover_topics" | "analyze_topic" | "get_topic_stats",
+                          "discover_topics" | "analyze_topic" | "get_topic_stats" |
+                          "discover_products" | "get_product_stats",
                 "source": "搜索来源",
                 "content": "要分析的内容",
                 "keywords": ["自定义关键词"],
@@ -131,7 +132,7 @@ class LeadHunterAgent(BaseAgent):
                 result = await self._smart_hunt(input_data)
             elif action == "get_stats":
                 result = await self._get_hunt_stats()
-            # 话题发现模式（新增）
+            # 话题发现模式
             elif action == "discover_topics":
                 result = await self._discover_topics(input_data)
             elif action == "analyze_topic":
@@ -140,6 +141,11 @@ class LeadHunterAgent(BaseAgent):
                 result = await self._get_topic_stats()
             elif action == "generate_answer":
                 result = await self._generate_answer(input_data)
+            # 产品趋势发现模式（内容引流 + 市场洞察）
+            elif action == "discover_products":
+                result = await self._discover_product_trends(input_data)
+            elif action == "get_product_stats":
+                result = await self._get_product_stats()
             else:
                 result = {"error": f"未知操作: {action}"}
             
@@ -148,14 +154,6 @@ class LeadHunterAgent(BaseAgent):
         except Exception as e:
             await self.end_task_session(error_message=str(e))
             raise
-        
-        # 产品趋势发现模式（内容引流 + 市场洞察）
-        elif action == "discover_products":
-            return await self._discover_product_trends(input_data)
-        elif action == "get_product_stats":
-            return await self._get_product_stats()
-        else:
-            return {"error": f"未知操作: {action}"}
     
     async def _smart_hunt(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
