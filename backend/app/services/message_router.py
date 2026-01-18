@@ -159,6 +159,22 @@ class MessageRouter:
                 agent_type="system"
             )
         
+        # 1.5 自动检测客户语言（如果还是auto状态）
+        customer_language = customer.get("language", "auto")
+        if customer_language == "auto":
+            from app.services.language_detector import language_detector
+            detected_lang = language_detector.detect_customer_language(
+                name=customer.get("name"),
+                email=customer.get("email"),
+                company=customer.get("company"),
+                message=message.content
+            )
+            if detected_lang != "auto":
+                # 更新客户语言
+                await self._update_customer_language(customer_id, detected_lang)
+                customer["language"] = detected_lang
+                logger.info(f"自动检测到客户语言: {detected_lang}")
+        
         # 2. 保存入站消息
         session_id = f"session_{customer_id}_{datetime.utcnow().strftime('%Y%m%d')}"
         await conversation_service.save_message(
@@ -307,6 +323,22 @@ class MessageRouter:
             name=message.metadata.get("user_name"),
             channel=message.channel.value
         )
+    
+    async def _update_customer_language(self, customer_id: str, language: str):
+        """更新客户语言偏好"""
+        from app.models.database import async_session_maker
+        from sqlalchemy import text
+        
+        async with async_session_maker() as db:
+            try:
+                await db.execute(
+                    text("UPDATE customers SET language = :language, updated_at = NOW() WHERE id = :id"),
+                    {"language": language, "id": customer_id}
+                )
+                await db.commit()
+                logger.info(f"更新客户语言: {customer_id} -> {language}")
+            except Exception as e:
+                logger.error(f"更新客户语言失败: {e}")
     
     async def _route_reply(
         self, 

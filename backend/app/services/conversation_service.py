@@ -50,7 +50,7 @@ class ConversationService:
             try:
                 # 查找现有客户
                 result = await db.execute(
-                    text("SELECT id, name, intent_score, intent_level, follow_count FROM customers WHERE wechat_id = :wechat_id"),
+                    text("SELECT id, name, intent_score, intent_level, follow_count, language, email, company FROM customers WHERE wechat_id = :wechat_id"),
                     {"wechat_id": wechat_id}
                 )
                 row = result.fetchone()
@@ -76,6 +76,9 @@ class ConversationService:
                         "intent_score": row[2],
                         "intent_level": row[3],
                         "follow_count": row[4],
+                        "language": row[5] or "auto",
+                        "email": row[6],
+                        "company": row[7],
                         "is_new": False
                     }
                 

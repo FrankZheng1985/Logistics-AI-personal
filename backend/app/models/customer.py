@@ -20,6 +20,13 @@ class IntentLevel(str, enum.Enum):
     C = "C"  # 低意向 <30
 
 
+class CustomerLanguage(str, enum.Enum):
+    """客户语言偏好"""
+    AUTO = "auto"  # 自动检测
+    ZH = "zh"      # 中文
+    EN = "en"      # 英文
+
+
 class CustomerSource(str, enum.Enum):
     """客户来源"""
     WECHAT = "wechat"
@@ -56,6 +63,9 @@ class Customer(Base):
     wechat_id: Mapped[Optional[str]] = mapped_column(String(100))
     wechat_open_id: Mapped[Optional[str]] = mapped_column(String(100))
     company: Mapped[Optional[str]] = mapped_column(String(200))
+    
+    # 语言偏好
+    language: Mapped[str] = mapped_column(String(10), default="auto")  # auto, zh, en
     
     # 来源追踪
     source: Mapped[CustomerSource] = mapped_column(

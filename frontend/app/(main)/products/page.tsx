@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 
-// API基础URL
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+// API基础URL - 生产环境使用相对路径（通过nginx代理）
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || ''
 
 interface ProductTrend {
   id: string
