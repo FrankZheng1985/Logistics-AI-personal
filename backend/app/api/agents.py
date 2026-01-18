@@ -171,6 +171,68 @@ async def update_agent_status_by_name(
     }
 
 
+@router.post("/{agent_type}/trigger")
+async def trigger_agent_task(
+    agent_type: AgentType,
+    request_body: dict = None
+):
+    """手动触发AI员工任务
+    
+    Args:
+        agent_type: 员工类型
+        request_body: {"task_type": "任务类型"}
+    """
+    task_type = request_body.get("task_type", "default") if request_body else "default"
+    
+    try:
+        # 根据不同员工类型触发不同任务
+        if agent_type == AgentType.LEAD_HUNTER:
+            from app.agents.lead_hunter import lead_hunter
+            result = await lead_hunter.process({"action": "smart_hunt", "max_keywords": 3, "max_results": 10})
+            
+        elif agent_type == AgentType.COPYWRITER:
+            from app.agents.copywriter import copywriter
+            if task_type == "视频脚本":
+                result = await copywriter.process({"task_type": "script", "title": "物流服务介绍", "duration": 60})
+            elif task_type == "朋友圈文案":
+                result = await copywriter.process({"task_type": "moments", "topic": "物流服务", "purpose": "获客引流"})
+            elif task_type == "广告文案":
+                result = await copywriter.process({"task_type": "ad", "platform": "通用", "product": "国际物流服务"})
+            else:
+                result = await copywriter.process({"task_type": "moments", "topic": "物流服务"})
+                
+        elif agent_type == AgentType.ASSET_COLLECTOR:
+            from app.agents.asset_collector import asset_collector
+            result = await asset_collector.process({"platforms": ["pexels", "pixabay"], "keywords": ["物流仓库", "港口集装箱"]})
+            
+        elif agent_type == AgentType.ANALYST:
+            from app.agents.analyst import analyst
+            result = await analyst.process({"action": "market_intel"})
+            
+        elif agent_type == AgentType.VIDEO_CREATOR:
+            # 视频创作需要先有脚本
+            result = {"message": "请先通过小文创建视频脚本，再触发视频生成"}
+            
+        else:
+            result = {"message": f"{agent_type.value} 暂不支持手动触发"}
+        
+        return {
+            "success": True,
+            "agent_type": agent_type.value,
+            "task_type": task_type,
+            "result": result
+        }
+        
+    except Exception as e:
+        logger.error(f"触发任务失败: {e}")
+        return {
+            "success": False,
+            "agent_type": agent_type.value,
+            "task_type": task_type,
+            "error": str(e)
+        }
+
+
 @router.get("/{agent_type}/logs")
 async def get_agent_logs(
     agent_type: AgentType,
