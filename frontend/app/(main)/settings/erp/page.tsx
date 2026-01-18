@@ -31,6 +31,7 @@ interface ERPConfig {
   is_active?: boolean
   created_at?: string
   updated_at?: string
+  has_token?: boolean  // 标记是否已有密钥保存
 }
 
 interface SyncLog {
@@ -80,7 +81,8 @@ export default function ERPSettingsPage() {
               api_url: data.api_url || prev.api_url,
               auth_type: data.auth_type || prev.auth_type,
               username: data.username || '',
-              description: data.description || prev.description
+              description: data.description || prev.description,
+              has_token: data.has_token || false  // 标记是否已有密钥
             }))
           }
         }
@@ -103,22 +105,31 @@ export default function ERPSettingsPage() {
   
   // 保存配置
   const handleSave = async () => {
-    if (!config.api_url || !config.auth_token) {
+    // 如果没有已保存的token且当前输入也为空，则提示
+    if (!config.api_url || (!config.auth_token && !config.has_token)) {
       alert('请填写API地址和认证令牌')
       return
     }
     
     setIsSaving(true)
     try {
+      // 如果已有token且用户没有输入新token，发送特殊标记
+      const payload = {
+        ...config,
+        auth_token: config.auth_token || (config.has_token ? '__KEEP_EXISTING__' : '')
+      }
+      
       const res = await fetch('/api/erp/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config)
+        body: JSON.stringify(payload)
       })
       
       if (res.ok) {
         alert('ERP配置已保存！')
         setTestResult(null)
+        // 更新状态，标记已有token
+        setConfig(prev => ({ ...prev, auth_token: '', has_token: true }))
       } else {
         throw new Error('保存失败')
       }
@@ -275,9 +286,9 @@ export default function ERPSettingsPage() {
               <input
                 type={showToken ? 'text' : 'password'}
                 value={config.auth_token}
-                onChange={e => setConfig(prev => ({ ...prev, auth_token: e.target.value }))}
+                onChange={e => setConfig(prev => ({ ...prev, auth_token: e.target.value, has_token: false }))}
                 className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none pr-12"
-                placeholder="请输入API Token或密钥"
+                placeholder={config.has_token ? '••••••••（已保存，输入新密钥可覆盖）' : '请输入API Token或密钥'}
               />
               <button
                 type="button"
@@ -287,6 +298,12 @@ export default function ERPSettingsPage() {
                 {showToken ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
+            {config.has_token && !config.auth_token && (
+              <p className="text-emerald-400 text-xs mt-1 flex items-center gap-1">
+                <CheckCircle className="w-3 h-3" />
+                密钥已保存，留空则保持不变
+              </p>
+            )}
           </div>
           
           <div>

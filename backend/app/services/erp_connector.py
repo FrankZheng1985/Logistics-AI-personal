@@ -613,8 +613,13 @@ class ReadOnlyERPConnector:
     async def test_connection(self) -> Dict[str, Any]:
         """测试ERP连接"""
         try:
-            if not self._initialized:
-                await self.initialize()
+            # 强制重新初始化以加载最新配置
+            self._initialized = False
+            if self._client:
+                await self._client.aclose()
+                self._client = None
+            
+            await self.initialize()
             
             if not self._client:
                 return {
@@ -633,6 +638,8 @@ class ReadOnlyERPConnector:
             }
         except ERPAuthenticationError as e:
             return {"success": False, "error": f"认证失败: {str(e)}"}
+        except httpx.HTTPStatusError as e:
+            return {"success": False, "error": f"连接失败: Client error '{e.response.status_code} {e.response.reason_phrase}' for url '{e.request.url}' For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/{e.response.status_code}"}
         except Exception as e:
             return {"success": False, "error": f"连接失败: {str(e)}"}
     
@@ -694,12 +701,13 @@ class ERPConfigManager:
                 result = await db.execute(
                     text("""
                         SELECT id, api_url, auth_type, username, description, 
-                               is_active, created_at, updated_at
+                               is_active, created_at, updated_at, auth_token
                         FROM erp_config WHERE is_active = TRUE LIMIT 1
                     """)
                 )
                 row = result.fetchone()
                 if row:
+                    # 返回 has_token 标记表示是否已配置密钥，但不返回实际密钥
                     return {
                         "id": str(row[0]),
                         "api_url": row[1],
@@ -708,7 +716,8 @@ class ERPConfigManager:
                         "description": row[4],
                         "is_active": row[5],
                         "created_at": row[6].isoformat() if row[6] else None,
-                        "updated_at": row[7].isoformat() if row[7] else None
+                        "updated_at": row[7].isoformat() if row[7] else None,
+                        "has_token": bool(row[8])  # 标记是否已有密钥
                     }
                 return None
         except Exception as e:
