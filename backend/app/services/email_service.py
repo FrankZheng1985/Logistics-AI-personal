@@ -78,16 +78,110 @@ class EmailService:
         return bool(
             self.smtp_host and 
             self.smtp_user and 
-            self.smtp_password and 
-            self.notify_email
+            self.smtp_password
         )
+    
+    async def get_email_signature(self) -> Dict[str, str]:
+        """
+        获取邮件签名，从公司配置中读取
+        返回 HTML 和纯文本两种格式的签名
+        """
+        from app.models.database import async_session_maker
+        import json
+        
+        # 默认签名
+        default_html = f"""
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0; font-size: 13px; color: #666;">
+            <p style="margin: 5px 0;"><strong>{self.sender_name}</strong></p>
+            <p style="margin: 5px 0;">邮箱：{self.smtp_user}</p>
+            <p style="margin: 5px 0; font-size: 12px; color: #999;">此邮件由系统自动发送，如需帮助请直接回复</p>
+        </div>
+        """
+        default_text = f"\n\n---\n{self.sender_name}\n邮箱：{self.smtp_user}\n"
+        
+        try:
+            async with async_session_maker() as db:
+                # 获取公司配置
+                result = await db.execute(
+                    text("SELECT config_data FROM company_config WHERE id = (SELECT MIN(id) FROM company_config)")
+                )
+                row = result.fetchone()
+                
+                if row and row[0]:
+                    config = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+                    
+                    company_name = config.get("company_name", "")
+                    contact_phone = config.get("contact_phone", "")
+                    contact_email = config.get("contact_email", self.smtp_user)
+                    contact_wechat = config.get("contact_wechat", "")
+                    address = config.get("address", "")
+                    company_website = config.get("company_website", "")
+                    brand_slogan = config.get("brand_slogan", "")
+                    
+                    # 构建 HTML 签名
+                    html_parts = [
+                        '<div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0; font-size: 13px; color: #666; font-family: Arial, sans-serif;">'
+                    ]
+                    
+                    if brand_slogan:
+                        html_parts.append(f'<p style="margin: 0 0 10px 0; color: #333; font-style: italic;">"{brand_slogan}"</p>')
+                    
+                    html_parts.append(f'<p style="margin: 5px 0; font-size: 14px;"><strong style="color: #333;">{self.sender_name}</strong></p>')
+                    
+                    if company_name:
+                        html_parts.append(f'<p style="margin: 5px 0;">{company_name}</p>')
+                    
+                    if contact_phone:
+                        html_parts.append(f'<p style="margin: 5px 0;">📞 电话：{contact_phone}</p>')
+                    
+                    if contact_email:
+                        html_parts.append(f'<p style="margin: 5px 0;">📧 邮箱：{contact_email}</p>')
+                    
+                    if contact_wechat:
+                        html_parts.append(f'<p style="margin: 5px 0;">💬 微信：{contact_wechat}</p>')
+                    
+                    if address:
+                        html_parts.append(f'<p style="margin: 5px 0;">📍 地址：{address}</p>')
+                    
+                    if company_website:
+                        html_parts.append(f'<p style="margin: 5px 0;">🌐 官网：<a href="{company_website}" style="color: #0066cc;">{company_website}</a></p>')
+                    
+                    html_parts.append('</div>')
+                    
+                    # 构建纯文本签名
+                    text_parts = ["\n\n---"]
+                    if brand_slogan:
+                        text_parts.append(f'"{brand_slogan}"')
+                    text_parts.append(f"{self.sender_name}")
+                    if company_name:
+                        text_parts.append(company_name)
+                    if contact_phone:
+                        text_parts.append(f"电话：{contact_phone}")
+                    if contact_email:
+                        text_parts.append(f"邮箱：{contact_email}")
+                    if contact_wechat:
+                        text_parts.append(f"微信：{contact_wechat}")
+                    if address:
+                        text_parts.append(f"地址：{address}")
+                    if company_website:
+                        text_parts.append(f"官网：{company_website}")
+                    
+                    return {
+                        "html": "\n".join(html_parts),
+                        "text": "\n".join(text_parts)
+                    }
+        except Exception as e:
+            logger.warning(f"获取邮件签名失败: {e}")
+        
+        return {"html": default_html, "text": default_text}
     
     async def send_email(
         self,
         to_emails: List[str],
         subject: str,
         html_content: str,
-        text_content: Optional[str] = None
+        text_content: Optional[str] = None,
+        include_signature: bool = False
     ) -> Dict[str, Any]:
         """
         发送邮件
@@ -97,6 +191,7 @@ class EmailService:
             subject: 邮件主题
             html_content: HTML内容
             text_content: 纯文本内容（可选）
+            include_signature: 是否附加签名（默认False，系统通知邮件不需要签名）
         
         Returns:
             发送结果
@@ -109,6 +204,13 @@ class EmailService:
             return {"status": "skipped", "message": "邮件服务未配置"}
         
         try:
+            # 如果需要签名，获取并附加
+            if include_signature:
+                signature = await self.get_email_signature()
+                html_content = html_content + signature["html"]
+                if text_content:
+                    text_content = text_content + signature["text"]
+            
             # 创建邮件
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
@@ -145,6 +247,52 @@ class EmailService:
         except Exception as e:
             logger.error(f"📧 邮件发送失败: {e}")
             return {"status": "error", "message": str(e)}
+    
+    async def send_customer_email(
+        self,
+        to_email: str,
+        subject: str,
+        body: str,
+        customer_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        发送客户跟进邮件（自动附加签名）
+        
+        Args:
+            to_email: 客户邮箱
+            subject: 邮件主题
+            body: 邮件正文内容
+            customer_name: 客户姓名（可选，用于称呼）
+        
+        Returns:
+            发送结果
+        """
+        # 构建 HTML 邮件正文
+        greeting = f"<p>尊敬的{customer_name}：</p>" if customer_name else "<p>您好：</p>"
+        
+        # 将纯文本内容转换为 HTML（保留换行）
+        body_html = body.replace("\n", "<br>")
+        
+        html_content = f"""
+        <div style="font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.6;">
+            {greeting}
+            <div style="margin: 15px 0;">
+                {body_html}
+            </div>
+        </div>
+        """
+        
+        # 纯文本版本
+        text_greeting = f"尊敬的{customer_name}：\n\n" if customer_name else "您好：\n\n"
+        text_content = text_greeting + body
+        
+        return await self.send_email(
+            to_emails=[to_email],
+            subject=subject,
+            html_content=html_content,
+            text_content=text_content,
+            include_signature=True  # 客户邮件自动附加签名
+        )
     
     # =====================================================
     # 客户营销邮件功能

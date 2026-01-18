@@ -333,33 +333,28 @@ async def test_smtp_connection():
                 "message": f"SMTP配置不完整: host={bool(smtp_host)}, user={bool(smtp_user)}, password={bool(smtp_password)}"
             }
         
-        # 直接发送测试邮件
+        # 使用 email_service 发送测试邮件（带签名）
+        from app.services.email_service import email_service
+        
+        # 先更新 email_service 的配置
+        email_service.smtp_host = smtp_host
+        email_service.smtp_port = smtp_port
+        email_service.smtp_user = smtp_user
+        email_service.smtp_password = smtp_password
+        email_service.sender_name = sender_name
+        
         to_email = smtp_user  # 发送给自己
         
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = "📧 SMTP配置测试 - 物流智能体"
-        msg["From"] = formataddr((sender_name, smtp_user))
-        msg["To"] = to_email
+        # 使用带签名的客户邮件格式发送测试
+        result = await email_service.send_customer_email(
+            to_email=to_email,
+            subject="📧 SMTP配置测试 - 邮件签名预览",
+            body="这是一封测试邮件，用于验证SMTP配置是否正确。\n\n如果您收到这封邮件，说明邮件服务已正确配置，系统可以正常发送客户跟进邮件了。\n\n下方是邮件签名效果预览：",
+            customer_name="测试用户"
+        )
         
-        html_content = """
-        <div style="font-family: Arial, sans-serif; padding: 20px;">
-            <h2 style="color: #2563eb;">✅ SMTP配置测试成功！</h2>
-            <p>您的邮件服务已正确配置，系统可以正常发送邮件了。</p>
-            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-            <p style="color: #666; font-size: 12px;">此邮件由物流智能体系统自动发送</p>
-        </div>
-        """
-        text_content = "SMTP配置测试成功！您的邮件服务已正确配置。"
-        
-        msg.attach(MIMEText(text_content, "plain", "utf-8"))
-        msg.attach(MIMEText(html_content, "html", "utf-8"))
-        
-        # 连接并发送
-        context = ssl.create_default_context()
-        
-        with smtplib.SMTP_SSL(smtp_host, smtp_port, context=context, timeout=30) as server:
-            server.login(smtp_user, smtp_password)
-            server.sendmail(smtp_user, [to_email], msg.as_string())
+        if result.get("status") != "sent":
+            raise Exception(result.get("message", "发送失败"))
         
         logger.info(f"SMTP测试邮件发送成功: {to_email}")
         
