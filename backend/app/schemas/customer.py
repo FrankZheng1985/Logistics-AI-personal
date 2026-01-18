@@ -41,6 +41,7 @@ class CustomerUpdate(BaseModel):
     routes: Optional[List[str]] = None
     estimated_volume: Optional[str] = None
     next_follow_at: Optional[datetime] = None
+    language: Optional[str] = None  # 语言偏好: auto, zh, en
 
 
 class CustomerResponse(CustomerBase):
@@ -51,6 +52,7 @@ class CustomerResponse(CustomerBase):
     follow_count: int
     last_contact_at: Optional[datetime]
     next_follow_at: Optional[datetime]
+    language: str = "auto"  # 语言偏好
     created_at: datetime
     updated_at: datetime
     

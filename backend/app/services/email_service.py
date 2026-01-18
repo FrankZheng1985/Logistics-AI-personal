@@ -81,23 +81,48 @@ class EmailService:
             self.smtp_password
         )
     
-    async def get_email_signature(self) -> Dict[str, str]:
+    async def get_email_signature(self, language: str = "zh") -> Dict[str, str]:
         """
         获取邮件签名，从公司配置中读取
         返回 HTML 和纯文本两种格式的签名
+        
+        Args:
+            language: 语言 'zh' 中文, 'en' 英文
         """
         from app.models.database import async_session_maker
         import json
+        
+        # 标签文字（中英文）
+        labels = {
+            'zh': {
+                'address': '📍 地址',
+                'phone': '📞 电话',
+                'email': '📧 邮箱',
+                'website': '🌐 官网',
+                'wechat': '💬 微信',
+                'auto_sent': '此邮件由系统自动发送，如需帮助请直接回复'
+            },
+            'en': {
+                'address': '📍 Address',
+                'phone': '📞 Tel',
+                'email': '📧 Email',
+                'website': '🌐 Website',
+                'wechat': '💬 WeChat',
+                'auto_sent': 'This email was sent automatically. Please reply directly if you need assistance.'
+            }
+        }
+        
+        lang_labels = labels.get(language, labels['zh'])
         
         # 默认签名
         default_html = f"""
         <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0; font-size: 13px; color: #666;">
             <p style="margin: 5px 0;"><strong>{self.sender_name}</strong></p>
-            <p style="margin: 5px 0;">邮箱：{self.smtp_user}</p>
-            <p style="margin: 5px 0; font-size: 12px; color: #999;">此邮件由系统自动发送，如需帮助请直接回复</p>
+            <p style="margin: 5px 0;">{lang_labels['email']}：{self.smtp_user}</p>
+            <p style="margin: 5px 0; font-size: 12px; color: #999;">{lang_labels['auto_sent']}</p>
         </div>
         """
-        default_text = f"\n\n---\n{self.sender_name}\n邮箱：{self.smtp_user}\n"
+        default_text = f"\n\n---\n{self.sender_name}\n{lang_labels['email']}：{self.smtp_user}\n"
         
         try:
             # 获取SMTP配置中的邮件Logo
@@ -155,27 +180,27 @@ class EmailService:
                     
                     # 地址
                     if address:
-                        html_parts.append(f'<p style="margin: 5px 0;">📍 地址：{address}</p>')
+                        html_parts.append(f'<p style="margin: 5px 0;">{lang_labels["address"]}：{address}</p>')
                     
                     # 电话
                     if contact_phone:
-                        html_parts.append(f'<p style="margin: 5px 0;">📞 电话：{contact_phone}</p>')
+                        html_parts.append(f'<p style="margin: 5px 0;">{lang_labels["phone"]}：{contact_phone}</p>')
                     
                     # 邮箱
                     if contact_email:
-                        html_parts.append(f'<p style="margin: 5px 0;">📧 邮箱：{contact_email}</p>')
+                        html_parts.append(f'<p style="margin: 5px 0;">{lang_labels["email"]}：{contact_email}</p>')
                     
                     # 官网
                     if company_website:
-                        html_parts.append(f'<p style="margin: 5px 0;">🌐 官网：<a href="{company_website}" style="color: #0066cc;">{company_website}</a></p>')
+                        html_parts.append(f'<p style="margin: 5px 0;">{lang_labels["website"]}：<a href="{company_website}" style="color: #0066cc;">{company_website}</a></p>')
                     
                     # 微信号
                     if contact_wechat:
-                        html_parts.append(f'<p style="margin: 5px 0;">💬 微信：{contact_wechat}</p>')
+                        html_parts.append(f'<p style="margin: 5px 0;">{lang_labels["wechat"]}：{contact_wechat}</p>')
                     
                     # 二维码放最下面
                     if wechat_qrcode:
-                        html_parts.append(f'<p style="margin: 10px 0;"><img src="{wechat_qrcode}" alt="微信二维码" style="max-width: 120px; height: auto;" /></p>')
+                        html_parts.append(f'<p style="margin: 10px 0;"><img src="{wechat_qrcode}" alt="WeChat QR Code" style="max-width: 120px; height: auto;" /></p>')
                     
                     html_parts.append('</div>')
                     
@@ -187,15 +212,15 @@ class EmailService:
                     if company_name:
                         text_parts.append(company_name)
                     if address:
-                        text_parts.append(f"地址：{address}")
+                        text_parts.append(f"{lang_labels['address']}：{address}")
                     if contact_phone:
-                        text_parts.append(f"电话：{contact_phone}")
+                        text_parts.append(f"{lang_labels['phone']}：{contact_phone}")
                     if contact_email:
-                        text_parts.append(f"邮箱：{contact_email}")
+                        text_parts.append(f"{lang_labels['email']}：{contact_email}")
                     if company_website:
-                        text_parts.append(f"官网：{company_website}")
+                        text_parts.append(f"{lang_labels['website']}：{company_website}")
                     if contact_wechat:
-                        text_parts.append(f"微信：{contact_wechat}")
+                        text_parts.append(f"{lang_labels['wechat']}：{contact_wechat}")
                     
                     return {
                         "html": "\n".join(html_parts),

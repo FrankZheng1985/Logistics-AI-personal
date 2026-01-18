@@ -358,16 +358,25 @@ class LeadHunterAgent(BaseAgent):
                                 results["high_intent_leads"] += 1
                                 keyword_stats[keyword]["high_intent"] += 1
                             
+                            # 检测线索语言
+                            from app.services.language_detector import language_detector
+                            lead_language = language_detector.detect_customer_language(
+                                name=lead_data.get("contact_name"),
+                                email=lead_data.get("email"),
+                                company=lead_data.get("company"),
+                                message=content  # 用原始内容检测
+                            )
+                            
                             # 保存线索到数据库
                             lead_insert = await db.execute(
                                 text("""
                                     INSERT INTO leads 
                                     (source, source_url, source_content, content, 
                                      ai_confidence, intent_level, ai_summary, ai_suggestion,
-                                     needs, status, created_at)
+                                     needs, status, language, created_at)
                                     VALUES (:source, :url, :raw_content, :content, 
                                             :confidence, :level, :summary, :suggestion,
-                                            :needs, 'new', NOW())
+                                            :needs, 'new', :language, NOW())
                                     ON CONFLICT (source_url) DO NOTHING
                                     RETURNING id
                                 """),
@@ -380,7 +389,8 @@ class LeadHunterAgent(BaseAgent):
                                     "level": {"high": "high", "medium": "medium", "low": "low"}.get(intent_level, "unknown"),
                                     "summary": analysis.get("summary", ""),
                                     "suggestion": analysis.get("follow_up_suggestion", ""),
-                                    "needs": analysis.get("needs", [])
+                                    "needs": analysis.get("needs", []),
+                                    "language": lead_language
                                 }
                             )
                             lead_row = lead_insert.fetchone()

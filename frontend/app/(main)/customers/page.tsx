@@ -18,7 +18,8 @@ import {
   Building,
   Calendar,
   Activity,
-  Send
+  Send,
+  Globe
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -33,6 +34,7 @@ interface Customer {
   source: string
   lastContact: string | null
   createdAt: string | null
+  language: 'auto' | 'zh' | 'en'
 }
 
 // 意向等级徽章
@@ -44,6 +46,77 @@ function IntentBadge({ level }: { level: 'S' | 'A' | 'B' | 'C' }) {
     C: { class: 'intent-c', label: 'C级' },
   }
   return <span className={config[level].class}>{config[level].label}</span>
+}
+
+// 语言选择器
+function LanguageSelector({ 
+  customerId, 
+  currentLanguage, 
+  onUpdate 
+}: { 
+  customerId: string
+  currentLanguage: 'auto' | 'zh' | 'en'
+  onUpdate?: () => void
+}) {
+  const [language, setLanguage] = useState(currentLanguage)
+  const [saving, setSaving] = useState(false)
+  
+  const languageOptions = [
+    { value: 'auto', label: '自动检测', flag: '🔄' },
+    { value: 'zh', label: '中文', flag: '🇨🇳' },
+    { value: 'en', label: 'English', flag: '🇬🇧' },
+  ]
+  
+  const handleChange = async (newLang: string) => {
+    setLanguage(newLang as any)
+    setSaving(true)
+    
+    try {
+      const res = await fetch(`/api/customers/${customerId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ language: newLang })
+      })
+      
+      if (res.ok) {
+        onUpdate?.()
+      } else {
+        console.error('更新语言失败')
+        setLanguage(currentLanguage) // 回滚
+      }
+    } catch (error) {
+      console.error('更新语言失败:', error)
+      setLanguage(currentLanguage) // 回滚
+    } finally {
+      setSaving(false)
+    }
+  }
+  
+  const currentOption = languageOptions.find(opt => opt.value === language)
+  
+  return (
+    <div className="relative">
+      <select
+        value={language}
+        onChange={e => handleChange(e.target.value)}
+        disabled={saving}
+        className="w-full px-3 py-1.5 text-sm bg-dark-purple/50 border border-white/10 rounded-lg 
+                   focus:border-cyber-blue/50 focus:outline-none appearance-none cursor-pointer
+                   disabled:opacity-50"
+      >
+        {languageOptions.map(opt => (
+          <option key={opt.value} value={opt.value}>
+            {opt.flag} {opt.label}
+          </option>
+        ))}
+      </select>
+      {saving && (
+        <div className="absolute right-2 top-1/2 -translate-y-1/2">
+          <Loader2 className="w-3 h-3 animate-spin text-cyber-blue" />
+        </div>
+      )}
+    </div>
+  )
 }
 
 // 客户详情弹窗
@@ -260,7 +333,19 @@ function CustomerDetailModal({
               </div>
               <p className="font-medium">{customer.source}</p>
             </div>
-            <div className="glass-card p-4 col-span-2">
+            {/* 语言偏好 */}
+            <div className="glass-card p-4">
+              <div className="flex items-center gap-2 text-gray-400 mb-1">
+                <Globe className="w-4 h-4" />
+                语言偏好
+              </div>
+              <LanguageSelector 
+                customerId={customer.id} 
+                currentLanguage={customer.language || 'auto'} 
+                onUpdate={onRefresh}
+              />
+            </div>
+            <div className="glass-card p-4">
               <div className="flex items-center gap-2 text-gray-400 mb-1">
                 <Calendar className="w-4 h-4" />
                 最近联系
@@ -570,7 +655,8 @@ export default function CustomersPage() {
             email: c.email,
             source: c.source || '微信',
             lastContact: c.last_contact_at ? formatTime(c.last_contact_at) : null,
-            createdAt: c.created_at ? formatTime(c.created_at) : null
+            createdAt: c.created_at ? formatTime(c.created_at) : null,
+            language: c.language || 'auto'
           }))
           setCustomers(mapped)
           setTotal(data.total || mapped.length)

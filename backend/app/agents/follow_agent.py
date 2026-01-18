@@ -39,12 +39,15 @@ class FollowAgent(BaseAgent):
                 "intent_level": "意向等级",
                 "last_contact": "上次联系时间",
                 "last_conversation": "上次对话内容",
-                "purpose": "跟进目的"
+                "purpose": "跟进目的",
+                "language": "客户语言偏好 (zh/en/auto)",
+                "channel": "跟进渠道 (email/wechat/phone)"
             }
         
         Returns:
             {
                 "follow_message": "跟进消息",
+                "follow_subject": "邮件主题（如果是邮件）",
                 "next_follow_time": "下次跟进时间建议"
             }
         """
@@ -53,6 +56,41 @@ class FollowAgent(BaseAgent):
         last_contact = input_data.get("last_contact", "未知")
         last_conversation = input_data.get("last_conversation", "无记录")
         purpose = input_data.get("purpose", "日常跟进")
+        language = input_data.get("language", "auto")
+        channel = input_data.get("channel", "wechat")
+        
+        # 获取有效语言（auto默认中文）
+        from app.services.language_detector import language_detector
+        effective_language = language_detector.get_effective_language(language, fallback='zh')
+        
+        # 根据语言构建提示
+        if effective_language == 'en':
+            language_instruction = """
+IMPORTANT: Generate the follow-up message in ENGLISH.
+The customer prefers English communication.
+Use professional business English, be polite and friendly.
+"""
+        else:
+            language_instruction = """
+重要：请使用中文生成跟进消息。
+语气要专业、礼貌、友好。
+"""
+        
+        # 根据渠道调整格式
+        if channel == "email":
+            channel_instruction = """
+这是一封跟进邮件，请：
+1. 生成一个简洁的邮件主题（30字以内）
+2. 正文要专业、有条理
+3. 结尾要有明确的行动号召
+""" if effective_language == 'zh' else """
+This is a follow-up email, please:
+1. Generate a concise email subject (under 10 words)
+2. Body should be professional and well-structured
+3. End with a clear call-to-action
+"""
+        else:
+            channel_instruction = ""
         
         # 生成跟进消息
         prompt = FOLLOW_UP_PROMPT.format(
@@ -63,18 +101,40 @@ class FollowAgent(BaseAgent):
             purpose=purpose
         )
         
-        follow_message = await self.think([{"role": "user", "content": prompt}])
+        # 添加语言和渠道指令
+        full_prompt = f"{language_instruction}\n{channel_instruction}\n\n{prompt}"
+        
+        follow_message = await self.think([{"role": "user", "content": full_prompt}])
         
         # 计算下次跟进时间
         interval = self.FOLLOW_INTERVALS.get(intent_level, 7)
         next_follow = datetime.utcnow() + timedelta(days=interval)
         
-        self.log(f"生成跟进消息 ({intent_level}级客户)")
+        self.log(f"生成跟进消息 ({intent_level}级客户, 语言={effective_language})")
+        
+        # 如果是邮件，尝试提取主题（AI可能会在回复中包含）
+        follow_subject = None
+        if channel == "email":
+            # 尝试从回复中提取主题
+            import re
+            subject_match = re.search(r'(?:主题|Subject)[:：]\s*(.+?)(?:\n|$)', follow_message)
+            if subject_match:
+                follow_subject = subject_match.group(1).strip()
+                # 从消息中移除主题行
+                follow_message = re.sub(r'(?:主题|Subject)[:：]\s*.+?\n?', '', follow_message).strip()
+            else:
+                # 默认主题
+                if effective_language == 'en':
+                    follow_subject = "Follow-up from XF Logistics"
+                else:
+                    follow_subject = "先锋物流跟进"
         
         return {
             "follow_message": follow_message,
+            "follow_subject": follow_subject,
             "next_follow_time": next_follow.isoformat(),
-            "suggested_interval_days": interval
+            "suggested_interval_days": interval,
+            "language": effective_language
         }
     
     async def generate_batch_follow_plan(
