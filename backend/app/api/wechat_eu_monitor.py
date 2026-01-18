@@ -183,21 +183,32 @@ async def process_user_message(user_id: str, message: str):
         # 根据关键词执行不同任务
         if any(kw in message_lower for kw in ["采集", "新闻", "监控", "抓取", "获取"]):
             # 执行新闻采集
-            result = await eu_customs_monitor_agent.process({"action": "monitor", "max_results": 15})
+            result = await eu_customs_monitor_agent.process({"action": "monitor", "max_results": 20})
             
             if result.get("error"):
                 reply = f"❌ 采集失败: {result.get('error')}"
             else:
                 important_count = result.get("important_count", 0)
                 total_count = result.get("total_news", 0)
-                reply = f"""✅ 采集完成！
+                sources = ', '.join(result.get('sources_searched', []))
+                
+                # 先发送采集结果概要
+                summary = f"""✅ 采集完成！
 
-📊 **本次采集结果**
+📊 本次采集结果
 - 总新闻数: {total_count} 条
 - 重要新闻: {important_count} 条
-- 来源: {', '.join(result.get('sources_searched', []))}
-
-{'🔔 重要新闻已单独推送给您！' if important_count > 0 else '暂无重要新闻'}"""
+- 来源: {sources}"""
+                
+                await send_reply(user_id, summary)
+                
+                # 如果有重要新闻，分批发送TOP10
+                important_news = result.get("important_news", [])
+                if important_news:
+                    # 发送TOP10重要新闻
+                    await send_top_news(user_id, important_news[:10])
+                
+                return  # 已经发送了回复，直接返回
         
         elif any(kw in message_lower for kw in ["统计", "汇总", "报告", "今日", "本周"]):
             # 获取统计信息
@@ -258,6 +269,48 @@ async def process_user_message(user_id: str, message: str):
     except Exception as e:
         logger.error(f"[小欧间谍] 处理消息异常: {e}")
         await send_reply(user_id, f"❌ 处理失败: {str(e)}")
+
+
+async def send_top_news(user_id: str, news_list: list):
+    """
+    发送TOP重要新闻列表（分批发送避免消息过长）
+    """
+    if not news_list:
+        return
+    
+    # 每5条新闻一批
+    batch_size = 5
+    for batch_idx in range(0, len(news_list), batch_size):
+        batch = news_list[batch_idx:batch_idx + batch_size]
+        start_num = batch_idx + 1
+        
+        if batch_idx == 0:
+            msg = f"🔔 TOP{len(news_list)}重要新闻：\n\n"
+        else:
+            msg = ""
+        
+        for i, news in enumerate(batch, start=start_num):
+            urgency = news.get("urgency", "一般")
+            emoji = "🚨" if urgency == "紧急" else "⚠️" if urgency == "重要" else "📌"
+            score = news.get("importance_score", 0)
+            news_type = news.get("news_type", "")
+            title = news.get("title_cn", news.get("title", ""))[:40]
+            summary = news.get("summary_cn", "")[:60]
+            suggestion = news.get("business_suggestion", "")[:40]
+            
+            msg += f"""{emoji} {i}. {title}
+类型: {news_type} | {score}分
+摘要: {summary}...
+建议: {suggestion}
+
+"""
+        
+        await send_reply(user_id, msg.strip())
+        
+        # 批次之间稍微延迟
+        if batch_idx + batch_size < len(news_list):
+            import asyncio
+            await asyncio.sleep(0.5)
 
 
 async def send_reply(user_id: str, content: str):
