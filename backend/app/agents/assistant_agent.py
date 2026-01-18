@@ -361,7 +361,7 @@ class AssistantAgent(BaseAgent):
     async def _handle_schedule_cancel(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
         """处理取消日程"""
         # TODO: 实现取消日程逻辑
-        return {"success": True, "response": "请告诉我要取消哪个日程？比如说"取消明天下午的会议""}
+        return {"success": True, "response": "请告诉我要取消哪个日程？比如说'取消明天下午的会议'"}
     
     # ==================== 待办管理 ====================
     
