@@ -383,6 +383,96 @@ async def test_smtp_connection():
         }
 
 
+@router.get("/smtp/signature-preview")
+async def get_signature_preview():
+    """获取邮件签名预览"""
+    try:
+        # 获取SMTP配置中的发件人名称
+        smtp_config = await get_setting("smtp")
+        sender_name = smtp_config.get("sender_name", "物流智能体") if smtp_config else "物流智能体"
+        sender_email = smtp_config.get("smtp_user", "") if smtp_config else ""
+        
+        # 获取公司配置
+        from app.models.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                text("SELECT config_data FROM company_config WHERE id = (SELECT MIN(id) FROM company_config)")
+            )
+            row = result.fetchone()
+            
+            company_name = ""
+            contact_phone = ""
+            contact_email = sender_email
+            contact_wechat = ""
+            address = ""
+            company_website = ""
+            brand_slogan = ""
+            
+            if row and row[0]:
+                config = row[0] if isinstance(row[0], dict) else json.loads(row[0])
+                company_name = config.get("company_name", "")
+                contact_phone = config.get("contact_phone", "")
+                contact_email = config.get("contact_email", sender_email)
+                contact_wechat = config.get("contact_wechat", "")
+                address = config.get("address", "")
+                company_website = config.get("company_website", "")
+                brand_slogan = config.get("brand_slogan", "")
+        
+        # 构建 HTML 签名预览
+        html_parts = [
+            '<div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0; font-size: 13px; color: #666; font-family: Arial, sans-serif;">'
+        ]
+        
+        if brand_slogan:
+            html_parts.append(f'<p style="margin: 0 0 10px 0; color: #333; font-style: italic;">"{brand_slogan}"</p>')
+        
+        html_parts.append(f'<p style="margin: 5px 0; font-size: 14px;"><strong style="color: #333;">{sender_name}</strong></p>')
+        
+        if company_name:
+            html_parts.append(f'<p style="margin: 5px 0;">{company_name}</p>')
+        
+        if contact_phone:
+            html_parts.append(f'<p style="margin: 5px 0;">📞 电话：{contact_phone}</p>')
+        
+        if contact_email:
+            html_parts.append(f'<p style="margin: 5px 0;">📧 邮箱：{contact_email}</p>')
+        
+        if contact_wechat:
+            html_parts.append(f'<p style="margin: 5px 0;">💬 微信：{contact_wechat}</p>')
+        
+        if address:
+            html_parts.append(f'<p style="margin: 5px 0;">📍 地址：{address}</p>')
+        
+        if company_website:
+            website_url = company_website if company_website.startswith('http') else f'https://{company_website}'
+            html_parts.append(f'<p style="margin: 5px 0;">🌐 官网：<a href="{website_url}" style="color: #0066cc;">{company_website}</a></p>')
+        
+        html_parts.append('</div>')
+        
+        return {
+            "success": True,
+            "html": "\n".join(html_parts),
+            "data": {
+                "sender_name": sender_name,
+                "company_name": company_name,
+                "contact_phone": contact_phone,
+                "contact_email": contact_email,
+                "contact_wechat": contact_wechat,
+                "address": address,
+                "company_website": company_website,
+                "brand_slogan": brand_slogan
+            }
+        }
+    except Exception as e:
+        logger.error(f"获取签名预览失败: {e}")
+        return {
+            "success": False,
+            "html": "",
+            "data": {},
+            "error": str(e)
+        }
+
+
 def mask_api_key(key: str, show_chars: int = 4) -> str:
     """对API密钥进行部分隐藏处理"""
     if not key:

@@ -265,6 +265,8 @@ export default function SettingsPage() {
   })
   const [smtpConfigured, setSmtpConfigured] = useState(false)
   const [testingSmtp, setTestingSmtp] = useState(false)
+  const [signatureHtml, setSignatureHtml] = useState('')
+  const [signatureData, setSignatureData] = useState<any>({})
 
   // 加载设置
   useEffect(() => {
@@ -350,6 +352,16 @@ export default function SettingsPage() {
               sender_name: smtpData.data.sender_name || '物流智能体'
             })
             setSmtpConfigured(smtpData.configured || false)
+          }
+        }
+        
+        // 获取签名预览
+        const sigRes = await fetch('/api/settings/smtp/signature-preview')
+        if (sigRes.ok) {
+          const sigData = await sigRes.json()
+          if (sigData.success) {
+            setSignatureHtml(sigData.html || '')
+            setSignatureData(sigData.data || {})
           }
         }
       } catch (error) {
@@ -1456,6 +1468,71 @@ export default function SettingsPage() {
               <span className="text-gray-500 text-sm">
                 测试邮件将发送到配置的发件邮箱
               </span>
+            </div>
+          </div>
+
+          {/* 邮件签名预览 */}
+          <div className="bg-dark-purple/40 rounded-xl p-6">
+            <h3 className="text-sm font-medium text-gray-300 mb-4 flex items-center gap-2">
+              ✍️ 邮件签名预览
+              <span className="text-xs text-gray-500 font-normal">（签名内容从"公司信息"读取）</span>
+            </h3>
+            
+            {signatureHtml ? (
+              <div className="bg-white rounded-lg p-4 text-gray-800">
+                <div dangerouslySetInnerHTML={{ __html: signatureHtml }} />
+              </div>
+            ) : (
+              <div className="bg-deep-space/30 rounded-lg p-4 text-gray-500 text-center">
+                <p>暂无签名内容</p>
+                <p className="text-xs mt-1">请先在"公司信息"中填写联系方式</p>
+              </div>
+            )}
+            
+            {/* 签名内容来源说明 */}
+            <div className="mt-4 p-3 bg-deep-space/30 rounded-lg text-xs text-gray-500">
+              <p className="font-medium text-gray-400 mb-2">签名读取的字段：</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex items-center gap-2">
+                  <span className={signatureData.sender_name ? 'text-green-400' : 'text-gray-600'}>
+                    {signatureData.sender_name ? '✓' : '○'}
+                  </span>
+                  发件人名称: {signatureData.sender_name || '未设置'}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={signatureData.company_name ? 'text-green-400' : 'text-gray-600'}>
+                    {signatureData.company_name ? '✓' : '○'}
+                  </span>
+                  公司名称: {signatureData.company_name || '未设置'}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={signatureData.contact_phone ? 'text-green-400' : 'text-gray-600'}>
+                    {signatureData.contact_phone ? '✓' : '○'}
+                  </span>
+                  联系电话: {signatureData.contact_phone || '未设置'}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={signatureData.contact_email ? 'text-green-400' : 'text-gray-600'}>
+                    {signatureData.contact_email ? '✓' : '○'}
+                  </span>
+                  联系邮箱: {signatureData.contact_email || '未设置'}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={signatureData.contact_wechat ? 'text-green-400' : 'text-gray-600'}>
+                    {signatureData.contact_wechat ? '✓' : '○'}
+                  </span>
+                  微信号: {signatureData.contact_wechat || '未设置'}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={signatureData.company_website ? 'text-green-400' : 'text-gray-600'}>
+                    {signatureData.company_website ? '✓' : '○'}
+                  </span>
+                  官网: {signatureData.company_website || '未设置'}
+                </div>
+              </div>
+              <p className="mt-3 text-gray-500">
+                💡 如需修改签名内容，请前往 <a href="/settings" onClick={() => setActiveTab('company')} className="text-cyber-blue hover:underline">公司信息</a> 页面更新
+              </p>
             </div>
           </div>
 
