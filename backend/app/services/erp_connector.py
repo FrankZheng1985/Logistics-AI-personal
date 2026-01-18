@@ -191,10 +191,10 @@ class ReadOnlyERPConnector:
         
         # 执行请求
         try:
-            # 如果是 query_param 认证类型，将 apiKey 添加到参数中
+            # 如果是 query_param 认证类型，将 api_key 添加到参数中
             request_params = params.copy() if params else {}
             if self._config and self._config.get('auth_type') == 'query_param':
-                request_params['apiKey'] = self._config.get('auth_token', '')
+                request_params['api_key'] = self._config.get('auth_token', '')
             
             response = await self._client.get(endpoint, params=request_params)
             response.raise_for_status()
@@ -640,10 +640,10 @@ class ReadOnlyERPConnector:
                 }
             
             # 使用健康检查接口测试连接
-            # 如果是 query_param 认证类型，将 apiKey 添加到参数中
+            # 如果是 query_param 认证类型，将 api_key 添加到参数中
             params = {}
             if self._config and self._config.get('auth_type') == 'query_param':
-                params['apiKey'] = self._config.get('auth_token', '')
+                params['api_key'] = self._config.get('auth_token', '')
             
             response = await self._client.get('/internal-api/health', params=params if params else None)
             response.raise_for_status()

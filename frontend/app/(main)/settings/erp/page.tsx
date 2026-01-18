@@ -278,7 +278,7 @@ export default function ERPSettingsPage() {
               <option value="x_api_key">X-API-Key Header</option>
               <option value="api_key">Api-Key Header</option>
               <option value="apikey">apikey Header（小写）</option>
-              <option value="query_param">URL参数: ?apiKey=xxx</option>
+              <option value="query_param">URL参数: ?api_key=xxx</option>
             </select>
             <p className="text-gray-500 text-xs mt-1">请根据ERP API文档选择正确的认证方式</p>
           </div>
