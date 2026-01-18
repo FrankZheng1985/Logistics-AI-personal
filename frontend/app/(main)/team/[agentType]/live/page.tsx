@@ -220,55 +220,75 @@ export default function AgentLivePage() {
   
   // WebSocket连接
   useEffect(() => {
+    let isMounted = true
+    let ws: WebSocket | null = null
+    let pingInterval: NodeJS.Timeout | null = null
+    
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsUrl = `${protocol}//${window.location.host}/api/ws/agent-live/${agentType}`
     
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
-    
-    ws.onopen = () => {
-      console.log('WebSocket已连接')
-      setConnected(true)
-    }
-    
-    ws.onmessage = (event) => {
+    // 延迟连接，避免快速切换时的错误
+    const connectTimeout = setTimeout(() => {
+      if (!isMounted) return
+      
       try {
-        const step = JSON.parse(event.data)
-        if (step.type === 'connected' || step.type === 'pong') return
+        ws = new WebSocket(wsUrl)
+        wsRef.current = ws
         
-        // 如果选中了特定会话，只显示该会话的步骤
-        if (selectedSession && step.session_id !== selectedSession) return
-        
-        setSteps(prev => [...prev, step])
-        
-        // 如果是任务开始或结束，刷新会话列表
-        if (step.step_type === 'start' || step.step_type === 'complete' || step.step_type === 'error') {
-          fetchSessions()
+        ws.onopen = () => {
+          if (!isMounted) {
+            ws?.close()
+            return
+          }
+          setConnected(true)
         }
-      } catch (error) {
-        console.error('解析WebSocket消息失败:', error)
+        
+        ws.onmessage = (event) => {
+          if (!isMounted) return
+          try {
+            const step = JSON.parse(event.data)
+            if (step.type === 'connected' || step.type === 'pong') return
+            
+            // 如果选中了特定会话，只显示该会话的步骤
+            if (selectedSession && step.session_id !== selectedSession) return
+            
+            setSteps(prev => [...prev, step])
+            
+            // 如果是任务开始或结束，刷新会话列表
+            if (step.step_type === 'start' || step.step_type === 'complete' || step.step_type === 'error') {
+              fetchSessions()
+            }
+          } catch {
+            // 忽略解析错误
+          }
+        }
+        
+        ws.onclose = () => {
+          if (isMounted) setConnected(false)
+        }
+        
+        ws.onerror = () => {
+          // 静默处理错误
+        }
+        
+        // 心跳
+        pingInterval = setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send('ping')
+          }
+        }, 30000)
+      } catch {
+        // 忽略WebSocket创建错误
       }
-    }
-    
-    ws.onclose = () => {
-      console.log('WebSocket已断开')
-      setConnected(false)
-    }
-    
-    ws.onerror = (error) => {
-      console.error('WebSocket错误:', error)
-    }
-    
-    // 心跳
-    const pingInterval = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send('ping')
-      }
-    }, 30000)
+    }, 300)
     
     return () => {
-      clearInterval(pingInterval)
-      ws.close()
+      isMounted = false
+      clearTimeout(connectTimeout)
+      if (pingInterval) clearInterval(pingInterval)
+      if (ws && ws.readyState !== WebSocket.CLOSED) {
+        ws.close()
+      }
     }
   }, [agentType, selectedSession])
   

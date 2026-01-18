@@ -292,47 +292,51 @@ function AgentLiveModal({
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsUrl = `${protocol}//${window.location.host}/api/ws/agent-live/${agentType}`
     
-    // 延迟连接，避免快速打开关闭时的错误
+    // 延迟连接，避免快速打开关闭时的错误（300ms延迟）
     const connectTimeout = setTimeout(() => {
       if (!isMounted) return
       
-      ws = new WebSocket(wsUrl)
-      wsRef.current = ws
-      
-      ws.onopen = () => {
-        if (!isMounted) {
-          ws?.close()
-          return
+      try {
+        ws = new WebSocket(wsUrl)
+        wsRef.current = ws
+        
+        ws.onopen = () => {
+          if (!isMounted) {
+            ws?.close()
+            return
+          }
+          setConnected(true)
         }
-        setConnected(true)
-      }
-      
-      ws.onmessage = (event) => {
-        if (!isMounted) return
-        try {
-          const step = JSON.parse(event.data)
-          if (step.type === 'connected' || step.type === 'pong') return
-          setSteps(prev => [...prev, step])
-        } catch (error) {
-          // 忽略解析错误
+        
+        ws.onmessage = (event) => {
+          if (!isMounted) return
+          try {
+            const step = JSON.parse(event.data)
+            if (step.type === 'connected' || step.type === 'pong') return
+            setSteps(prev => [...prev, step])
+          } catch {
+            // 忽略解析错误
+          }
         }
-      }
-      
-      ws.onclose = () => {
-        if (isMounted) setConnected(false)
-      }
-      
-      ws.onerror = () => {
-        // 静默处理错误，避免控制台噪音
-      }
-      
-      // 心跳
-      pingInterval = setInterval(() => {
-        if (ws?.readyState === WebSocket.OPEN) {
-          ws.send('ping')
+        
+        ws.onclose = () => {
+          if (isMounted) setConnected(false)
         }
-      }, 30000)
-    }, 100)
+        
+        ws.onerror = () => {
+          // 静默处理，避免控制台噪音
+        }
+        
+        // 心跳
+        pingInterval = setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send('ping')
+          }
+        }, 30000)
+      } catch {
+        // 忽略WebSocket创建错误
+      }
+    }, 300)
     
     return () => {
       isMounted = false
