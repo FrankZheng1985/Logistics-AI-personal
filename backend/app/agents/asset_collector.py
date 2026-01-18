@@ -254,20 +254,41 @@ class AssetCollectorAgent(BaseAgent):
         platforms = platforms or ["pexels", "pixabay"]
         keywords = keywords or self.SEARCH_KEYWORDS[:3]  # 默认取前3个关键词
         
+        # 开始任务会话（实时直播）
+        await self.start_task_session("collect_assets", f"素材采集: {', '.join(keywords[:2])}...")
+        
         logger.info(f"[小采] 开始素材采集任务，平台: {platforms}, 关键词: {keywords}")
+        await self.log_live_step("info", "开始素材采集任务", 
+            f"平台: {', '.join(platforms)}, 关键词: {', '.join(keywords)}")
         
         all_assets = []
         
         for platform in platforms:
+            platform_name = self.PLATFORMS.get(platform, platform)
             for keyword in keywords:
                 try:
+                    # 记录搜索步骤（实时直播）
+                    await self.log_search(keyword, platform_name, {"platform_id": platform})
+                    
                     assets = await self.collect_from_platform(platform, keyword, max_results=5)
+                    
+                    if assets:
+                        # 记录发现素材（实时直播）
+                        await self.log_result(
+                            f"发现 {len(assets)} 个素材",
+                            f"平台: {platform_name}, 关键词: {keyword}",
+                            {"count": len(assets), "platform": platform}
+                        )
+                    
                     all_assets.extend(assets)
                 except Exception as e:
                     logger.error(f"[小采] 采集异常: {e}")
+                    await self.log_error(str(e), f"采集失败: {platform_name} - {keyword}")
         
         # 保存到数据库
         if all_assets:
+            await self.log_live_step("info", f"正在保存 {len(all_assets)} 个素材到数据库...")
+            
             saved = await self.save_collected_assets(all_assets)
             logger.info(f"[小采] 采集完成，共发现 {len(all_assets)} 个素材，保存 {saved} 个新素材")
             
@@ -282,8 +303,12 @@ class AssetCollectorAgent(BaseAgent):
                     "saved": saved
                 }
             )
+            
+            # 结束任务会话（实时直播）
+            await self.end_task_session(f"采集完成！发现 {len(all_assets)} 个素材，保存 {saved} 个新素材")
         else:
             logger.warning("[小采] 本次采集未发现新素材")
+            await self.end_task_session("本次采集未发现新素材")
             
         return all_assets
     

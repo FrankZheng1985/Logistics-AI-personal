@@ -152,6 +152,10 @@ class CopywriterAgent(BaseAgent):
         target_audience = input_data.get("target_audience", "有物流需求的企业客户")
         key_selling_points = input_data.get("key_selling_points", "专业、快速、安全")
         
+        # 开始任务会话（实时直播）
+        await self.start_task_session("write_script", f"撰写视频脚本: {title}")
+        await self.log_live_step("info", f"开始撰写视频脚本", f"标题: {title}, 时长: {duration}秒")
+        
         company_context = await self._get_company_context()
         
         prompt = f"""请为视频撰写专业级脚本。
@@ -195,10 +199,19 @@ class CopywriterAgent(BaseAgent):
 关键词1, 关键词2, ...
 """
         
+        # 记录正在写作（实时直播）
+        await self.log_write("视频脚本", f"正在为《{title}》构思分镜和文案...")
+        
         script = await self.think([{"role": "user", "content": prompt}])
         keywords = self._extract_keywords(script)
         
+        # 记录写作完成（实时直播）
+        await self.log_write_complete("视频脚本", f"完成 {duration}秒脚本，提取 {len(keywords)} 个关键词")
+        
         self.log(f"完成脚本撰写: {title} ({duration}秒)")
+        
+        # 结束任务会话
+        await self.end_task_session(f"完成视频脚本《{title}》，时长{duration}秒")
         
         return {
             "script": script,
@@ -215,6 +228,10 @@ class CopywriterAgent(BaseAgent):
         video_goal = input_data.get("video_goal", "展示公司实力，吸引潜在客户")
         target_audience = input_data.get("target_audience", "有物流需求的企业客户")
         special_requirements = input_data.get("special_requirements", "")
+        
+        # 开始任务会话（实时直播）
+        await self.start_task_session("write_long_script", f"撰写长视频脚本: {title}")
+        await self.log_live_step("info", f"开始撰写长视频脚本", f"标题: {title}, 时长: {duration}秒")
         
         company_context = await self._get_company_context()
         
@@ -274,13 +291,22 @@ xxx, xxx, xxx...
 xxx
 """
         
+        # 记录正在写作（实时直播）
+        await self.log_write("长视频脚本", f"正在为《{title}》构思电影级分镜...")
+        
         script = await self.think([{"role": "user", "content": prompt}], temperature=0.8)
         keywords = self._extract_keywords(script)
         
         # 解析分镜结构
         segments = self._parse_script_segments(script)
         
+        # 记录写作完成（实时直播）
+        await self.log_write_complete("长视频脚本", f"完成 {len(segments)} 个分镜，提取 {len(keywords)} 个关键词")
+        
         self.log(f"完成长视频脚本: {title} ({duration}秒, {len(segments)}个分镜)")
+        
+        # 结束任务会话
+        await self.end_task_session(f"完成长视频脚本《{title}》，{len(segments)}个分镜")
         
         return {
             "script": script,
@@ -297,6 +323,10 @@ xxx
         purpose = input_data.get("purpose", "获客引流")
         target_audience = input_data.get("target_audience", "有物流需求的外贸商家")
         
+        # 开始任务会话（实时直播）
+        await self.start_task_session("write_moments", f"撰写朋友圈文案: {topic}")
+        await self.log_write("朋友圈文案", f"主题: {topic}, 目的: {purpose}")
+        
         prompt = MOMENTS_COPY_PROMPT.format(
             topic=topic,
             purpose=purpose,
@@ -305,7 +335,11 @@ xxx
         
         copy = await self.think([{"role": "user", "content": prompt}])
         
+        await self.log_write_complete("朋友圈文案", f"完成主题《{topic}》的文案创作")
         self.log(f"完成朋友圈文案: {topic}")
+        
+        # 结束任务会话
+        await self.end_task_session(f"完成朋友圈文案《{topic}》")
         
         return {
             "copy": copy,

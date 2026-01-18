@@ -153,14 +153,20 @@ class LeadHunterAgent(BaseAgent):
         - 智能选择搜索平台
         - 自动去重和记录
         - 追踪搜索效果
+        - 只搜索最近1个月内的内容（确保线索时效性）
         """
-        self.log("🎯 开始智能线索狩猎任务...")
+        # 开始任务会话（实时直播）
+        await self.start_task_session("smart_hunt", "智能线索狩猎 - 搜索互联网潜在客户")
+        
+        self.log("🎯 开始智能线索狩猎任务（仅搜索最近1个月内的线索）...")
         start_time = datetime.now()
         
         # 检查API配置
         api_key = getattr(settings, 'SERPER_API_KEY', None)
         if not api_key:
             self.log("Serper API未配置，无法进行搜索", "error")
+            await self.log_error("Serper API未配置", "请在系统设置中配置API密钥")
+            await self.end_task_session(error_message="API未配置")
             return {
                 "error": "搜索API未配置",
                 "message": "请在系统设置中配置 SERPER_API_KEY 以启用线索搜索功能",
@@ -215,6 +221,8 @@ class LeadHunterAgent(BaseAgent):
                     keywords_data = [(None, kw, 'fallback', None, 5, 0) for kw in keywords_to_use]
                 
                 self.log(f"本次将使用 {len(keywords_data)} 个关键词搜索")
+                await self.log_live_step("info", f"准备搜索 {len(keywords_data)} 个关键词", 
+                    f"关键词: {', '.join([k[1] for k in keywords_data[:5]])}")
                 
                 all_raw_results = []
                 
@@ -238,6 +246,9 @@ class LeadHunterAgent(BaseAgent):
                             query = f"{keyword} {site_filter}".strip()
                             self.log(f"🔍 搜索: {query}")
                             results["search_queries"].append(query)
+                            
+                            # 记录搜索步骤（实时直播）
+                            await self.log_search(keyword, platform_name, {"query": query})
                             
                             search_results = await self._search_with_serper(query)
                             
@@ -282,10 +293,12 @@ class LeadHunterAgent(BaseAgent):
                     # 更新关键词统计（在分析完所有结果后更新）
                 
                 self.log(f"📊 获取 {len(all_raw_results)} 条新URL待分析")
+                await self.log_live_step("info", f"获取 {len(all_raw_results)} 条新URL", "开始AI分析筛选")
                 
                 # 3. 分析每个搜索结果
                 max_results = input_data.get("max_results", 30)
                 keyword_stats = {}  # 记录每个关键词的效果
+                analyzed_count = 0
                 
                 for item in all_raw_results[:max_results]:
                     try:
@@ -310,7 +323,12 @@ class LeadHunterAgent(BaseAgent):
                             )
                             continue
                         
+                        # 记录正在分析的URL（实时直播）
+                        analyzed_count += 1
+                        await self.log_fetch(url, item.get("title", ""), {"platform": platform})
+                        
                         # AI深度分析
+                        await self.log_think("判断是否为潜在客户线索", content[:100])
                         analysis = await self._analyze_content({
                             "content": content,
                             "source": platform,
@@ -326,6 +344,13 @@ class LeadHunterAgent(BaseAgent):
                             keyword_stats[keyword] = {"id": keyword_id, "leads": 0, "high_intent": 0}
                         
                         if is_lead:
+                            # 记录发现线索（实时直播）
+                            await self.log_result(
+                                f"🎯 发现潜在线索!", 
+                                f"意向等级: {intent_level}, 来源: {platform}",
+                                {"url": url, "intent_level": intent_level}
+                            )
+                            
                             # 提取联系方式
                             contact_info = analysis.get("contact_info", {})
                             extracted_contact = self._extract_contact_info(content)
@@ -492,6 +517,9 @@ class LeadHunterAgent(BaseAgent):
         except Exception as e:
             self.log(f"智能狩猎出错: {e}", "error")
             results["error"] = str(e)
+            await self.log_error(str(e), "智能狩猎任务出错")
+            await self.end_task_session(error_message=str(e))
+            return results
         
         # 去重sources_searched
         results["sources_searched"] = list(set(results["sources_searched"]))
@@ -507,6 +535,11 @@ class LeadHunterAgent(BaseAgent):
         
         self.log(f"✅ 智能狩猎完成！耗时{duration:.1f}秒，新URL {results['new_urls']} 条，"
                  f"发现线索 {results['total_leads']} 条，高意向 {results['high_intent_leads']} 条")
+        
+        # 结束任务会话（实时直播）
+        await self.end_task_session(
+            f"发现 {results['total_leads']} 条线索，其中高意向 {results['high_intent_leads']} 条"
+        )
         
         return results
     
@@ -635,8 +668,9 @@ class LeadHunterAgent(BaseAgent):
         """
         完整的线索狩猎流程 - 使用Serper API搜索
         (保留原有方法以保持兼容性)
+        - 只搜索最近1个月内的内容
         """
-        self.log("开始线索狩猎任务...")
+        self.log("开始线索狩猎任务（仅搜索最近1个月内的线索）...")
         
         # 检查API配置
         api_key = getattr(settings, 'SERPER_API_KEY', None)
@@ -765,15 +799,38 @@ class LeadHunterAgent(BaseAgent):
         
         return results
     
-    async def _search_with_serper(self, query: str) -> List[Dict[str, Any]]:
+    async def _search_with_serper(self, query: str, time_range: str = "m") -> List[Dict[str, Any]]:
         """
         使用Serper API搜索
+        
+        Args:
+            query: 搜索查询
+            time_range: 时间范围限制
+                - "d": 过去一天
+                - "w": 过去一周  
+                - "m": 过去一个月（默认）
+                - "y": 过去一年
+                - None: 不限制时间
         """
         api_key = getattr(settings, 'SERPER_API_KEY', None)
         if not api_key:
             return []
         
         try:
+            # 构建搜索参数
+            search_params = {
+                "q": query,
+                "gl": "cn",
+                "hl": "zh-cn",
+                "num": 10
+            }
+            
+            # 添加时间限制：tbs参数控制搜索结果时间范围
+            # qdr:d = 过去一天, qdr:w = 过去一周, qdr:m = 过去一个月, qdr:y = 过去一年
+            if time_range:
+                search_params["tbs"] = f"qdr:{time_range}"
+                self.log(f"🕐 搜索时间限制: 过去{'一天' if time_range == 'd' else '一周' if time_range == 'w' else '一个月' if time_range == 'm' else '一年'}")
+            
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
                     "https://google.serper.dev/search",
@@ -781,12 +838,7 @@ class LeadHunterAgent(BaseAgent):
                         "X-API-KEY": api_key,
                         "Content-Type": "application/json"
                     },
-                    json={
-                        "q": query,
-                        "gl": "cn",
-                        "hl": "zh-cn",
-                        "num": 10
-                    }
+                    json=search_params
                 )
                 
                 if response.status_code == 200:
@@ -811,9 +863,20 @@ class LeadHunterAgent(BaseAgent):
         return []
     
     # 公开方法供外部调用
-    async def search_with_serper(self, query: str) -> List[Dict[str, Any]]:
-        """公开的Serper搜索方法"""
-        return await self._search_with_serper(query)
+    async def search_with_serper(self, query: str, time_range: str = "m") -> List[Dict[str, Any]]:
+        """
+        公开的Serper搜索方法
+        
+        Args:
+            query: 搜索查询
+            time_range: 时间范围限制（默认1个月）
+                - "d": 过去一天
+                - "w": 过去一周
+                - "m": 过去一个月（默认）
+                - "y": 过去一年
+                - None: 不限制时间
+        """
+        return await self._search_with_serper(query, time_range)
     
     async def _analyze_content(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
