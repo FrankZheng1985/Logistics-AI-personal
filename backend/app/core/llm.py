@@ -255,7 +255,7 @@ class ClaudeLLM(BaseLLM):
         try:
             data = await retry_with_exponential_backoff(_make_request)
             response_text = data["content"][0]["text"]
-            
+        
             # 计算响应时间
             response_time_ms = int((time.time() - start_time) * 1000)
             
@@ -358,7 +358,7 @@ class OpenAILLM(BaseLLM):
         try:
             data = await retry_with_exponential_backoff(_make_request)
             response_text = data["choices"][0]["message"]["content"]
-            
+        
             # 计算响应时间
             response_time_ms = int((time.time() - start_time) * 1000)
             

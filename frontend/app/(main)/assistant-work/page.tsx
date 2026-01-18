@@ -95,11 +95,16 @@ function ScheduleCard({ schedule, onComplete, onDelete }: {
   const priority = PRIORITY_CONFIG[schedule.priority as keyof typeof PRIORITY_CONFIG] || PRIORITY_CONFIG.normal
   const isCompleted = schedule.status === 'completed'
   
+  // 根据优先级设置边框颜色
+  const borderColor = isCompleted ? '#4b5563' : 
+    priority.color === 'bg-red-500' ? '#ef4444' :
+    priority.color === 'bg-orange-500' ? '#f97316' :
+    priority.color === 'bg-blue-500' ? '#3b82f6' : '#6b7280'
+  
   return (
-    <motion.div 
-      variants={itemVariants}
-      className={`glass-card p-4 border-l-4 ${isCompleted ? 'border-gray-600 opacity-60' : `border-l-${priority.color.replace('bg-', '')}`}`}
-      style={{ borderLeftColor: isCompleted ? '#4b5563' : undefined }}
+    <div 
+      className={`glass-card p-4 border-l-4 ${isCompleted ? 'opacity-60' : ''}`}
+      style={{ borderLeftColor: borderColor }}
     >
       <div className="flex items-start gap-3">
         <div className="text-center min-w-[60px]">
@@ -150,7 +155,7 @@ function ScheduleCard({ schedule, onComplete, onDelete }: {
           </button>
         </div>
       </div>
-    </motion.div>
+    </div>
   )
 }
 
@@ -164,10 +169,7 @@ function TodoCard({ todo, onComplete, onDelete }: {
   const isCompleted = todo.status === 'completed'
   
   return (
-    <motion.div 
-      variants={itemVariants}
-      className={`glass-card p-4 ${isCompleted ? 'opacity-60' : ''}`}
-    >
+    <div className={`glass-card p-4 ${isCompleted ? 'opacity-60' : ''}`}>
       <div className="flex items-start gap-3">
         <button
           onClick={() => !isCompleted && onComplete(todo.id)}
@@ -200,10 +202,10 @@ function TodoCard({ todo, onComplete, onDelete }: {
           className="p-2 hover:bg-red-500/20 rounded-lg transition-colors"
           title="删除"
         >
-          <Trash2 className="w-4 h-4 text-red-400" />
+          <Trash2 className="w-4 h-4" />
         </button>
       </div>
-    </motion.div>
+    </div>
   )
 }
 

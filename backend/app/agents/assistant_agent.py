@@ -34,6 +34,7 @@ class AssistantAgent(BaseAgent):
     # 意图分类
     INTENT_TYPES = {
         "schedule_add": ["记住", "记录", "安排", "添加日程", "提醒我", "帮我记"],
+        "schedule_update": ["修改", "改成", "改为", "调整时间", "更改", "变更日程"],  # 修改日程
         "schedule_query": ["今天", "明天", "有什么安排", "有什么会", "日程", "行程"],
         "schedule_cancel": ["取消", "删除日程", "不开了"],
         "todo_add": ["待办", "要做", "记得做", "别忘了"],
@@ -112,6 +113,7 @@ class AssistantAgent(BaseAgent):
             # 3. 根据意图处理
             handler_map = {
                 "schedule_add": self._handle_schedule_add,
+                "schedule_update": self._handle_schedule_update,  # 修改日程
                 "schedule_query": self._handle_schedule_query,
                 "schedule_cancel": self._handle_schedule_cancel,
                 "todo_add": self._handle_todo_add,
@@ -160,7 +162,8 @@ class AssistantAgent(BaseAgent):
 用户消息：{message}
 
 可能的意图类型：
-- schedule_add: 添加日程/安排
+- schedule_add: 添加新日程/安排（没有明确要修改现有的）
+- schedule_update: 修改现有日程（明确提到"修改"、"改成"、"调整"等词）
 - schedule_query: 查询日程
 - schedule_cancel: 取消日程
 - todo_add: 添加待办事项
@@ -173,6 +176,8 @@ class AssistantAgent(BaseAgent):
 - report: 要日报/汇报
 - help: 询问功能/帮助
 - unknown: 无法识别
+
+【重要】如果用户说"修改"、"改成"、"改为"、"调整"等词，应识别为schedule_update而不是schedule_add！
 
 返回格式：{{"type": "xxx", "confidence": 0.9, "extracted": {{"time": "...", "content": "..."}}}}
 只返回JSON，不要其他内容。
@@ -417,6 +422,139 @@ class AssistantAgent(BaseAgent):
         """处理取消日程"""
         # TODO: 实现取消日程逻辑
         return {"success": True, "response": "请告诉我要取消哪个日程？比如说'取消明天下午的会议'"}
+    
+    async def _handle_schedule_update(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """处理修改日程"""
+        await self.log_live_step("think", "解析修改请求", "识别要修改的日程和新信息")
+        
+        # 计算各星期几的具体日期
+        now = datetime.now()
+        weekday_dates = {}
+        for i in range(7):
+            future_date = now + timedelta(days=i)
+            weekday_name = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][future_date.weekday()]
+            if weekday_name not in weekday_dates:
+                weekday_dates[weekday_name] = future_date.strftime('%Y-%m-%d')
+        
+        weekday_info = "\n".join([f"- {k}: {v}" for k, v in weekday_dates.items()])
+        today_weekday = ["周一","周二","周三","周四","周五","周六","周日"][now.weekday()]
+        
+        # 使用AI分析修改请求
+        extract_prompt = f"""用户想要修改日程，请分析：
+
+用户消息：{message}
+当前时间：{now.strftime('%Y-%m-%d %H:%M')}，今天是{today_weekday}
+
+接下来7天的日期对照表：
+{weekday_info}
+
+请返回JSON格式：
+{{
+    "search_keyword": "用于搜索现有日程的关键词（如'先锋团队例会'）",
+    "new_time": "YYYY-MM-DD HH:MM"（新的时间，如果要修改时间）或 null,
+    "new_title": "新标题"（如果要修改标题）或 null,
+    "new_location": "新地点"（如果要修改地点）或 null
+}}
+
+只返回JSON，不要其他内容。
+"""
+        
+        try:
+            response = await self.think([{"role": "user", "content": extract_prompt}], temperature=0.3)
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if not json_match:
+                return {"success": False, "response": "抱歉，我没能理解您想修改什么，请更详细地描述。"}
+            
+            update_data = json.loads(json_match.group())
+            search_keyword = update_data.get("search_keyword", "")
+            
+            if not search_keyword:
+                return {"success": False, "response": "请告诉我您要修改哪个日程？比如'修改先锋团队例会的时间为上午10点'"}
+            
+            # 搜索匹配的日程
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    text("""
+                        SELECT id, title, start_time, location
+                        FROM assistant_schedules
+                        WHERE title ILIKE :keyword
+                        AND is_completed = FALSE
+                        ORDER BY start_time ASC
+                        LIMIT 5
+                    """),
+                    {"keyword": f"%{search_keyword}%"}
+                )
+                schedules = result.fetchall()
+            
+            if not schedules:
+                return {
+                    "success": False, 
+                    "response": f"没有找到包含'{search_keyword}'的日程，请确认日程名称。"
+                }
+            
+            # 取最近的一条日程进行修改
+            schedule = schedules[0]
+            schedule_id = schedule[0]
+            old_title = schedule[1]
+            old_time = schedule[2]
+            
+            # 构建更新内容
+            updates = []
+            params = {"id": schedule_id}
+            
+            if update_data.get("new_time"):
+                try:
+                    new_time = datetime.strptime(update_data["new_time"], "%Y-%m-%d %H:%M")
+                    updates.append("start_time = :new_time")
+                    params["new_time"] = new_time
+                except:
+                    pass
+            
+            if update_data.get("new_title"):
+                updates.append("title = :new_title")
+                params["new_title"] = update_data["new_title"]
+            
+            if update_data.get("new_location"):
+                updates.append("location = :new_location")
+                params["new_location"] = update_data["new_location"]
+            
+            if not updates:
+                return {"success": False, "response": "没有检测到需要修改的内容，请说明要修改什么（时间、标题或地点）。"}
+            
+            updates.append("updated_at = NOW()")
+            
+            # 执行更新
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    text(f"UPDATE assistant_schedules SET {', '.join(updates)} WHERE id = :id"),
+                    params
+                )
+                await db.commit()
+            
+            # 格式化响应
+            changes = []
+            if update_data.get("new_time"):
+                new_dt = datetime.strptime(update_data["new_time"], "%Y-%m-%d %H:%M")
+                weekday = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][new_dt.weekday()]
+                changes.append(f"⏰ 时间改为：{new_dt.month}月{new_dt.day}日 {weekday} {new_dt.strftime('%H:%M')}")
+            if update_data.get("new_title"):
+                changes.append(f"📝 标题改为：{update_data['new_title']}")
+            if update_data.get("new_location"):
+                changes.append(f"📍 地点改为：{update_data['new_location']}")
+            
+            response_text = f"""✅ 日程已修改！
+
+📅 {old_title}
+{chr(10).join(changes)}
+
+已更新完成。"""
+            
+            await self.log_result("日程修改成功", old_title)
+            return {"success": True, "response": response_text}
+            
+        except Exception as e:
+            logger.error(f"[小助] 修改日程失败: {e}")
+            return {"success": False, "response": f"修改日程时出错了：{str(e)}"}
     
     # ==================== 待办管理 ====================
     

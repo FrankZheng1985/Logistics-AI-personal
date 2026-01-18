@@ -24,7 +24,8 @@ import {
   CalendarCheck,
   Menu,
   X,
-  ChevronLeft
+  ChevronLeft,
+  Cpu
 } from 'lucide-react'
 
 const menuItems = [
@@ -43,6 +44,7 @@ const managementItems = [
   { href: '/knowledge', label: '知识库', icon: BookOpen },
   { href: '/standards', label: '工作标准', icon: ClipboardCheck },
   { href: '/monitoring', label: '系统监控', icon: Activity },
+  { href: '/ai-usage', label: 'AI用量监控', icon: Cpu },
   { href: '/assets', label: '素材库', icon: FolderOpen },
   { href: '/marketing', label: '营销序列', icon: Mail },
   { href: '/wechat-groups', label: '微信群监控', icon: MessageCircle },
