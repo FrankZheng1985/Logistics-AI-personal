@@ -519,6 +519,7 @@ class VideoCreatorAgent(BaseAgent):
                     
                     # 处理429限流错误 - 等待后重试
                     elif response.status_code == 429:
+                        last_error = "API返回: 429 (请求过于频繁)"
                         wait_time = 30 * (attempt + 1)  # 递增等待时间：30秒、60秒、90秒
                         self.log(f"[快速模式] API限流(429)，等待{wait_time}秒后重试...", "warning")
                         await asyncio.sleep(wait_time)
