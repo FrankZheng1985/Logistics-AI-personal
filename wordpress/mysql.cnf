@@ -1,0 +1,20 @@
+[mysqld]
+# MySQL优化配置
+
+# 字符集
+character-set-server = utf8mb4
+collation-server = utf8mb4_unicode_ci
+
+# 性能优化
+innodb_buffer_pool_size = 256M
+innodb_log_file_size = 64M
+innodb_flush_log_at_trx_commit = 2
+innodb_flush_method = O_DIRECT
+
+# 连接优化
+max_connections = 100
+wait_timeout = 28800
+
+# 查询缓存（MySQL 8.0已移除，保留注释参考）
+# query_cache_type = 1
+# query_cache_size = 32M

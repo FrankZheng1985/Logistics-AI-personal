@@ -344,8 +344,9 @@ class AssistantAgent(BaseAgent):
         """处理查询日程"""
         await self.log_live_step("search", "查询日程", "获取相关日程安排")
         
-        # 判断查询的是今天还是明天还是其他
-        today = datetime.now().date()
+        # 使用中国时区获取当前日期
+        china_now = datetime.now(self.CHINA_TZ)
+        today = china_now.date()
         query_date = today
         date_label = "今天"
         
@@ -361,13 +362,13 @@ class AssistantAgent(BaseAgent):
             end_of_week = start_of_week + timedelta(days=6)
             return await self._query_schedule_range(start_of_week, end_of_week, "本周")
         
-        # 查询指定日期
+        # 查询指定日期（转换为中国时区比较）
         async with AsyncSessionLocal() as db:
             result = await db.execute(
                 text("""
                     SELECT title, start_time, end_time, location, priority, is_completed
                     FROM assistant_schedules
-                    WHERE DATE(start_time) = :query_date
+                    WHERE DATE(start_time AT TIME ZONE 'Asia/Shanghai') = :query_date
                     AND is_completed = FALSE
                     ORDER BY start_time ASC
                 """),

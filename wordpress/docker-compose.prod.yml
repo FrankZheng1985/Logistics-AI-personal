@@ -1,0 +1,73 @@
+version: '3.8'
+
+# 生产环境WordPress配置
+# 与物流获客AI系统部署在同一服务器
+
+services:
+  # WordPress服务
+  wordpress:
+    image: wordpress:latest
+    container_name: sysafari-wordpress-prod
+    restart: always
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: wordpress-db
+      WORDPRESS_DB_USER: ${WP_DB_USER:-wordpress}
+      WORDPRESS_DB_PASSWORD: ${WP_DB_PASSWORD:-changeme_in_production}
+      WORDPRESS_DB_NAME: ${WP_DB_NAME:-wordpress}
+      WORDPRESS_DEBUG: 0
+      WORDPRESS_TABLE_PREFIX: wp_
+    volumes:
+      # WordPress核心文件（持久化）
+      - wordpress_data:/var/www/html
+      # 自定义主题
+      - ./themes/sysafari-logistics:/var/www/html/wp-content/themes/sysafari-logistics:ro
+      # 自定义插件
+      - ./plugins/sysafari-logistics-integration:/var/www/html/wp-content/plugins/sysafari-logistics-integration:ro
+      # 上传目录
+      - ./uploads:/var/www/html/wp-content/uploads
+      # PHP配置
+      - ./php.ini:/usr/local/etc/php/conf.d/uploads.ini:ro
+    depends_on:
+      - wordpress-db
+    networks:
+      - wordpress-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # MySQL数据库
+  wordpress-db:
+    image: mysql:8.0
+    container_name: sysafari-wordpress-db-prod
+    restart: always
+    environment:
+      MYSQL_DATABASE: ${WP_DB_NAME:-wordpress}
+      MYSQL_USER: ${WP_DB_USER:-wordpress}
+      MYSQL_PASSWORD: ${WP_DB_PASSWORD:-changeme_in_production}
+      MYSQL_ROOT_PASSWORD: ${WP_DB_ROOT_PASSWORD:-changeme_root_in_production}
+    volumes:
+      - wordpress_db_data:/var/lib/mysql
+      # MySQL配置优化
+      - ./mysql.cnf:/etc/mysql/conf.d/custom.cnf:ro
+    networks:
+      - wordpress-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  wordpress_data:
+    driver: local
+  wordpress_db_data:
+    driver: local
+
+networks:
+  wordpress-network:
+    driver: bridge
