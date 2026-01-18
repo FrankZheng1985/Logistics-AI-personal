@@ -274,10 +274,12 @@ export default function ERPSettingsPage() {
               onChange={e => setConfig(prev => ({ ...prev, auth_type: e.target.value }))}
               className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
             >
-              <option value="bearer">Authorization: Bearer Token（推荐）</option>
+              <option value="bearer">Authorization: Bearer Token</option>
               <option value="x_api_key">X-API-Key Header</option>
+              <option value="api_key">Api-Key Header</option>
+              <option value="apikey">apikey Header（小写）</option>
             </select>
-            <p className="text-gray-500 text-xs mt-1">BP Logistics ERP 支持两种认证方式</p>
+            <p className="text-gray-500 text-xs mt-1">请根据ERP API文档选择正确的认证方式</p>
           </div>
           
           <div>

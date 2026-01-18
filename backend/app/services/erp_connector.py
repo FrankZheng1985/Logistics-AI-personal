@@ -117,15 +117,20 @@ class ReadOnlyERPConnector:
         auth_type = self._config.get('auth_type', 'bearer')
         auth_token = self._config.get('auth_token', '')
         
-        # BP Logistics ERP 支持两种认证方式
+        # BP Logistics ERP 支持多种认证方式
         if auth_type == 'bearer':
             headers['Authorization'] = f'Bearer {auth_token}'
         elif auth_type == 'x_api_key':
+            # 标准 X-API-Key 头
             headers['X-API-Key'] = auth_token
+        elif auth_type == 'api_key':
+            # Api-Key 头（部分API使用这种格式）
+            headers['Api-Key'] = auth_token
+        elif auth_type == 'apikey':
+            # apikey 头（小写格式）
+            headers['apikey'] = auth_token
         elif auth_type == 'token':
             headers['Authorization'] = f'Token {auth_token}'
-        elif auth_type == 'api_key':
-            headers['X-API-Key'] = auth_token
         
         return headers
     
