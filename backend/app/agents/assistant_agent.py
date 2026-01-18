@@ -222,6 +222,35 @@ class AssistantAgent(BaseAgent):
             
             schedule_data = json.loads(json_match.group())
             
+            # 解析时间字符串为datetime对象
+            start_time_str = schedule_data.get("start_time")
+            end_time_str = schedule_data.get("end_time")
+            
+            start_time_dt = None
+            end_time_dt = None
+            
+            if start_time_str:
+                try:
+                    start_time_dt = datetime.fromisoformat(start_time_str)
+                except:
+                    # 尝试其他格式
+                    try:
+                        start_time_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M")
+                    except:
+                        pass
+            
+            if end_time_str:
+                try:
+                    end_time_dt = datetime.fromisoformat(end_time_str)
+                except:
+                    try:
+                        end_time_dt = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M")
+                    except:
+                        pass
+            
+            if not start_time_dt:
+                return {"success": False, "response": "抱歉，我没能理解日程的时间，请用更清晰的方式告诉我，比如：'明天下午3点开会'"}
+            
             # 保存到数据库
             async with AsyncSessionLocal() as db:
                 result = await db.execute(
@@ -235,8 +264,8 @@ class AssistantAgent(BaseAgent):
                         "title": schedule_data.get("title", "未命名日程"),
                         "description": schedule_data.get("description"),
                         "location": schedule_data.get("location"),
-                        "start_time": schedule_data.get("start_time"),
-                        "end_time": schedule_data.get("end_time"),
+                        "start_time": start_time_dt,
+                        "end_time": end_time_dt,
                         "priority": schedule_data.get("priority", "normal")
                     }
                 )
@@ -244,9 +273,8 @@ class AssistantAgent(BaseAgent):
                 await db.commit()
             
             # 格式化时间显示
-            start_time = datetime.fromisoformat(schedule_data["start_time"])
-            weekday = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][start_time.weekday()]
-            time_str = f"{start_time.month}月{start_time.day}日 {weekday} {start_time.strftime('%H:%M')}"
+            weekday = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][start_time_dt.weekday()]
+            time_str = f"{start_time_dt.month}月{start_time_dt.day}日 {weekday} {start_time_dt.strftime('%H:%M')}"
             
             location_str = f" 📍{schedule_data['location']}" if schedule_data.get('location') else ""
             
