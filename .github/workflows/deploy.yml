@@ -131,13 +131,11 @@ jobs:
               
               # 重启前端服务
               echo "  🔄 重启前端服务..."
-              cd frontend
-              pm2 reload ecosystem.config.js 2>/dev/null || pm2 start ecosystem.config.js
-              cd ..
+              sudo systemctl restart logistics-frontend
               
-              sleep 3
+              sleep 5
               
-              if curl -sf http://127.0.0.1:3000 > /dev/null 2>&1; then
+              if curl -sf http://127.0.0.1:3001 > /dev/null 2>&1; then
                 echo "  ✅ 前端重启成功"
               else
                 echo "  ⚠️ 前端启动中..."
@@ -180,7 +178,7 @@ jobs:
             fi
             
             # 前端
-            if curl -sf http://127.0.0.1:3000 > /dev/null 2>&1; then
+            if curl -sf http://127.0.0.1:3001 > /dev/null 2>&1; then
               echo "✅ 前端: 运行中"
             else
               echo "⚠️ 前端: 启动中或异常"
