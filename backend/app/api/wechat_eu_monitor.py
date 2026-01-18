@@ -273,53 +273,34 @@ async def process_user_message(user_id: str, message: str):
 
 async def send_top_news(user_id: str, news_list: list):
     """
-    发送TOP重要新闻列表（分批发送避免消息过长）
-    企业微信文本消息限制2048字节，需要控制每批消息长度
+    发送TOP重要新闻列表（只发送一条消息）
+    企业微信文本消息限制2048字节，超长截断
     """
     if not news_list:
         return
     
-    import asyncio
-    
-    # 每2条新闻一批（确保不超出微信消息长度限制）
-    batch_size = 2
     total_count = len(news_list)
+    msg = f"🔔 TOP{total_count}重要新闻：\n\n"
     
-    for batch_idx in range(0, len(news_list), batch_size):
-        batch = news_list[batch_idx:batch_idx + batch_size]
-        start_num = batch_idx + 1
+    for i, news in enumerate(news_list, start=1):
+        urgency = news.get("urgency", "一般")
+        emoji = "🚨" if urgency == "紧急" else "⚠️" if urgency == "重要" else "📌"
+        score = news.get("importance_score", 0)
+        news_type = news.get("news_type", "")
+        # 控制各字段长度
+        title = news.get("title_cn", news.get("title", ""))[:40]
+        summary = news.get("summary_cn", "")[:60]
         
-        if batch_idx == 0:
-            msg = f"🔔 TOP{total_count}重要新闻：\n\n"
-        else:
-            msg = ""
+        news_item = f"{emoji} {i}. {title}\n   {news_type} | {score}分 | {summary}...\n\n"
         
-        for i, news in enumerate(batch, start=start_num):
-            urgency = news.get("urgency", "一般")
-            emoji = "🚨" if urgency == "紧急" else "⚠️" if urgency == "重要" else "📌"
-            score = news.get("importance_score", 0)
-            news_type = news.get("news_type", "")
-            # 控制各字段长度
-            title = news.get("title_cn", news.get("title", ""))[:45]
-            summary = news.get("summary_cn", "")[:80]
-            suggestion = news.get("business_suggestion", "")[:50]
-            url = news.get("url", "")
-            source_name = news.get("source_name", "综合搜索")
-            
-            msg += f"""{emoji} {i}. {title}
-类型: {news_type} | {score}分
-摘要: {summary}...
-建议: {suggestion}
-来源: {source_name}
-链接: {url}
-
-"""
+        # 检查是否会超出长度限制
+        if len(msg) + len(news_item) > 1900:
+            msg += f"...还有{total_count - i + 1}条新闻未显示"
+            break
         
-        await send_reply(user_id, msg.strip())
-        
-        # 批次之间延迟，避免发送过快
-        if batch_idx + batch_size < len(news_list):
-            await asyncio.sleep(0.5)
+        msg += news_item
+    
+    await send_reply(user_id, msg.strip())
 
 
 async def send_reply(user_id: str, content: str):

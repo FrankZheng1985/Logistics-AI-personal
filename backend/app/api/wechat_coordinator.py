@@ -399,14 +399,11 @@ async def handle_daily_report(user_id: str):
         
         readable_report = result.get("readable_report", "报告生成失败")
         
-        # 企业微信消息有长度限制，需要分段发送
+        # 只发送一条消息，超长截断
         if len(readable_report) > 2000:
-            parts = split_message(readable_report, 2000)
-            for i, part in enumerate(parts):
-                await send_text_message([user_id], f"📊 工作日报 ({i+1}/{len(parts)})\n\n{part}")
-                await asyncio.sleep(0.5)  # 避免发送太快
-        else:
-            await send_text_message([user_id], readable_report)
+            readable_report = readable_report[:1950] + "\n\n...(内容已精简)"
+        
+        await send_text_message([user_id], readable_report)
         
         # 记录到数据库
         await record_coordinator_interaction(user_id, "日报", "report", result)
@@ -1326,16 +1323,14 @@ async def send_daily_report_to_admins():
         
         readable_report = result.get("readable_report", "报告生成失败")
         
+        # 只发送一条消息，超长截断
+        if len(readable_report) > 2000:
+            readable_report = readable_report[:1950] + "\n\n...(内容已精简)"
+        
         # 发送给每位管理员
         for user_id in admin_list:
             try:
-                if len(readable_report) > 2000:
-                    parts = split_message(readable_report, 2000)
-                    for i, part in enumerate(parts):
-                        await send_text_message([user_id], f"📊 每日工作日报 ({i+1}/{len(parts)})\n\n{part}")
-                        await asyncio.sleep(0.5)
-                else:
-                    await send_text_message([user_id], f"📊 每日工作日报\n\n{readable_report}")
+                await send_text_message([user_id], f"📊 每日工作日报\n\n{readable_report}")
                 
                 logger.info(f"[小调] 已向 {user_id} 发送日报")
             except Exception as e:

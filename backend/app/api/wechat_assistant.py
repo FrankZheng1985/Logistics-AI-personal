@@ -163,30 +163,26 @@ async def send_text_message(user_id: str, content: str):
         
         url = f"https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token={access_token}"
         
-        # 企业微信消息限制2048字符，超长需分段
-        messages = []
-        while len(content) > 2000:
-            messages.append(content[:2000])
-            content = content[2000:]
-        messages.append(content)
+        # 企业微信消息限制2048字符，超长截断（只发一条）
+        if len(content) > 2000:
+            content = content[:1950] + "\n\n...(内容已精简)"
         
-        for msg in messages:
-            data = {
-                "touser": user_id,
-                "msgtype": "text",
-                "agentid": int(config["agent_id"]),
-                "text": {"content": msg},
-                "safe": 0
-            }
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.post(url, json=data)
-                result = response.json()
-            
-            if result.get("errcode") != 0:
-                logger.error(f"[小助] 发送消息失败: {result}")
-            else:
-                logger.info(f"[小助] 消息已发送给 {user_id}")
+        data = {
+            "touser": user_id,
+            "msgtype": "text",
+            "agentid": int(config["agent_id"]),
+            "text": {"content": content},
+            "safe": 0
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=data)
+            result = response.json()
+        
+        if result.get("errcode") != 0:
+            logger.error(f"[小助] 发送消息失败: {result}")
+        else:
+            logger.info(f"[小助] 消息已发送给 {user_id}")
                 
     except Exception as e:
         logger.error(f"[小助] 发送消息异常: {e}")
@@ -257,6 +253,7 @@ async def process_file_message(user_id: str, media_id: str, file_name: str):
     """处理文件消息（可能是会议录音）"""
     from app.agents.assistant_agent import assistant_agent
     from app.services.speech_recognition_service import speech_recognition_service
+    from app.services.cos_storage_service import cos_storage_service
     
     logger.info(f"[小助] 收到文件: user={user_id}, file={file_name}")
     
@@ -268,37 +265,166 @@ async def process_file_message(user_id: str, media_id: str, file_name: str):
         await send_text_message(user_id, f"收到文件: {file_name}\n\n目前我只能处理音频文件（mp3/m4a/wav等）。")
         return
     
+    # 检查云存储和语音识别是否已配置
+    if not cos_storage_service.is_configured:
+        await send_text_message(user_id, f"📼 收到录音: {file_name}\n\n⚠️ 云存储未配置，请联系管理员配置腾讯云COS。")
+        return
+    
+    if not speech_recognition_service.is_configured():
+        await send_text_message(user_id, f"📼 收到录音: {file_name}\n\n⚠️ 语音识别未配置，请联系管理员配置腾讯云ASR。")
+        return
+    
     # 通知用户开始处理
     await send_text_message(user_id, f"📼 收到会议录音: {file_name}\n\n正在处理中，转写完成后会自动发送会议纪要。\n⏱ 预计需要2-5分钟")
     
     try:
-        # 下载音频文件
+        # 1. 下载音频文件
+        logger.info(f"[小助] 下载音频文件: {media_id}")
         audio_data = await download_media(media_id)
         if not audio_data:
             await send_text_message(user_id, "音频文件下载失败，请重新发送。")
             return
         
-        # 保存到临时文件并上传到云存储
-        # TODO: 上传到腾讯云COS
-        # 目前先用本地文件
-        import tempfile
-        import os
+        logger.info(f"[小助] 音频文件下载成功: {len(audio_data)} bytes")
         
-        ext = os.path.splitext(file_name)[1] or ".mp3"
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as f:
-            f.write(audio_data)
-            temp_path = f.name
+        # 2. 上传到腾讯云COS
+        logger.info(f"[小助] 上传到COS...")
+        success, result = await cos_storage_service.upload_bytes(
+            data=audio_data,
+            filename=file_name,
+            folder="meeting_audio"
+        )
         
-        # 这里需要将文件上传到公网可访问的URL
-        # 暂时跳过，提示用户
-        await send_text_message(user_id, "音频处理功能需要配置腾讯云存储，请联系管理员完成配置。")
+        if not success:
+            logger.error(f"[小助] COS上传失败: {result}")
+            await send_text_message(user_id, f"音频上传失败: {result}")
+            return
         
-        # 清理临时文件
-        os.unlink(temp_path)
+        audio_url = result
+        logger.info(f"[小助] COS上传成功: {audio_url}")
+        
+        # 3. 创建会议记录
+        from app.models.database import AsyncSessionLocal
+        from sqlalchemy import text
+        
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                text("""
+                    INSERT INTO meeting_records (audio_file_url, transcription_status, created_by)
+                    VALUES (:url, 'processing', :user_id)
+                    RETURNING id
+                """),
+                {"url": audio_url, "user_id": user_id}
+            )
+            meeting_id = str(result.fetchone()[0])
+            await db.commit()
+        
+        logger.info(f"[小助] 创建会议记录: {meeting_id}")
+        
+        # 4. 调用语音识别服务
+        ext = os.path.splitext(file_name)[1].lower().lstrip('.')
+        audio_format = ext if ext in ['mp3', 'm4a', 'wav', 'amr', 'ogg'] else 'mp3'
+        
+        transcribe_result = await speech_recognition_service.transcribe_audio(
+            audio_url=audio_url,
+            meeting_id=meeting_id,
+            audio_format=audio_format
+        )
+        
+        if not transcribe_result.get("success"):
+            error_msg = transcribe_result.get("error", "未知错误")
+            logger.error(f"[小助] 语音识别任务提交失败: {error_msg}")
+            await send_text_message(user_id, f"语音识别启动失败: {error_msg}")
+            return
+        
+        logger.info(f"[小助] 语音识别任务已提交: {transcribe_result.get('tencent_task_id')}")
+        
+        # 5. 启动后台任务等待结果并发送给用户
+        import asyncio
+        asyncio.create_task(
+            _wait_and_send_meeting_summary(user_id, meeting_id, transcribe_result.get('task_id'))
+        )
         
     except Exception as e:
         logger.error(f"[小助] 处理音频文件失败: {e}")
-        await send_text_message(user_id, "处理音频文件时出现问题，请稍后重试。")
+        await send_text_message(user_id, f"处理音频文件时出现问题：{str(e)}")
+
+
+async def _wait_and_send_meeting_summary(user_id: str, meeting_id: str, task_id: str):
+    """等待转写完成后发送会议纪要给用户"""
+    import asyncio
+    from app.models.database import AsyncSessionLocal
+    from sqlalchemy import text
+    
+    max_wait_time = 600  # 最长等待10分钟
+    poll_interval = 10  # 每10秒检查一次
+    start_time = time.time()
+    
+    while time.time() - start_time < max_wait_time:
+        await asyncio.sleep(poll_interval)
+        
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    text("""
+                        SELECT transcription_status, summary, raw_transcription, 
+                               content_structured, action_items
+                        FROM meeting_records
+                        WHERE id = :meeting_id
+                    """),
+                    {"meeting_id": meeting_id}
+                )
+                row = result.fetchone()
+                
+                if not row:
+                    logger.warning(f"[小助] 会议记录不存在: {meeting_id}")
+                    return
+                
+                status = row[0]
+                
+                if status == 'completed':
+                    # 转写完成，发送会议纪要
+                    summary = row[1] or "无摘要"
+                    transcription = row[2] or ""
+                    
+                    # 格式化会议纪要
+                    lines = ["📋 会议纪要", "━" * 18]
+                    lines.append(f"\n📝 摘要: {summary}")
+                    
+                    # 解析待办事项
+                    try:
+                        import json
+                        action_items = json.loads(row[4]) if row[4] else []
+                        if action_items:
+                            lines.append("\n✅ 待办事项:")
+                            for item in action_items[:5]:  # 最多显示5条
+                                assignee = item.get('assignee', '待定')
+                                task = item.get('task', '')
+                                lines.append(f"  • {assignee}: {task}")
+                    except:
+                        pass
+                    
+                    # 添加部分转写内容
+                    if transcription:
+                        preview = transcription[:300] + "..." if len(transcription) > 300 else transcription
+                        lines.append(f"\n📄 转写预览:\n{preview}")
+                    
+                    lines.append("\n━" * 18)
+                    lines.append("完整内容可在系统中查看")
+                    
+                    await send_text_message(user_id, "\n".join(lines))
+                    logger.info(f"[小助] 会议纪要已发送: {meeting_id}")
+                    return
+                
+                elif status == 'failed':
+                    await send_text_message(user_id, "❌ 会议录音转写失败，请检查录音质量后重试。")
+                    return
+                    
+        except Exception as e:
+            logger.error(f"[小助] 检查转写状态失败: {e}")
+    
+    # 超时
+    await send_text_message(user_id, "⏰ 会议录音转写超时，请稍后在系统中查看结果。")
 
 
 # ==================== API路由 ====================
