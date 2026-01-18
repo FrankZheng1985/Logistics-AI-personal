@@ -46,15 +46,15 @@ class AssistantAgent(BaseAgent):
         # 转换到中国时区
         return dt.astimezone(AssistantAgent.CHINA_TZ)
     
-    # 意图分类
+    # 意图分类（按优先级排序：更具体的意图在前）
     INTENT_TYPES = {
-        "schedule_add": ["记住", "记录", "安排", "添加日程", "提醒我", "帮我记"],
+        "schedule_query": ["有什么安排", "有什么会", "查看日程", "查询日程", "今天安排", "明天安排", "今天有", "明天有", "日程", "行程"],
         "schedule_update": ["修改", "改成", "改为", "调整时间", "更改", "变更日程"],  # 修改日程
-        "schedule_query": ["今天", "明天", "有什么安排", "有什么会", "日程", "行程"],
         "schedule_cancel": ["取消", "删除日程", "不开了"],
-        "todo_add": ["待办", "要做", "记得做", "别忘了"],
+        "schedule_add": ["记住", "记录", "添加日程", "提醒我", "帮我记"],  # 移除了歧义词"安排"
         "todo_query": ["待办列表", "还有什么没做", "待办事项"],
         "todo_complete": ["完成了", "做完了", "搞定了"],
+        "todo_add": ["待办", "要做", "记得做", "别忘了"],
         "meeting_record": ["会议纪要", "整理会议", "会议结束"],
         "email_query": ["邮件", "收件箱", "新邮件", "查看邮件"],
         "email_reply": ["回复邮件", "发邮件"],
@@ -165,11 +165,18 @@ class AssistantAgent(BaseAgent):
         """解析用户意图"""
         message_lower = message.lower()
         
-        # 先用关键词匹配
+        # 先用关键词匹配（优先匹配更长的短语，避免歧义）
+        best_match = None
+        best_length = 0
+        
         for intent_type, keywords in self.INTENT_TYPES.items():
             for keyword in keywords:
-                if keyword in message_lower:
-                    return {"type": intent_type, "confidence": 0.8, "keyword": keyword}
+                if keyword in message_lower and len(keyword) > best_length:
+                    best_match = {"type": intent_type, "confidence": 0.8, "keyword": keyword}
+                    best_length = len(keyword)
+        
+        if best_match:
+            return best_match
         
         # 关键词匹配失败，使用AI分析
         analysis_prompt = f"""分析用户消息的意图，返回JSON格式：
