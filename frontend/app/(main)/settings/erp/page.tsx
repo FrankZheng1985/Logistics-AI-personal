@@ -292,6 +292,7 @@ export default function ERPSettingsPage() {
                 onChange={e => setConfig(prev => ({ ...prev, auth_token: e.target.value, has_token: false }))}
                 className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none pr-12"
                 placeholder={config.has_token ? '••••••••（已保存，输入新密钥可覆盖）' : '请输入API Token或密钥'}
+                autoComplete="current-password"
               />
               <button
                 type="button"
