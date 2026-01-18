@@ -755,17 +755,28 @@ async def execute_task_and_get_result(
         from app.agents.base import AgentRegistry
         from app.models.conversation import AgentType
         
-        # 获取对应的Agent实例
+        # 获取对应的Agent实例（支持英文类型和中文名称）
         agent_type_map = {
+            # 英文类型
             "analyst": AgentType.ANALYST,
             "video_creator": AgentType.VIDEO_CREATOR,
             "copywriter": AgentType.COPYWRITER,
             "sales": AgentType.SALES,
             "follow": AgentType.FOLLOW,
             "lead_hunter": AgentType.LEAD_HUNTER,
+            # 中文名称
+            "小析": AgentType.ANALYST,
+            "小影": AgentType.VIDEO_CREATOR,
+            "小文": AgentType.COPYWRITER,
+            "小销": AgentType.SALES,
+            "小跟": AgentType.FOLLOW,
+            "小猎": AgentType.LEAD_HUNTER,
         }
         
-        agent_type = agent_type_map.get(recommended_agent)
+        # 标准化agent类型（统一转为英文）
+        agent_key = recommended_agent.lower() if recommended_agent else ""
+        agent_type = agent_type_map.get(recommended_agent) or agent_type_map.get(agent_key)
+        
         if not agent_type:
             logger.warning(f"[小调] 未知的Agent类型: {recommended_agent}")
             return {"error": f"未知的执行者类型: {recommended_agent}"}
@@ -777,32 +788,43 @@ async def execute_task_and_get_result(
         
         logger.info(f"[小调] 开始执行任务，执行者: {agent_name}, 任务: {task_description[:50]}")
         
-        # 根据不同Agent类型构建输入数据
+        # 根据不同Agent类型构建输入数据（基于agent_type枚举判断，支持中英文输入）
         result = None
         
-        if recommended_agent == "analyst":
+        if agent_type == AgentType.ANALYST:
             # 小析 - 数据分析任务
             result = await execute_analyst_task(agent, task_description)
             
-        elif recommended_agent == "copywriter":
+        elif agent_type == AgentType.COPYWRITER:
             # 小文 - 文案任务
             result = await execute_copywriter_task(agent, task_description)
             
-        elif recommended_agent == "lead_hunter":
+        elif agent_type == AgentType.LEAD_HUNTER:
             # 小猎 - 线索搜索任务
             result = await execute_lead_hunter_task(agent, task_description)
             
-        elif recommended_agent == "sales":
+        elif agent_type == AgentType.SALES:
             # 小销 - 销售咨询回复任务
             result = await execute_sales_task(agent, task_description)
             
-        elif recommended_agent == "follow":
+        elif agent_type == AgentType.FOLLOW:
             # 小跟 - 跟进任务
             result = await execute_follow_task(agent, task_description)
             
-        elif recommended_agent == "video_creator":
+        elif agent_type == AgentType.VIDEO_CREATOR:
             # 小影 - 视频创作任务
             result = await execute_video_task(agent, task_description)
+        
+        else:
+            # 通用处理：尝试调用agent的chat方法
+            logger.info(f"[小调] 使用通用方式执行任务: {agent_type}")
+            response = await agent.chat(task_description)
+            result = {
+                "task_type": "general",
+                "description": task_description,
+                "response": response,
+                "executor": agent_name
+            }
         
         # 更新任务状态为完成
         if task_id and result:
