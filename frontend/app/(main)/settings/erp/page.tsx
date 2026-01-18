@@ -252,7 +252,7 @@ export default function ERPSettingsPage() {
       </div>
       
       {/* 连接配置 */}
-      <div className="bg-dark-purple/40 rounded-xl p-6">
+      <form className="bg-dark-purple/40 rounded-xl p-6" onSubmit={e => e.preventDefault()}>
         <h2 className="text-lg font-semibold text-white mb-4">连接配置</h2>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -384,7 +384,7 @@ export default function ERPSettingsPage() {
             </div>
           </div>
         )}
-      </div>
+      </form>
       
       {/* 同步日志 */}
       <div className="bg-dark-purple/40 rounded-xl p-6">
