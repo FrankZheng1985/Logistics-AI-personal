@@ -148,11 +148,21 @@ export default function AgentDetailPage() {
         })
       }
       
-      // 获取工作日志（从真实API）
-      const logsRes = await fetch(`/api/agents/${agentType}/logs`)
-      if (logsRes.ok) {
-        const data = await logsRes.json()
-        setWorkLogs(data.logs || [])
+      // 获取实时工作步骤
+      const stepsRes = await fetch(`/api/live/${agentType}/steps?limit=20`)
+      if (stepsRes.ok) {
+        const data = await stepsRes.json()
+        // 转换格式以适配WorkLog接口
+        const logs = (data.steps || []).map((step: any) => ({
+          id: step.id,
+          task_type: step.step_type,
+          status: step.status === 'completed' ? 'success' : step.status === 'failed' ? 'failed' : 'running',
+          started_at: step.created_at,
+          completed_at: step.status === 'completed' ? step.created_at : null,
+          duration_ms: step.step_data?.duration_ms || null,
+          result_summary: step.step_title + (step.step_content ? `: ${step.step_content}` : '')
+        }))
+        setWorkLogs(logs)
       }
       
     } catch (error) {
