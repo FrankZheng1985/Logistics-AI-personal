@@ -58,6 +58,17 @@ const nextConfig = {
     ]
   },
   
+  // API代理配置（本地开发用）
+  async rewrites() {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${apiUrl}/api/:path*`,
+      },
+    ]
+  },
+  
   // 请求头配置
   async headers() {
     return [

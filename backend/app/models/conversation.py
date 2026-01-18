@@ -23,6 +23,7 @@ class AgentType(str, enum.Enum):
     LEAD_HUNTER = "lead_hunter"   # 小猎 - 线索猎手
     ANALYST2 = "analyst2"         # 小析2 - 群聊情报员
     ASSET_COLLECTOR = "asset_collector"  # 小采 - 素材采集员
+    CONTENT_CREATOR = "content_creator"  # 小媒 - 内容运营
 
 
 class MessageType(str, enum.Enum):

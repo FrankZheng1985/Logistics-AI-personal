@@ -39,7 +39,8 @@ const AGENT_TYPE_MAP: Record<string, string> = {
   '小跟': 'follow',
   '小猎': 'lead_hunter',
   '小析2': 'analyst2',
-  '小采': 'asset_collector'
+  '小采': 'asset_collector',
+  '小媒': 'content_creator'
 }
 
 interface Agent {
@@ -879,6 +880,16 @@ const DEFAULT_AGENTS: Agent[] = [
     role: '素材采集员', 
     status: 'online',
     description: '负责从小红书、抖音、Pexels等平台自动采集物流相关视频、图片和音频素材。',
+    tasksToday: 0,
+    totalTasks: 0,
+    successRate: 100,
+    currentTask: null
+  },
+  { 
+    name: '小媒', 
+    role: '内容运营', 
+    status: 'online',
+    description: '负责每日内容生成、多平台发布、效果追踪，自动生成抖音、小红书、公众号等营销内容。',
     tasksToday: 0,
     totalTasks: 0,
     successRate: 100,
