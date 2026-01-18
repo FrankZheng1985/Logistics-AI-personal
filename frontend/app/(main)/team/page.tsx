@@ -354,7 +354,7 @@ function AgentLiveModal({
             
             if (msg.type === 'stream_end') {
               // 流式结束，添加到步骤列表
-              setSteps(prev => [...prev, {
+              const newStep: LiveStep = {
                 id: `stream-${Date.now()}`,
                 agent_type: msg.agent_type,
                 agent_name: '',
@@ -362,9 +362,11 @@ function AgentLiveModal({
                 step_type: 'write',
                 step_title: msg.title || '内容生成完成',
                 step_content: `生成了 ${msg.total_length || 0} 字符的内容`,
+                step_data: { total_length: msg.total_length },
                 status: 'completed',
                 created_at: new Date().toISOString()
-              }])
+              }
+              setSteps(prev => [...prev, newStep])
               // 清除流式状态
               setTimeout(() => {
                 setStreaming({
