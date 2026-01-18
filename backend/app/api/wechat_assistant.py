@@ -565,7 +565,7 @@ async def check_config_status():
 
 @router.post("/cleanup-error-schedules", summary="清理错误的日程记录（临时）")
 async def cleanup_error_schedules():
-    """清理title为空或为'查询今日日程安排'的错误记录"""
+    """清理title为空或包含'查询'的错误记录"""
     from sqlalchemy import text
     from app.models.database import AsyncSessionLocal
     
@@ -575,7 +575,7 @@ async def cleanup_error_schedules():
             text("""
                 SELECT id, title, start_time 
                 FROM assistant_schedules 
-                WHERE title = '查询今日日程安排' OR title IS NULL
+                WHERE title LIKE '%查询%' OR title IS NULL
                 ORDER BY created_at DESC
             """)
         )
@@ -588,7 +588,7 @@ async def cleanup_error_schedules():
         
         # 删除这些记录
         result = await db.execute(
-            text("DELETE FROM assistant_schedules WHERE title = '查询今日日程安排' OR title IS NULL")
+            text("DELETE FROM assistant_schedules WHERE title LIKE '%查询%' OR title IS NULL")
         )
         await db.commit()
         
