@@ -127,21 +127,33 @@ class CopywriterAgent(BaseAgent):
             }
         """
         task_type = input_data.get("task_type", "script")
+        title = input_data.get("title", input_data.get("topic", "文案创作"))
         
-        if task_type == "script":
-            return await self._write_script(input_data)
-        elif task_type == "long_script":
-            return await self._write_long_script(input_data)
-        elif task_type == "moments":
-            return await self._write_moments(input_data)
-        elif task_type == "ad":
-            return await self._write_ad_copy(input_data)
-        elif task_type == "email":
-            return await self._write_email_sequence(input_data)
-        elif task_type == "translate":
-            return await self._translate_copy(input_data)
-        else:
-            return await self._write_general(input_data)
+        # 开始任务会话（实时直播）
+        await self.start_task_session(f"write_{task_type}", f"开始{task_type}创作: {title}")
+        
+        try:
+            if task_type == "script":
+                result = await self._write_script(input_data)
+            elif task_type == "long_script":
+                result = await self._write_long_script(input_data)
+            elif task_type == "moments":
+                result = await self._write_moments(input_data)
+            elif task_type == "ad":
+                result = await self._write_ad_copy(input_data)
+            elif task_type == "email":
+                result = await self._write_email_sequence(input_data)
+            elif task_type == "translate":
+                result = await self._translate_copy(input_data)
+            else:
+                result = await self._write_general(input_data)
+            
+            # 结束任务会话
+            await self.end_task_session(f"完成{task_type}创作: {title}")
+            return result
+        except Exception as e:
+            await self.end_task_session(error_message=str(e))
+            raise
     
     async def _write_script(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """撰写标准视频脚本（30-90秒）"""
