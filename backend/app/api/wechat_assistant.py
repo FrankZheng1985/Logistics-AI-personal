@@ -561,3 +561,40 @@ async def check_config_status():
         "encoding_aes_key": bool(config["encoding_aes_key"]),
         "message": "配置完整" if all([config["corp_id"], config["agent_id"], config["secret"], config["token"], config["encoding_aes_key"]]) else "配置不完整，请设置环境变量"
     }
+
+
+@router.post("/cleanup-error-schedules", summary="清理错误的日程记录（临时）")
+async def cleanup_error_schedules():
+    """清理title为空或为'查询今日日程安排'的错误记录"""
+    from sqlalchemy import text
+    from app.core.database import AsyncSessionLocal
+    
+    async with AsyncSessionLocal() as db:
+        # 查询错误的记录
+        result = await db.execute(
+            text("""
+                SELECT id, title, start_time 
+                FROM assistant_schedules 
+                WHERE title = '查询今日日程安排' OR title IS NULL
+                ORDER BY created_at DESC
+            """)
+        )
+        records = result.fetchall()
+        
+        if not records:
+            return {"success": True, "message": "没有找到错误记录", "deleted_count": 0}
+        
+        record_list = [{"id": r[0], "title": r[1], "start_time": str(r[2])} for r in records]
+        
+        # 删除这些记录
+        result = await db.execute(
+            text("DELETE FROM assistant_schedules WHERE title = '查询今日日程安排' OR title IS NULL")
+        )
+        await db.commit()
+        
+        return {
+            "success": True, 
+            "message": f"已删除 {result.rowcount} 条错误记录",
+            "deleted_count": result.rowcount,
+            "records": record_list
+        }
