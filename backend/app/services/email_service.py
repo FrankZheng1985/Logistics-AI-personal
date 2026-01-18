@@ -100,11 +100,24 @@ class EmailService:
         default_text = f"\n\n---\n{self.sender_name}\n邮箱：{self.smtp_user}\n"
         
         try:
+            # 获取SMTP配置中的邮件Logo
+            email_logo = ""
+            try:
+                result = await async_session_maker().execute(
+                    text("SELECT value FROM system_settings WHERE key = 'smtp'")
+                )
+                smtp_row = result.fetchone()
+                if smtp_row and smtp_row[0]:
+                    smtp_config = smtp_row[0] if isinstance(smtp_row[0], dict) else json.loads(smtp_row[0])
+                    email_logo = smtp_config.get("email_logo", "")
+            except:
+                pass
+            
             async with async_session_maker() as db:
                 # 获取公司配置
                 result = await db.execute(
                     text("""SELECT company_name, contact_phone, contact_email, contact_wechat, 
-                                   address, company_website, brand_slogan 
+                                   address, company_website, brand_slogan, brand_assets
                             FROM company_config LIMIT 1""")
                 )
                 row = result.fetchone()
@@ -117,11 +130,20 @@ class EmailService:
                     address = row[4] or ""
                     company_website = row[5] or ""
                     brand_slogan = row[6] or ""
+                    # 从 brand_assets 获取微信二维码
+                    brand_assets = row[7] if row[7] else {}
+                    if isinstance(brand_assets, str):
+                        brand_assets = json.loads(brand_assets)
+                    wechat_qrcode = brand_assets.get("qrcode", {}).get("wechat", "")
                     
                     # 构建 HTML 签名
                     html_parts = [
                         '<div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0; font-size: 13px; color: #666; font-family: Arial, sans-serif;">'
                     ]
+                    
+                    # Logo显示在最上方
+                    if email_logo:
+                        html_parts.append(f'<p style="margin: 0 0 15px 0;"><img src="{email_logo}" alt="Logo" style="max-height: 50px; width: auto;" /></p>')
                     
                     if brand_slogan:
                         html_parts.append(f'<p style="margin: 0 0 10px 0; color: #333; font-style: italic;">"{brand_slogan}"</p>')
@@ -131,17 +153,23 @@ class EmailService:
                     if company_name:
                         html_parts.append(f'<p style="margin: 5px 0;">{company_name}</p>')
                     
+                    # 地址在电话前面
+                    if address:
+                        html_parts.append(f'<p style="margin: 5px 0;">📍 地址：{address}</p>')
+                    
                     if contact_phone:
                         html_parts.append(f'<p style="margin: 5px 0;">📞 电话：{contact_phone}</p>')
                     
                     if contact_email:
                         html_parts.append(f'<p style="margin: 5px 0;">📧 邮箱：{contact_email}</p>')
                     
+                    # 微信号和二维码
                     if contact_wechat:
-                        html_parts.append(f'<p style="margin: 5px 0;">💬 微信：{contact_wechat}</p>')
-                    
-                    if address:
-                        html_parts.append(f'<p style="margin: 5px 0;">📍 地址：{address}</p>')
+                        if wechat_qrcode:
+                            html_parts.append(f'<p style="margin: 5px 0;">💬 微信：{contact_wechat}</p>')
+                            html_parts.append(f'<p style="margin: 10px 0;"><img src="{wechat_qrcode}" alt="微信二维码" style="max-width: 120px; height: auto;" /></p>')
+                        else:
+                            html_parts.append(f'<p style="margin: 5px 0;">💬 微信：{contact_wechat}</p>')
                     
                     if company_website:
                         html_parts.append(f'<p style="margin: 5px 0;">🌐 官网：<a href="{company_website}" style="color: #0066cc;">{company_website}</a></p>')
@@ -155,14 +183,14 @@ class EmailService:
                     text_parts.append(f"{self.sender_name}")
                     if company_name:
                         text_parts.append(company_name)
+                    if address:
+                        text_parts.append(f"地址：{address}")
                     if contact_phone:
                         text_parts.append(f"电话：{contact_phone}")
                     if contact_email:
                         text_parts.append(f"邮箱：{contact_email}")
                     if contact_wechat:
                         text_parts.append(f"微信：{contact_wechat}")
-                    if address:
-                        text_parts.append(f"地址：{address}")
                     if company_website:
                         text_parts.append(f"官网：{company_website}")
                     

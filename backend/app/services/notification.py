@@ -542,13 +542,19 @@ class NotificationService:
         """
         results = {"channels": {}}
         
-        # 1. 保存系统通知
-        await self._save_system_notification(
+        # 1. 保存系统通知（带去重，防止重复推送）
+        system_result = await self._save_system_notification_with_dedup(
             notification_type="boss_message",
             title=title,
-            content=content
+            content=content,
+            dedup_key=f"boss_message_{title}"  # 按标题去重，同一天同标题只保存一次
         )
-        results["channels"]["system"] = {"status": "saved"}
+        results["channels"]["system"] = system_result
+        
+        # 如果通知已存在，跳过后续渠道推送
+        if system_result.get("status") == "skipped":
+            logger.info(f"📢 老板通知已存在，跳过重复发送: {title}")
+            return results
         
         # 2. 企业微信通知
         if self.wechat_enabled:

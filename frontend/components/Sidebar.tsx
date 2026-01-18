@@ -19,13 +19,15 @@ import {
   Mail,
   MessageCircle,
   Database,
-  Smartphone
+  Smartphone,
+  ShoppingCart
 } from 'lucide-react'
 
 const menuItems = [
   { href: '/dashboard', label: '控制台', icon: LayoutDashboard },
   { href: '/customers', label: '客户管理', icon: Users },
   { href: '/leads', label: '线索狩猎', icon: Target },
+  { href: '/products', label: '产品趋势', icon: ShoppingCart },
   { href: '/content', label: '内容工作台', icon: Smartphone },
   { href: '/conversations', label: '对话记录', icon: MessageSquare },
   { href: '/videos', label: '视频中心', icon: Video },

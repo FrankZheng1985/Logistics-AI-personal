@@ -137,6 +137,12 @@ class LeadHunterAgent(BaseAgent):
             return await self._get_topic_stats()
         elif action == "generate_answer":
             return await self._generate_answer(input_data)
+        
+        # 产品趋势发现模式（内容引流 + 市场洞察）
+        elif action == "discover_products":
+            return await self._discover_product_trends(input_data)
+        elif action == "get_product_stats":
+            return await self._get_product_stats()
         else:
             return {"error": f"未知操作: {action}"}
     
@@ -1419,6 +1425,520 @@ URL：{url}
                 
         except Exception as e:
             self.log(f"获取话题统计失败: {e}", "error")
+            return {"error": str(e)}
+
+    # ==================== 产品趋势发现模式（新增）====================
+    
+    async def _discover_product_trends(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        发现欧洲跨境电商热门产品趋势
+        搜索完成后交给小调处理：存入知识库 + 发送邮件
+        """
+        self.log("🛒 开始发现欧洲热门产品趋势...")
+        start_time = datetime.now()
+        
+        # 检查API配置
+        api_key = getattr(settings, 'SERPER_API_KEY', None)
+        if not api_key:
+            return {
+                "error": "搜索API未配置",
+                "message": "请在系统设置中配置 SERPER_API_KEY"
+            }
+        
+        results = {
+            "discover_time": datetime.now().isoformat(),
+            "mode": "product_trend_discovery",
+            "products_found": [],
+            "total_products": 0,
+            "high_trend_products": 0,
+            "platforms_searched": [],
+            "keywords_used": []
+        }
+        
+        try:
+            from app.models.database import async_session_maker
+            from sqlalchemy import text
+            
+            async with async_session_maker() as db:
+                # 1. 获取搜索关键词
+                max_keywords = input_data.get("max_keywords", 10)
+                
+                kw_result = await db.execute(
+                    text("""
+                        SELECT id, keyword, category, platform, priority
+                        FROM product_trend_keywords
+                        WHERE is_active = true
+                        ORDER BY priority DESC, RANDOM()
+                        LIMIT :limit
+                    """),
+                    {"limit": max_keywords}
+                )
+                keywords_data = kw_result.fetchall()
+                
+                if not keywords_data:
+                    # 使用默认关键词
+                    default_keywords = [
+                        ("欧洲跨境电商爆款 2026", "综合"),
+                        ("德国亚马逊热销产品", "亚马逊"),
+                        ("英国电商热卖", "综合"),
+                        ("Temu欧洲热销", "新平台"),
+                        ("欧洲家居用品热销", "家居"),
+                    ]
+                    keywords_data = [(None, kw, cat, None, 8) for kw, cat in default_keywords]
+                
+                self.log(f"使用 {len(keywords_data)} 个关键词搜索产品趋势")
+                
+                # 2. 定义搜索平台
+                platforms = [
+                    ("google", "", "谷歌搜索"),
+                    ("baidu", "site:baidu.com", "百度"),
+                ]
+                
+                all_products = []
+                
+                # 3. 对每个关键词搜索
+                for kw_data in keywords_data:
+                    kw_id, keyword, category, kw_platform, priority = kw_data
+                    results["keywords_used"].append(keyword)
+                    
+                    for platform_id, site_filter, platform_name in platforms:
+                        try:
+                            # 构建搜索查询
+                            query = f"{keyword} {site_filter}".strip()
+                            self.log(f"🔍 搜索: {query}")
+                            
+                            search_results = await self._search_with_serper(query)
+                            
+                            if search_results:
+                                results["platforms_searched"].append(platform_name)
+                                
+                                for item in search_results[:5]:  # 每个关键词取前5条
+                                    url = item.get("url", "")
+                                    title = item.get("title", "")
+                                    content = item.get("content", "")
+                                    
+                                    if not url or not title:
+                                        continue
+                                    
+                                    # 检查是否已存在
+                                    existing = await db.execute(
+                                        text("SELECT id FROM product_trends WHERE source_url = :url"),
+                                        {"url": url}
+                                    )
+                                    if existing.fetchone():
+                                        continue
+                                    
+                                    # AI分析产品趋势
+                                    product_analysis = await self._analyze_product_trend({
+                                        "title": title,
+                                        "content": content,
+                                        "url": url,
+                                        "platform": platform_id,
+                                        "category": category,
+                                        "keyword": keyword
+                                    })
+                                    
+                                    if product_analysis.get("is_valid_product", False):
+                                        product_data = {
+                                            "product_name": product_analysis.get("product_name", title[:100]),
+                                            "category": product_analysis.get("category", category),
+                                            "description": product_analysis.get("description", content[:500]),
+                                            "source_url": url,
+                                            "source_platform": platform_id,
+                                            "source_region": "europe",
+                                            "sales_volume": product_analysis.get("sales_volume", ""),
+                                            "price_range": product_analysis.get("price_range", ""),
+                                            "growth_rate": product_analysis.get("growth_rate", ""),
+                                            "trend_score": product_analysis.get("trend_score", 50),
+                                            "ai_analysis": product_analysis.get("analysis", ""),
+                                            "ai_opportunity": product_analysis.get("opportunity", ""),
+                                            "ai_logistics_tips": product_analysis.get("logistics_tips", ""),
+                                            "keywords": [keyword] + product_analysis.get("keywords", [])
+                                        }
+                                        all_products.append(product_data)
+                            
+                            # 控制请求频率
+                            await asyncio.sleep(0.5)
+                            
+                        except Exception as e:
+                            self.log(f"搜索产品趋势失败 ({platform_name}, {keyword}): {e}", "error")
+                
+                # 4. 保存产品趋势到数据库
+                saved_products = []
+                for product in all_products:
+                    try:
+                        result = await db.execute(
+                            text("""
+                                INSERT INTO product_trends 
+                                (product_name, category, description, source_url, source_platform,
+                                 source_region, sales_volume, price_range, growth_rate, trend_score,
+                                 ai_analysis, ai_opportunity, ai_logistics_tips, keywords, status)
+                                VALUES 
+                                (:name, :category, :desc, :url, :platform, :region, :sales,
+                                 :price, :growth, :score, :analysis, :opportunity, :logistics, :keywords, 'new')
+                                ON CONFLICT DO NOTHING
+                                RETURNING id
+                            """),
+                            {
+                                "name": product["product_name"],
+                                "category": product["category"],
+                                "desc": product["description"],
+                                "url": product["source_url"],
+                                "platform": product["source_platform"],
+                                "region": product["source_region"],
+                                "sales": product["sales_volume"],
+                                "price": product["price_range"],
+                                "growth": product["growth_rate"],
+                                "score": product["trend_score"],
+                                "analysis": product["ai_analysis"],
+                                "opportunity": product["ai_opportunity"],
+                                "logistics": product["ai_logistics_tips"],
+                                "keywords": product["keywords"]
+                            }
+                        )
+                        row = result.fetchone()
+                        if row:
+                            product["id"] = str(row[0])
+                            saved_products.append(product)
+                            results["products_found"].append(product)
+                            results["total_products"] += 1
+                            if product["trend_score"] >= 70:
+                                results["high_trend_products"] += 1
+                            
+                    except Exception as e:
+                        self.log(f"保存产品趋势失败: {e}", "error")
+                
+                await db.commit()
+                
+                # 5. 更新小猎的任务统计
+                await db.execute(
+                    text("""
+                        UPDATE ai_agents
+                        SET tasks_completed_today = tasks_completed_today + 1,
+                            tasks_completed_total = tasks_completed_total + 1,
+                            last_active_at = NOW(),
+                            updated_at = NOW()
+                        WHERE agent_type = 'lead_hunter'
+                    """)
+                )
+                await db.commit()
+                
+                # 6. 如果有发现产品，交给小调处理
+                if saved_products:
+                    await self._notify_coordinator_for_products(saved_products, db)
+                
+        except Exception as e:
+            self.log(f"产品趋势发现出错: {e}", "error")
+            results["error"] = str(e)
+        
+        # 去重平台列表
+        results["platforms_searched"] = list(set(results["platforms_searched"]))
+        
+        duration = (datetime.now() - start_time).total_seconds()
+        results["duration_seconds"] = round(duration, 2)
+        
+        self.log(f"✅ 产品趋势发现完成！耗时{duration:.1f}秒，发现 {results['total_products']} 个产品，"
+                 f"高趋势 {results['high_trend_products']} 个")
+        
+        return results
+    
+    async def _analyze_product_trend(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        分析产品趋势价值
+        """
+        title = input_data.get("title", "")
+        content = input_data.get("content", "")
+        url = input_data.get("url", "")
+        category = input_data.get("category", "")
+        keyword = input_data.get("keyword", "")
+        
+        if not title:
+            return {"is_valid_product": False, "reason": "标题为空"}
+        
+        # 快速过滤非产品内容
+        invalid_keywords = ["招聘", "加盟", "代理", "培训", "课程", "教程"]
+        if any(kw in title for kw in invalid_keywords):
+            return {"is_valid_product": False, "reason": "非产品内容"}
+        
+        # 使用AI分析产品趋势
+        prompt = f"""请分析以下搜索结果是否是有价值的欧洲跨境电商产品趋势信息：
+
+搜索关键词：{keyword}
+标题：{title}
+内容摘要：{content[:500] if content else '无'}
+URL：{url}
+
+请从以下角度分析：
+1. 这是否是具体的产品或产品类目信息？
+2. 这个产品在欧洲市场的热度如何？
+3. 作为物流公司，了解这个信息有什么价值？
+4. 这类产品的物流需求特点是什么？
+
+请以JSON格式返回：
+{{
+    "is_valid_product": true/false,
+    "product_name": "产品名称",
+    "category": "产品类别",
+    "description": "产品简要描述",
+    "sales_volume": "销量描述，如'热销'、'10万+'等",
+    "price_range": "价格区间，如'€10-30'",
+    "growth_rate": "增长率描述，如'增长50%'",
+    "trend_score": 0-100,
+    "analysis": "产品趋势分析摘要",
+    "opportunity": "对物流公司的商机分析",
+    "logistics_tips": "针对该产品的物流建议（包装、时效、清关等）",
+    "keywords": ["相关关键词1", "关键词2"],
+    "reason": "判断理由"
+}}"""
+        
+        try:
+            response = await self.think([{"role": "user", "content": prompt}])
+            
+            # 解析AI回复
+            json_start = response.find("{")
+            json_end = response.rfind("}") + 1
+            if json_start != -1 and json_end > json_start:
+                result = json.loads(response[json_start:json_end])
+                return result
+        except Exception as e:
+            self.log(f"AI分析产品趋势失败: {e}", "warning")
+        
+        # 如果AI分析失败，使用规则判断
+        product_keywords = ["热销", "爆款", "畅销", "热卖", "销量", "排行", "趋势"]
+        has_product_signal = any(kw in title or kw in content for kw in product_keywords)
+        
+        return {
+            "is_valid_product": has_product_signal,
+            "product_name": title[:100],
+            "category": category,
+            "description": content[:300],
+            "trend_score": 50 if has_product_signal else 30,
+            "analysis": "规则判断",
+            "reason": "规则匹配"
+        }
+    
+    async def _notify_coordinator_for_products(self, products: List[Dict], db) -> None:
+        """
+        通知小调处理产品趋势信息
+        1. 存入知识库
+        2. 发送邮件通知
+        """
+        try:
+            from sqlalchemy import text
+            from app.agents.coordinator import coordinator_agent
+            from app.services.email_service import email_service
+            
+            self.log(f"📤 通知小调处理 {len(products)} 个产品趋势...")
+            
+            # 准备产品摘要
+            product_summary = []
+            for p in products:
+                summary = f"""
+🛒 **{p.get('product_name', '未知产品')}**
+- 类别: {p.get('category', '未知')}
+- 趋势评分: {p.get('trend_score', 0)}分
+- 销量: {p.get('sales_volume', '未知')}
+- 价格: {p.get('price_range', '未知')}
+- 分析: {p.get('ai_analysis', '暂无')}
+- 物流建议: {p.get('ai_logistics_tips', '暂无')}
+- 来源: {p.get('source_url', '')}
+"""
+                product_summary.append(summary)
+            
+            # 1. 存入知识库（作为市场情报）
+            knowledge_content = f"""
+# 欧洲跨境电商产品趋势报告
+
+发现时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+发现数量: {len(products)} 个产品
+
+## 产品详情
+
+{''.join(product_summary)}
+
+## 总结
+
+本次发现了 {len(products)} 个欧洲市场热门产品趋势，建议关注高趋势评分的产品，
+及时调整物流服务策略，抓住市场机会。
+"""
+            
+            try:
+                await db.execute(
+                    text("""
+                        INSERT INTO knowledge_base 
+                        (title, content, category, tags, source, created_at)
+                        VALUES 
+                        (:title, :content, 'market_intelligence', :tags, 'lead_hunter', NOW())
+                    """),
+                    {
+                        "title": f"欧洲产品趋势报告 - {datetime.now().strftime('%Y-%m-%d')}",
+                        "content": knowledge_content,
+                        "tags": ["欧洲市场", "产品趋势", "跨境电商", "市场情报"]
+                    }
+                )
+                self.log("✅ 产品趋势已存入知识库")
+            except Exception as e:
+                self.log(f"存入知识库失败: {e}", "warning")
+            
+            # 2. 发送邮件通知
+            email_body = f"""
+<html>
+<head>
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px; }}
+        .product {{ background: #f8f9fa; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #667eea; }}
+        .score {{ font-size: 24px; font-weight: bold; color: #667eea; }}
+        .tips {{ background: #e8f4f8; padding: 10px; border-radius: 5px; }}
+        .footer {{ margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd; color: #666; }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛒 欧洲热门产品趋势报告</h1>
+        <p>发现时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
+        <p>本次共发现 <strong>{len(products)}</strong> 个热门产品趋势</p>
+    </div>
+    
+    <h2>📊 产品详情</h2>
+"""
+            
+            for p in products:
+                score = p.get('trend_score', 0)
+                score_color = '#28a745' if score >= 70 else '#ffc107' if score >= 50 else '#6c757d'
+                
+                email_body += f"""
+    <div class="product">
+        <h3>{p.get('product_name', '未知产品')}</h3>
+        <p><strong>类别:</strong> {p.get('category', '未知')}</p>
+        <p><strong>趋势评分:</strong> <span class="score" style="color: {score_color}">{score}分</span></p>
+        <p><strong>销量情况:</strong> {p.get('sales_volume', '未知')}</p>
+        <p><strong>价格区间:</strong> {p.get('price_range', '未知')}</p>
+        <p><strong>趋势分析:</strong> {p.get('ai_analysis', '暂无')}</p>
+        <div class="tips">
+            <strong>💡 物流建议:</strong> {p.get('ai_logistics_tips', '暂无')}
+        </div>
+        <p><strong>🔗 来源:</strong> <a href="{p.get('source_url', '#')}">{p.get('source_url', '无')}</a></p>
+    </div>
+"""
+            
+            email_body += f"""
+    <div class="footer">
+        <p>此邮件由 <strong>小猎 (Lead Hunter AI)</strong> 自动发送</p>
+        <p>产品趋势信息已同步存入知识库，可在系统中查看完整报告</p>
+        <p>如有问题请联系系统管理员</p>
+    </div>
+</body>
+</html>
+"""
+            
+            # 发送邮件
+            try:
+                email_result = await email_service.send_email(
+                    to_emails=["18757672416@163.com"],
+                    subject=f"🛒 欧洲热门产品趋势报告 - {datetime.now().strftime('%Y-%m-%d')} ({len(products)}个产品)",
+                    html_content=email_body
+                )
+                
+                if email_result.get("status") == "sent":
+                    self.log("✅ 产品趋势报告邮件已发送")
+                    
+                    # 更新产品状态为已发送邮件
+                    for p in products:
+                        if p.get("id"):
+                            await db.execute(
+                                text("""
+                                    UPDATE product_trends 
+                                    SET is_email_sent = true, updated_at = NOW()
+                                    WHERE id = :id
+                                """),
+                                {"id": p["id"]}
+                            )
+                else:
+                    self.log(f"发送邮件失败: {email_result.get('error')}", "error")
+                    
+            except Exception as e:
+                self.log(f"发送邮件异常: {e}", "error")
+            
+            await db.commit()
+            
+        except Exception as e:
+            self.log(f"通知小调处理失败: {e}", "error")
+    
+    async def _get_product_stats(self) -> Dict[str, Any]:
+        """获取产品趋势统计"""
+        try:
+            from app.models.database import async_session_maker
+            from sqlalchemy import text
+            
+            async with async_session_maker() as db:
+                # 总产品数
+                total_result = await db.execute(
+                    text("SELECT COUNT(*) FROM product_trends")
+                )
+                total = total_result.scalar() or 0
+                
+                # 今日新发现
+                today_result = await db.execute(
+                    text("SELECT COUNT(*) FROM product_trends WHERE DATE(created_at) = CURRENT_DATE")
+                )
+                today_count = today_result.scalar() or 0
+                
+                # 高趋势产品数
+                high_trend_result = await db.execute(
+                    text("SELECT COUNT(*) FROM product_trends WHERE trend_score >= 70")
+                )
+                high_trend_count = high_trend_result.scalar() or 0
+                
+                # 已发送邮件数
+                emailed_result = await db.execute(
+                    text("SELECT COUNT(*) FROM product_trends WHERE is_email_sent = true")
+                )
+                emailed_count = emailed_result.scalar() or 0
+                
+                # 按类别统计
+                category_result = await db.execute(
+                    text("""
+                        SELECT category, COUNT(*) 
+                        FROM product_trends 
+                        GROUP BY category
+                        ORDER BY COUNT(*) DESC
+                        LIMIT 10
+                    """)
+                )
+                by_category = {row[0]: row[1] for row in category_result.fetchall()}
+                
+                # 最新发现的产品
+                recent_result = await db.execute(
+                    text("""
+                        SELECT product_name, category, trend_score, source_url, created_at
+                        FROM product_trends
+                        ORDER BY created_at DESC
+                        LIMIT 5
+                    """)
+                )
+                recent_products = [
+                    {
+                        "name": row[0],
+                        "category": row[1],
+                        "score": row[2],
+                        "url": row[3],
+                        "created_at": row[4].isoformat() if row[4] else None
+                    }
+                    for row in recent_result.fetchall()
+                ]
+                
+                return {
+                    "total": total,
+                    "today": today_count,
+                    "high_trend": high_trend_count,
+                    "emailed": emailed_count,
+                    "by_category": by_category,
+                    "recent_products": recent_products
+                }
+                
+        except Exception as e:
+            self.log(f"获取产品趋势统计失败: {e}", "error")
             return {"error": str(e)}
 
 

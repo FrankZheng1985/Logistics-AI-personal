@@ -99,6 +99,7 @@ interface SMTPConfig {
   smtp_user: string
   smtp_password: string
   sender_name: string
+  email_logo?: string
 }
 
 // 资产上传组件
@@ -261,7 +262,8 @@ export default function SettingsPage() {
     smtp_port: 465,
     smtp_user: '',
     smtp_password: '',
-    sender_name: '物流智能体'
+    sender_name: '物流智能体',
+    email_logo: ''
   })
   const [smtpConfigured, setSmtpConfigured] = useState(false)
   const [testingSmtp, setTestingSmtp] = useState(false)
@@ -349,7 +351,8 @@ export default function SettingsPage() {
               smtp_port: smtpData.data.smtp_port || 465,
               smtp_user: smtpData.data.smtp_user || '',
               smtp_password: smtpData.data.smtp_password || '',
-              sender_name: smtpData.data.sender_name || '物流智能体'
+              sender_name: smtpData.data.sender_name || '物流智能体',
+              email_logo: smtpData.data.email_logo || ''
             })
             setSmtpConfigured(smtpData.configured || false)
           }
@@ -1420,6 +1423,60 @@ export default function SettingsPage() {
               </div>
             </div>
 
+            {/* 邮件Logo上传 */}
+            <div className="pt-4 border-t border-gray-700">
+              <h3 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
+                <Image className="w-4 h-4" />
+                邮件专用Logo
+                <span className="text-xs text-gray-500 font-normal">（显示在邮件签名顶部）</span>
+              </h3>
+              <div className="flex items-start gap-4">
+                {smtpConfig.email_logo ? (
+                  <div className="relative">
+                    <img 
+                      src={smtpConfig.email_logo} 
+                      alt="邮件Logo" 
+                      className="h-16 w-auto object-contain bg-white rounded-lg p-2"
+                    />
+                    <button
+                      onClick={() => setSmtpConfig(prev => ({ ...prev, email_logo: '' }))}
+                      className="absolute -top-2 -right-2 p-1 bg-red-500 rounded-full text-white hover:bg-red-600"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex flex-col items-center justify-center w-32 h-16 border-2 border-dashed border-gray-600 rounded-lg cursor-pointer hover:border-cyber-blue/50 transition-colors">
+                    <Upload className="w-5 h-5 text-gray-500" />
+                    <span className="text-xs text-gray-500 mt-1">上传Logo</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) {
+                          if (file.size > 500 * 1024) {
+                            alert('Logo文件大小不能超过500KB')
+                            return
+                          }
+                          const reader = new FileReader()
+                          reader.onload = () => {
+                            setSmtpConfig(prev => ({ ...prev, email_logo: reader.result as string }))
+                          }
+                          reader.readAsDataURL(file)
+                        }
+                      }}
+                    />
+                  </label>
+                )}
+                <p className="text-gray-500 text-xs">
+                  建议尺寸：宽度150-200px，PNG/JPG格式，支持透明背景<br/>
+                  此Logo与公司信息中的Logo不同，仅用于邮件签名
+                </p>
+              </div>
+            </div>
+
             {/* 测试按钮 */}
             <div className="flex items-center gap-4 pt-4 border-t border-gray-700">
               <button
@@ -1494,6 +1551,12 @@ export default function SettingsPage() {
               <p className="font-medium text-gray-400 mb-2">签名读取的字段：</p>
               <div className="grid grid-cols-2 gap-2">
                 <div className="flex items-center gap-2">
+                  <span className={signatureData.email_logo ? 'text-green-400' : 'text-gray-600'}>
+                    {signatureData.email_logo ? '✓' : '○'}
+                  </span>
+                  邮件Logo: {signatureData.email_logo ? '已上传' : '未设置（本页上传）'}
+                </div>
+                <div className="flex items-center gap-2">
                   <span className={signatureData.sender_name ? 'text-green-400' : 'text-gray-600'}>
                     {signatureData.sender_name ? '✓' : '○'}
                   </span>
@@ -1504,6 +1567,12 @@ export default function SettingsPage() {
                     {signatureData.company_name ? '✓' : '○'}
                   </span>
                   公司名称: {signatureData.company_name || '未设置'}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={signatureData.address ? 'text-green-400' : 'text-gray-600'}>
+                    {signatureData.address ? '✓' : '○'}
+                  </span>
+                  地址: {signatureData.address || '未设置'}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={signatureData.contact_phone ? 'text-green-400' : 'text-gray-600'}>
@@ -1522,6 +1591,12 @@ export default function SettingsPage() {
                     {signatureData.contact_wechat ? '✓' : '○'}
                   </span>
                   微信号: {signatureData.contact_wechat || '未设置'}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={signatureData.wechat_qrcode ? 'text-green-400' : 'text-gray-600'}>
+                    {signatureData.wechat_qrcode ? '✓' : '○'}
+                  </span>
+                  微信二维码: {signatureData.wechat_qrcode ? '已上传' : '未设置（品牌资产上传）'}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={signatureData.company_website ? 'text-green-400' : 'text-gray-600'}>

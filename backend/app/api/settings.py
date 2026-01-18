@@ -387,17 +387,18 @@ async def test_smtp_connection():
 async def get_signature_preview():
     """获取邮件签名预览"""
     try:
-        # 获取SMTP配置中的发件人名称
+        # 获取SMTP配置
         smtp_config = await get_setting("smtp")
         sender_name = smtp_config.get("sender_name", "物流智能体") if smtp_config else "物流智能体"
         sender_email = smtp_config.get("smtp_user", "") if smtp_config else ""
+        email_logo = smtp_config.get("email_logo", "") if smtp_config else ""
         
         # 获取公司配置
         from app.models.database import AsyncSessionLocal
         async with AsyncSessionLocal() as db:
             result = await db.execute(
                 text("""SELECT company_name, contact_phone, contact_email, contact_wechat, 
-                               address, company_website, brand_slogan 
+                               address, company_website, brand_slogan, brand_assets
                         FROM company_config LIMIT 1""")
             )
             row = result.fetchone()
@@ -409,6 +410,7 @@ async def get_signature_preview():
             address = ""
             company_website = ""
             brand_slogan = ""
+            wechat_qrcode = ""
             
             if row:
                 company_name = row[0] or ""
@@ -418,11 +420,21 @@ async def get_signature_preview():
                 address = row[4] or ""
                 company_website = row[5] or ""
                 brand_slogan = row[6] or ""
+                # 从 brand_assets 获取微信二维码
+                brand_assets = row[7] if row[7] else {}
+                if isinstance(brand_assets, str):
+                    import json
+                    brand_assets = json.loads(brand_assets)
+                wechat_qrcode = brand_assets.get("qrcode", {}).get("wechat", "")
         
         # 构建 HTML 签名预览
         html_parts = [
             '<div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0; font-size: 13px; color: #666; font-family: Arial, sans-serif;">'
         ]
+        
+        # Logo显示在最上方
+        if email_logo:
+            html_parts.append(f'<p style="margin: 0 0 15px 0;"><img src="{email_logo}" alt="Logo" style="max-height: 50px; width: auto;" /></p>')
         
         if brand_slogan:
             html_parts.append(f'<p style="margin: 0 0 10px 0; color: #333; font-style: italic;">"{brand_slogan}"</p>')
@@ -432,17 +444,23 @@ async def get_signature_preview():
         if company_name:
             html_parts.append(f'<p style="margin: 5px 0;">{company_name}</p>')
         
+        # 地址在电话前面
+        if address:
+            html_parts.append(f'<p style="margin: 5px 0;">📍 地址：{address}</p>')
+        
         if contact_phone:
             html_parts.append(f'<p style="margin: 5px 0;">📞 电话：{contact_phone}</p>')
         
         if contact_email:
             html_parts.append(f'<p style="margin: 5px 0;">📧 邮箱：{contact_email}</p>')
         
+        # 微信号和二维码
         if contact_wechat:
-            html_parts.append(f'<p style="margin: 5px 0;">💬 微信：{contact_wechat}</p>')
-        
-        if address:
-            html_parts.append(f'<p style="margin: 5px 0;">📍 地址：{address}</p>')
+            if wechat_qrcode:
+                html_parts.append(f'<p style="margin: 5px 0;">💬 微信：{contact_wechat}</p>')
+                html_parts.append(f'<p style="margin: 10px 0;"><img src="{wechat_qrcode}" alt="微信二维码" style="max-width: 120px; height: auto;" /></p>')
+            else:
+                html_parts.append(f'<p style="margin: 5px 0;">💬 微信：{contact_wechat}</p>')
         
         if company_website:
             website_url = company_website if company_website.startswith('http') else f'https://{company_website}'
@@ -461,7 +479,9 @@ async def get_signature_preview():
                 "contact_wechat": contact_wechat,
                 "address": address,
                 "company_website": company_website,
-                "brand_slogan": brand_slogan
+                "brand_slogan": brand_slogan,
+                "email_logo": email_logo,
+                "wechat_qrcode": wechat_qrcode
             }
         }
     except Exception as e:
