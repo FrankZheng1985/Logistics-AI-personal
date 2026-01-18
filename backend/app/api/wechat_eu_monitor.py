@@ -294,14 +294,18 @@ async def send_top_news(user_id: str, news_list: list):
             emoji = "🚨" if urgency == "紧急" else "⚠️" if urgency == "重要" else "📌"
             score = news.get("importance_score", 0)
             news_type = news.get("news_type", "")
-            title = news.get("title_cn", news.get("title", ""))[:40]
-            summary = news.get("summary_cn", "")[:60]
-            suggestion = news.get("business_suggestion", "")[:40]
+            title = news.get("title_cn", news.get("title", ""))[:35]
+            summary = news.get("summary_cn", "")[:50]
+            suggestion = news.get("business_suggestion", "")[:35]
+            url = news.get("url", "")
+            source_name = news.get("source_name", "")
             
             msg += f"""{emoji} {i}. {title}
 类型: {news_type} | {score}分
 摘要: {summary}...
 建议: {suggestion}
+来源: {source_name}
+链接: {url}
 
 """
         

@@ -413,7 +413,7 @@ class EUCustomsMonitorAgent(BaseAgent):
                         "gl": "cn",
                         "hl": "zh-cn",
                         "num": 10,
-                        "tbs": "qdr:w"  # 过去一周的新闻
+                        "tbs": "qdr:d"  # 只获取过去24小时的新闻
                     }
                 )
                 
