@@ -41,7 +41,8 @@ const AGENT_TYPE_MAP: Record<string, string> = {
   '小析2': 'analyst2',
   '小采': 'asset_collector',
   '小媒': 'content_creator',
-  '小欧间谍': 'eu_customs_monitor'
+  '小欧间谍': 'eu_customs_monitor',
+  '小助': 'assistant'
 }
 
 interface Agent {
@@ -910,6 +911,16 @@ const DEFAULT_AGENTS: Agent[] = [
     role: '欧洲海关监控员', 
     status: 'online',
     description: '负责每天监控欧洲海关新闻，关注反倾销、关税调整、进口政策等，发现重要新闻立即通知。',
+    tasksToday: 0,
+    totalTasks: 0,
+    successRate: 100,
+    currentTask: null
+  },
+  { 
+    name: '小助', 
+    role: '个人助理', 
+    status: 'online',
+    description: '负责日程管理、会议纪要、待办事项、多邮箱管理、ERP数据跟踪，通过企业微信与老板沟通。',
     tasksToday: 0,
     totalTasks: 0,
     successRate: 100,

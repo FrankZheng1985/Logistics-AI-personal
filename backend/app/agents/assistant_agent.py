@@ -1,0 +1,788 @@
+"""
+小助 - 个人助理AI员工
+负责：日程管理、会议纪要、待办事项、多邮箱管理、ERP数据跟踪
+主要通过企业微信与老板沟通
+"""
+from typing import Dict, Any, Optional, List
+from datetime import datetime, timedelta
+from loguru import logger
+import json
+import re
+
+from app.agents.base import BaseAgent, AgentRegistry
+from app.models.conversation import AgentType
+from app.models.database import AsyncSessionLocal
+from sqlalchemy import text
+
+
+class AssistantAgent(BaseAgent):
+    """小助 - 个人助理AI员工
+    
+    核心能力：
+    1. 日程管理 - 自然语言录入、提醒、查询
+    2. 会议纪要 - 录音转写、AI总结、提取待办
+    3. 待办事项 - 添加、查询、完成
+    4. 多邮箱管理 - 统一收件箱、邮件提醒、草拟回复
+    5. ERP数据跟踪 - 订单汇报、财务摘要
+    6. 每日简报 - 日程+订单+邮件汇总
+    """
+    
+    name = "小助"
+    agent_type = AgentType.ASSISTANT
+    description = "个人助理 - 日程管理、会议纪要、邮件管理、ERP数据跟踪"
+    
+    # 意图分类
+    INTENT_TYPES = {
+        "schedule_add": ["记住", "记录", "安排", "添加日程", "提醒我", "帮我记"],
+        "schedule_query": ["今天", "明天", "有什么安排", "有什么会", "日程", "行程"],
+        "schedule_cancel": ["取消", "删除日程", "不开了"],
+        "todo_add": ["待办", "要做", "记得做", "别忘了"],
+        "todo_query": ["待办列表", "还有什么没做", "待办事项"],
+        "todo_complete": ["完成了", "做完了", "搞定了"],
+        "meeting_record": ["会议纪要", "整理会议", "会议结束"],
+        "email_query": ["邮件", "收件箱", "新邮件", "查看邮件"],
+        "email_reply": ["回复邮件", "发邮件"],
+        "erp_query": ["订单", "今天多少单", "财务", "营收"],
+        "report": ["日报", "汇报", "简报", "今日总结"],
+        "help": ["帮助", "你能做什么", "功能"]
+    }
+    
+    def _build_system_prompt(self) -> str:
+        return """你是小助，一位专业、高效的个人助理AI。你的职责是帮助老板管理日程、会议、待办事项、邮件和了解业务数据。
+
+## 你的性格特点
+- 专业、细心、有条理
+- 主动提醒重要事项
+- 简洁明了，不啰嗦
+- 像一位经验丰富的私人秘书
+
+## 你的核心能力
+1. **日程管理**：记录日程、提醒安排、查询行程
+2. **会议纪要**：整理会议内容、提取待办任务
+3. **待办管理**：记录待办、提醒截止日期
+4. **邮件管理**：汇总重要邮件、草拟回复
+5. **ERP数据**：汇报订单情况、财务摘要
+
+## 回复风格
+- 使用简洁的格式，善用列表和符号
+- 重要信息用 📅📋📧📊 等符号标注
+- 时间格式统一为"X月X日 周X HH:MM"
+- 回复控制在300字以内（企业微信限制）
+
+## 理解用户意图
+用户可能用自然语言表达，你需要理解并执行：
+- "明天下午3点和张总开会" → 添加日程
+- "今天有什么安排" → 查询日程
+- "帮我记住：下周五交报告" → 添加待办
+- "今天订单情况" → 查询ERP数据
+"""
+    
+    async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        处理用户消息
+        
+        Args:
+            input_data: {
+                "message": 用户消息内容,
+                "user_id": 企业微信用户ID,
+                "message_type": text/voice/file,
+                "file_url": 文件URL（如果是语音/文件）
+            }
+        """
+        message = input_data.get("message", "")
+        user_id = input_data.get("user_id", "")
+        message_type = input_data.get("message_type", "text")
+        file_url = input_data.get("file_url")
+        
+        # 开始任务会话
+        await self.start_task_session("process_message", f"处理用户消息: {message[:50]}...")
+        
+        try:
+            # 1. 如果是语音/文件消息，可能是会议录音
+            if message_type in ["voice", "file"] and file_url:
+                await self.log_live_step("think", "收到音频文件", "准备进行会议录音转写")
+                result = await self._handle_audio_file(file_url, user_id)
+                await self.end_task_session("会议录音处理完成")
+                return result
+            
+            # 2. 解析用户意图
+            await self.log_live_step("think", "分析用户意图", message[:100])
+            intent = await self._parse_intent(message)
+            
+            # 3. 根据意图处理
+            handler_map = {
+                "schedule_add": self._handle_schedule_add,
+                "schedule_query": self._handle_schedule_query,
+                "schedule_cancel": self._handle_schedule_cancel,
+                "todo_add": self._handle_todo_add,
+                "todo_query": self._handle_todo_query,
+                "todo_complete": self._handle_todo_complete,
+                "meeting_record": self._handle_meeting_record,
+                "email_query": self._handle_email_query,
+                "email_reply": self._handle_email_reply,
+                "erp_query": self._handle_erp_query,
+                "report": self._handle_daily_report,
+                "help": self._handle_help,
+            }
+            
+            handler = handler_map.get(intent["type"], self._handle_unknown)
+            result = await handler(message, intent, user_id)
+            
+            # 4. 记录交互
+            await self._save_interaction(user_id, message, message_type, intent, result.get("response", ""))
+            
+            await self.end_task_session(f"处理完成: {intent['type']}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"[小助] 处理消息失败: {e}")
+            await self.log_error(str(e))
+            await self.end_task_session(error_message=str(e))
+            return {
+                "success": False,
+                "response": "抱歉，处理您的请求时出现了问题，请稍后再试。",
+                "error": str(e)
+            }
+    
+    async def _parse_intent(self, message: str) -> Dict[str, Any]:
+        """解析用户意图"""
+        message_lower = message.lower()
+        
+        # 先用关键词匹配
+        for intent_type, keywords in self.INTENT_TYPES.items():
+            for keyword in keywords:
+                if keyword in message_lower:
+                    return {"type": intent_type, "confidence": 0.8, "keyword": keyword}
+        
+        # 关键词匹配失败，使用AI分析
+        analysis_prompt = f"""分析用户消息的意图，返回JSON格式：
+
+用户消息：{message}
+
+可能的意图类型：
+- schedule_add: 添加日程/安排
+- schedule_query: 查询日程
+- schedule_cancel: 取消日程
+- todo_add: 添加待办事项
+- todo_query: 查询待办
+- todo_complete: 完成待办
+- meeting_record: 会议纪要相关
+- email_query: 查询邮件
+- email_reply: 回复/发送邮件
+- erp_query: 查询订单/财务数据
+- report: 要日报/汇报
+- help: 询问功能/帮助
+- unknown: 无法识别
+
+返回格式：{{"type": "xxx", "confidence": 0.9, "extracted": {{"time": "...", "content": "..."}}}}
+只返回JSON，不要其他内容。
+"""
+        
+        try:
+            response = await self.think([{"role": "user", "content": analysis_prompt}], temperature=0.3)
+            # 提取JSON
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                return json.loads(json_match.group())
+        except Exception as e:
+            logger.warning(f"[小助] AI意图分析失败: {e}")
+        
+        return {"type": "unknown", "confidence": 0.5}
+    
+    # ==================== 日程管理 ====================
+    
+    async def _handle_schedule_add(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """处理添加日程"""
+        await self.log_live_step("think", "解析日程信息", "提取时间、事项、地点")
+        
+        # 使用AI提取日程信息
+        extract_prompt = f"""从用户消息中提取日程信息，返回JSON格式：
+
+用户消息：{message}
+当前时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}（用于理解"明天"、"下周"等相对时间）
+
+返回格式：
+{{
+    "title": "日程标题",
+    "start_time": "YYYY-MM-DD HH:MM",
+    "end_time": "YYYY-MM-DD HH:MM"（如果没有则为null）,
+    "location": "地点"（如果没有则为null）,
+    "description": "备注"（如果没有则为null）,
+    "priority": "normal"（low/normal/high/urgent）
+}}
+
+只返回JSON，不要其他内容。
+"""
+        
+        try:
+            response = await self.think([{"role": "user", "content": extract_prompt}], temperature=0.3)
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if not json_match:
+                return {"success": False, "response": "抱歉，我没能理解日程信息，请用更清晰的方式告诉我，比如：'明天下午3点和张总开会'"}
+            
+            schedule_data = json.loads(json_match.group())
+            
+            # 保存到数据库
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    text("""
+                        INSERT INTO assistant_schedules 
+                        (title, description, location, start_time, end_time, priority)
+                        VALUES (:title, :description, :location, :start_time, :end_time, :priority)
+                        RETURNING id, title, start_time, location
+                    """),
+                    {
+                        "title": schedule_data.get("title", "未命名日程"),
+                        "description": schedule_data.get("description"),
+                        "location": schedule_data.get("location"),
+                        "start_time": schedule_data.get("start_time"),
+                        "end_time": schedule_data.get("end_time"),
+                        "priority": schedule_data.get("priority", "normal")
+                    }
+                )
+                row = result.fetchone()
+                await db.commit()
+            
+            # 格式化时间显示
+            start_time = datetime.fromisoformat(schedule_data["start_time"])
+            weekday = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][start_time.weekday()]
+            time_str = f"{start_time.month}月{start_time.day}日 {weekday} {start_time.strftime('%H:%M')}"
+            
+            location_str = f" 📍{schedule_data['location']}" if schedule_data.get('location') else ""
+            
+            response_text = f"""✅ 日程已记录！
+
+📅 {schedule_data['title']}
+⏰ {time_str}{location_str}
+
+我会提前提醒你的。"""
+            
+            await self.log_result("日程添加成功", schedule_data['title'])
+            
+            return {"success": True, "response": response_text, "schedule_id": str(row[0])}
+            
+        except Exception as e:
+            logger.error(f"[小助] 添加日程失败: {e}")
+            return {"success": False, "response": f"添加日程时出错了：{str(e)}"}
+    
+    async def _handle_schedule_query(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """处理查询日程"""
+        await self.log_live_step("search", "查询日程", "获取相关日程安排")
+        
+        # 判断查询的是今天还是明天还是其他
+        today = datetime.now().date()
+        query_date = today
+        date_label = "今天"
+        
+        if "明天" in message or "明日" in message:
+            query_date = today + timedelta(days=1)
+            date_label = "明天"
+        elif "后天" in message:
+            query_date = today + timedelta(days=2)
+            date_label = "后天"
+        elif "本周" in message or "这周" in message:
+            # 查询本周
+            start_of_week = today - timedelta(days=today.weekday())
+            end_of_week = start_of_week + timedelta(days=6)
+            return await self._query_schedule_range(start_of_week, end_of_week, "本周")
+        
+        # 查询指定日期
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                text("""
+                    SELECT title, start_time, end_time, location, priority, is_completed
+                    FROM assistant_schedules
+                    WHERE DATE(start_time) = :query_date
+                    AND is_completed = FALSE
+                    ORDER BY start_time ASC
+                """),
+                {"query_date": query_date}
+            )
+            schedules = result.fetchall()
+        
+        if not schedules:
+            weekday = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][query_date.weekday()]
+            return {
+                "success": True,
+                "response": f"📅 {date_label}（{query_date.month}月{query_date.day}日 {weekday}）\n\n暂无安排，可以好好休息~"
+            }
+        
+        # 格式化输出
+        weekday = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][query_date.weekday()]
+        lines = [f"📅 {date_label}安排（{query_date.month}月{query_date.day}日 {weekday}）", "━" * 18]
+        
+        for s in schedules:
+            time_str = s[1].strftime("%H:%M")
+            location_str = f" - {s[3]}" if s[3] else ""
+            priority_icon = {"urgent": "🔴", "high": "🟡"}.get(s[4], "")
+            lines.append(f"{time_str} {priority_icon}{s[0]}{location_str}")
+        
+        lines.append("━" * 18)
+        lines.append(f"共{len(schedules)}项安排")
+        
+        return {"success": True, "response": "\n".join(lines)}
+    
+    async def _query_schedule_range(self, start_date, end_date, label: str) -> Dict[str, Any]:
+        """查询日期范围内的日程"""
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                text("""
+                    SELECT title, start_time, location
+                    FROM assistant_schedules
+                    WHERE DATE(start_time) BETWEEN :start_date AND :end_date
+                    AND is_completed = FALSE
+                    ORDER BY start_time ASC
+                """),
+                {"start_date": start_date, "end_date": end_date}
+            )
+            schedules = result.fetchall()
+        
+        if not schedules:
+            return {"success": True, "response": f"📅 {label}暂无安排"}
+        
+        lines = [f"📅 {label}安排", "━" * 18]
+        current_date = None
+        
+        for s in schedules:
+            schedule_date = s[1].date()
+            if schedule_date != current_date:
+                current_date = schedule_date
+                weekday = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][schedule_date.weekday()]
+                lines.append(f"\n📆 {schedule_date.month}月{schedule_date.day}日 {weekday}")
+            
+            time_str = s[1].strftime("%H:%M")
+            location_str = f" - {s[2]}" if s[2] else ""
+            lines.append(f"  {time_str} {s[0]}{location_str}")
+        
+        lines.append(f"\n共{len(schedules)}项安排")
+        
+        return {"success": True, "response": "\n".join(lines)}
+    
+    async def _handle_schedule_cancel(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """处理取消日程"""
+        # TODO: 实现取消日程逻辑
+        return {"success": True, "response": "请告诉我要取消哪个日程？比如说"取消明天下午的会议""}
+    
+    # ==================== 待办管理 ====================
+    
+    async def _handle_todo_add(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """处理添加待办"""
+        await self.log_live_step("think", "解析待办信息", "提取内容和截止日期")
+        
+        # 使用AI提取待办信息
+        extract_prompt = f"""从用户消息中提取待办事项信息，返回JSON格式：
+
+用户消息：{message}
+当前时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+返回格式：
+{{
+    "content": "待办内容",
+    "due_date": "YYYY-MM-DD"（如果有截止日期）或 null,
+    "priority": "normal"（low/normal/high/urgent）
+}}
+
+只返回JSON，不要其他内容。
+"""
+        
+        try:
+            response = await self.think([{"role": "user", "content": extract_prompt}], temperature=0.3)
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if not json_match:
+                return {"success": False, "response": "抱歉，我没能理解待办内容，请再说一遍？"}
+            
+            todo_data = json.loads(json_match.group())
+            
+            # 保存到数据库
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    text("""
+                        INSERT INTO assistant_todos (content, priority, due_date, source_type)
+                        VALUES (:content, :priority, :due_date, 'manual')
+                        RETURNING id
+                    """),
+                    {
+                        "content": todo_data.get("content", message),
+                        "priority": todo_data.get("priority", "normal"),
+                        "due_date": todo_data.get("due_date")
+                    }
+                )
+                row = result.fetchone()
+                await db.commit()
+            
+            due_str = ""
+            if todo_data.get("due_date"):
+                due_date = datetime.strptime(todo_data["due_date"], "%Y-%m-%d")
+                due_str = f"\n📆 截止：{due_date.month}月{due_date.day}日"
+            
+            response_text = f"""✅ 待办已记录！
+
+📋 {todo_data['content']}{due_str}
+
+需要我提醒你吗？"""
+            
+            return {"success": True, "response": response_text, "todo_id": str(row[0])}
+            
+        except Exception as e:
+            logger.error(f"[小助] 添加待办失败: {e}")
+            return {"success": False, "response": f"添加待办时出错了：{str(e)}"}
+    
+    async def _handle_todo_query(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """处理查询待办"""
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                text("""
+                    SELECT content, priority, due_date, created_at
+                    FROM assistant_todos
+                    WHERE is_completed = FALSE
+                    ORDER BY 
+                        CASE priority 
+                            WHEN 'urgent' THEN 1 
+                            WHEN 'high' THEN 2 
+                            WHEN 'normal' THEN 3 
+                            ELSE 4 
+                        END,
+                        due_date ASC NULLS LAST,
+                        created_at ASC
+                    LIMIT 10
+                """)
+            )
+            todos = result.fetchall()
+        
+        if not todos:
+            return {"success": True, "response": "📋 待办列表\n\n暂无待办事项，真棒！🎉"}
+        
+        lines = ["📋 待办列表", "━" * 18]
+        
+        for i, t in enumerate(todos, 1):
+            priority_icon = {"urgent": "🔴", "high": "🟡"}.get(t[1], "")
+            due_str = ""
+            if t[2]:
+                due_str = f" (截止{t[2].month}/{t[2].day})"
+            lines.append(f"{i}. {priority_icon}{t[0]}{due_str}")
+        
+        lines.append("━" * 18)
+        lines.append(f"共{len(todos)}项待办")
+        
+        return {"success": True, "response": "\n".join(lines)}
+    
+    async def _handle_todo_complete(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """处理完成待办"""
+        # TODO: 实现完成待办逻辑
+        return {"success": True, "response": "请告诉我完成了哪个待办？可以说待办的编号或内容。"}
+    
+    # ==================== 会议纪要 ====================
+    
+    async def _handle_audio_file(self, file_url: str, user_id: str) -> Dict[str, Any]:
+        """处理音频文件（会议录音）"""
+        from app.services.speech_recognition_service import speech_recognition_service
+        
+        await self.log_live_step("fetch", "下载音频文件", file_url[:50])
+        
+        # 创建会议记录
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                text("""
+                    INSERT INTO meeting_records (audio_file_url, transcription_status)
+                    VALUES (:url, 'processing')
+                    RETURNING id
+                """),
+                {"url": file_url}
+            )
+            meeting_id = result.fetchone()[0]
+            await db.commit()
+        
+        # 启动异步转写任务
+        await self.log_live_step("think", "开始语音转写", "这可能需要几分钟时间")
+        
+        # 返回确认消息，转写在后台进行
+        return {
+            "success": True,
+            "response": "📼 已收到会议录音！\n\n正在处理中，转写完成后会自动发送会议纪要给你。\n\n⏱ 预计需要2-5分钟",
+            "meeting_id": str(meeting_id),
+            "async_task": "speech_transcription"
+        }
+    
+    async def _handle_meeting_record(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """处理会议纪要相关请求"""
+        return {
+            "success": True,
+            "response": """📋 会议纪要功能
+
+使用方法：
+1. 用手机录制会议
+2. 会议结束后，把录音文件发给我
+3. 我会自动转写并生成会议纪要
+
+支持格式：mp3、m4a、wav、amr
+
+发送录音文件即可开始~"""
+        }
+    
+    # ==================== 邮件管理 ====================
+    
+    async def _handle_email_query(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """处理查询邮件"""
+        from app.services.multi_email_service import multi_email_service
+        
+        await self.log_live_step("search", "查询邮件", "获取未读邮件")
+        
+        try:
+            # 获取未读邮件摘要
+            summary = await multi_email_service.get_unread_summary()
+            
+            if summary["total_unread"] == 0:
+                return {"success": True, "response": "📧 所有邮箱\n\n暂无未读邮件 ✨"}
+            
+            lines = ["📧 未读邮件汇总", "━" * 18]
+            
+            for account in summary["accounts"]:
+                if account["unread_count"] > 0:
+                    lines.append(f"\n📬 {account['name']} ({account['unread_count']}封)")
+                    for email in account["recent_emails"][:3]:
+                        sender = email["from_name"] or email["from_address"]
+                        subject = email["subject"][:20] + "..." if len(email["subject"]) > 20 else email["subject"]
+                        lines.append(f"  • {sender}: {subject}")
+            
+            lines.append("━" * 18)
+            lines.append(f"共{summary['total_unread']}封未读")
+            
+            return {"success": True, "response": "\n".join(lines)}
+            
+        except Exception as e:
+            logger.error(f"[小助] 查询邮件失败: {e}")
+            return {"success": True, "response": "📧 邮件查询暂时不可用，请稍后再试。"}
+    
+    async def _handle_email_reply(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """处理回复邮件"""
+        return {
+            "success": True,
+            "response": "请告诉我要回复哪封邮件，以及回复内容是什么？\n\n比如：用工作邮箱回复张总的邮件，说已收到会尽快处理"
+        }
+    
+    # ==================== ERP数据 ====================
+    
+    async def _handle_erp_query(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """处理ERP数据查询"""
+        from app.services.erp_connector import erp_connector
+        
+        await self.log_live_step("search", "查询ERP数据", "获取订单和财务信息")
+        
+        try:
+            # 获取今日订单统计
+            today = datetime.now().strftime("%Y-%m-%d")
+            orders_data = await erp_connector.get_orders(
+                start_date=today,
+                end_date=today,
+                page_size=100
+            )
+            
+            total_orders = orders_data.get("total", 0)
+            
+            # 尝试获取订单统计
+            try:
+                stats = await erp_connector.get_orders_stats()
+            except:
+                stats = {}
+            
+            lines = ["📊 今日业务数据", "━" * 18]
+            lines.append(f"📦 今日新增订单: {total_orders}单")
+            
+            if stats:
+                lines.append(f"✅ 已完成: {stats.get('completed_today', 0)}单")
+                lines.append(f"🔄 进行中: {stats.get('in_progress', 0)}单")
+            
+            lines.append("━" * 18)
+            lines.append("详细数据请登录ERP系统查看")
+            
+            return {"success": True, "response": "\n".join(lines)}
+            
+        except Exception as e:
+            logger.error(f"[小助] 查询ERP数据失败: {e}")
+            return {"success": True, "response": "📊 ERP数据查询暂时不可用，请检查ERP连接配置。"}
+    
+    # ==================== 日报汇总 ====================
+    
+    async def _handle_daily_report(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """处理每日简报请求"""
+        await self.log_live_step("think", "生成每日简报", "汇总日程、订单、邮件")
+        
+        lines = ["📋 今日简报", "━" * 18]
+        
+        # 1. 今日日程
+        schedule_result = await self._handle_schedule_query("今天", {}, user_id)
+        
+        # 2. 待办事项
+        todo_result = await self._handle_todo_query("", {}, user_id)
+        
+        # 3. 订单数据（简化）
+        try:
+            from app.services.erp_connector import erp_connector
+            today = datetime.now().strftime("%Y-%m-%d")
+            orders_data = await erp_connector.get_orders(start_date=today, end_date=today, page_size=1)
+            order_count = orders_data.get("total", 0)
+            lines.append(f"\n📦 今日订单: {order_count}单")
+        except:
+            pass
+        
+        # 4. 邮件统计（简化）
+        try:
+            from app.services.multi_email_service import multi_email_service
+            summary = await multi_email_service.get_unread_summary()
+            lines.append(f"📧 未读邮件: {summary['total_unread']}封")
+        except:
+            pass
+        
+        return {"success": True, "response": "\n".join(lines)}
+    
+    # ==================== 帮助 ====================
+    
+    async def _handle_help(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """处理帮助请求"""
+        return {
+            "success": True,
+            "response": """🤖 我是小助，你的个人助理
+
+📅 **日程管理**
+• "明天下午3点和张总开会"
+• "今天有什么安排"
+• "取消明天的会议"
+
+📋 **待办事项**
+• "记得下周五交报告"
+• "待办列表"
+
+📼 **会议纪要**
+• 发送会议录音给我
+
+📧 **邮件管理**
+• "查看新邮件"
+
+📊 **业务数据**
+• "今天订单情况"
+• "日报"
+
+有什么需要帮忙的？"""
+        }
+    
+    async def _handle_unknown(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """处理无法识别的意图"""
+        # 使用AI生成回复
+        response = await self.chat(message, "用户向你咨询，请简洁回答或引导他使用你的功能")
+        return {"success": True, "response": response}
+    
+    # ==================== 工具方法 ====================
+    
+    async def _save_interaction(self, user_id: str, message: str, message_type: str, 
+                                intent: Dict, response: str):
+        """保存交互记录"""
+        try:
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    text("""
+                        INSERT INTO assistant_interactions 
+                        (user_id, message_type, content, interaction_type, intent_parsed, response, response_sent)
+                        VALUES (:user_id, :message_type, :content, :interaction_type, :intent_parsed, :response, TRUE)
+                    """),
+                    {
+                        "user_id": user_id,
+                        "message_type": message_type,
+                        "content": message,
+                        "interaction_type": intent.get("type", "unknown"),
+                        "intent_parsed": json.dumps(intent, ensure_ascii=False),
+                        "response": response
+                    }
+                )
+                await db.commit()
+        except Exception as e:
+            logger.error(f"[小助] 保存交互记录失败: {e}")
+    
+    # ==================== 主动推送方法 ====================
+    
+    async def send_tomorrow_preview(self, user_id: str) -> Optional[str]:
+        """发送明日安排预览（每天晚上8点调用）"""
+        tomorrow = (datetime.now() + timedelta(days=1)).date()
+        
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                text("""
+                    SELECT title, start_time, location, priority
+                    FROM assistant_schedules
+                    WHERE DATE(start_time) = :tomorrow
+                    AND is_completed = FALSE
+                    AND reminder_sent_day_before = FALSE
+                    ORDER BY start_time ASC
+                """),
+                {"tomorrow": tomorrow}
+            )
+            schedules = result.fetchall()
+            
+            if not schedules:
+                return None
+            
+            # 标记已发送
+            await db.execute(
+                text("""
+                    UPDATE assistant_schedules
+                    SET reminder_sent_day_before = TRUE
+                    WHERE DATE(start_time) = :tomorrow
+                """),
+                {"tomorrow": tomorrow}
+            )
+            await db.commit()
+        
+        weekday = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][tomorrow.weekday()]
+        lines = [f"📅 明日安排预览（{tomorrow.month}月{tomorrow.day}日 {weekday}）", "━" * 18]
+        
+        for s in schedules:
+            time_str = s[1].strftime("%H:%M")
+            location_str = f" - {s[2]}" if s[2] else ""
+            priority_icon = {"urgent": "🔴", "high": "🟡"}.get(s[3], "")
+            lines.append(f"{time_str} {priority_icon}{s[0]}{location_str}")
+        
+        lines.append("━" * 18)
+        lines.append(f"共{len(schedules)}项安排，请做好准备！")
+        
+        return "\n".join(lines)
+    
+    async def get_due_reminders(self) -> List[Dict[str, Any]]:
+        """获取需要发送的提醒（定时任务调用）"""
+        now = datetime.now()
+        reminders = []
+        
+        async with AsyncSessionLocal() as db:
+            # 查找需要提醒的日程（提前reminder_minutes分钟）
+            result = await db.execute(
+                text("""
+                    SELECT id, title, start_time, location, reminder_minutes
+                    FROM assistant_schedules
+                    WHERE is_completed = FALSE
+                    AND reminder_sent = FALSE
+                    AND reminder_minutes > 0
+                    AND start_time BETWEEN NOW() AND NOW() + (reminder_minutes || ' minutes')::INTERVAL
+                """)
+            )
+            
+            for row in result.fetchall():
+                reminders.append({
+                    "schedule_id": str(row[0]),
+                    "title": row[1],
+                    "start_time": row[2],
+                    "location": row[3],
+                    "minutes_before": row[4]
+                })
+                
+                # 标记已发送
+                await db.execute(
+                    text("UPDATE assistant_schedules SET reminder_sent = TRUE WHERE id = :id"),
+                    {"id": row[0]}
+                )
+            
+            await db.commit()
+        
+        return reminders
+
+
+# 创建单例并注册
+assistant_agent = AssistantAgent()
+AgentRegistry.register(assistant_agent)

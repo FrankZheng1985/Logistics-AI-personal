@@ -8,6 +8,7 @@ from app.agents.video_creator import video_creator_agent, VideoCreatorAgent
 from app.agents.follow_agent import follow_agent, FollowAgent
 from app.agents.lead_hunter import lead_hunter_agent, LeadHunterAgent
 from app.agents.eu_customs_monitor import eu_customs_monitor_agent, EUCustomsMonitorAgent
+from app.agents.assistant_agent import assistant_agent, AssistantAgent
 
 __all__ = [
     # 基类
@@ -22,6 +23,7 @@ __all__ = [
     "FollowAgent",
     "LeadHunterAgent",
     "EUCustomsMonitorAgent",
+    "AssistantAgent",
     # 单例实例
     "coordinator",
     "coordinator_agent",  # 兼容旧代码
@@ -32,6 +34,7 @@ __all__ = [
     "follow_agent",
     "lead_hunter_agent",
     "eu_customs_monitor_agent",
+    "assistant_agent",
 ]
 
 # AI员工团队介绍
@@ -75,5 +78,10 @@ AI_TEAM = {
         "name": "小欧间谍",
         "role": "欧洲海关监控员",
         "description": "监控欧洲海关新闻、反倾销、关税调整、进口政策等",
+    },
+    "assistant": {
+        "name": "小助",
+        "role": "个人助理",
+        "description": "日程管理、会议纪要、邮件管理、ERP数据跟踪",
     },
 }
