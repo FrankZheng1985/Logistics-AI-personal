@@ -29,6 +29,10 @@ jobs:
           command_timeout: 15m
           script: |
             set -e
+            
+            # 设置 Node.js 环境变量（确保 npm/pm2 命令可用）
+            export PATH="/opt/nodejs/bin:$PATH"
+            
             cd /home/ubuntu/logistics-ai
             
             echo "=============================================="
