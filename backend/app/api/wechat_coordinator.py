@@ -812,8 +812,8 @@ async def execute_task_and_get_result(
             result = await execute_follow_task(agent, task_description)
             
         elif agent_type == AgentType.VIDEO_CREATOR:
-            # 小影 - 视频创作任务
-            result = await execute_video_task(agent, task_description)
+            # 小影 - 视频创作任务（后台执行，会自动通知用户）
+            result = await execute_video_task(agent, task_description, user_id, task_id)
         
         else:
             # 通用处理：尝试调用agent的chat方法
@@ -826,9 +826,13 @@ async def execute_task_and_get_result(
                 "executor": agent_name
             }
         
-        # 更新任务状态为完成
+        # 更新任务状态
         if task_id and result:
-            await update_task_status(task_id, "completed", result)
+            # 视频任务是后台执行的，状态设为processing，完成后会自动更新
+            if result.get("task_type") == "video_creation":
+                await update_task_status(task_id, "processing", result)
+            else:
+                await update_task_status(task_id, "completed", result)
         
         return result
         
@@ -927,15 +931,163 @@ async def execute_follow_task(agent, task_description: str) -> Dict[str, Any]:
     }
 
 
-async def execute_video_task(agent, task_description: str) -> Dict[str, Any]:
-    """执行小影的视频创作任务"""
-    # 视频创作是异步的，先返回创建中的状态
+async def execute_video_task(agent, task_description: str, user_id: str = None, task_id: str = None) -> Dict[str, Any]:
+    """执行小影的视频创作任务
+    
+    视频创作是一个耗时任务，会启动后台任务执行：
+    1. 先返回"正在生成中"的状态
+    2. 后台任务完成后通过企业微信通知用户
+    """
+    # 启动后台视频生成任务
+    asyncio.create_task(
+        _execute_video_generation_background(agent, task_description, user_id, task_id)
+    )
+    
     return {
         "task_type": "video_creation",
         "description": task_description,
-        "status": "视频创作任务已创建，正在生成中...\n这类任务通常需要较长时间，完成后会通知您。",
+        "status": "视频创作任务已创建，正在后台生成中...\n这类任务通常需要2-5分钟，完成后会通知您。",
         "executor": "小影"
     }
+
+
+async def _execute_video_generation_background(agent, task_description: str, user_id: str = None, task_id: str = None):
+    """后台执行视频生成任务"""
+    try:
+        logger.info(f"[小影] 开始后台视频生成任务: {task_description[:50]}...")
+        
+        # 解析任务描述，提取视频参数
+        # 使用AI解析任务描述获取标题和脚本
+        parse_prompt = f"""请从以下任务描述中提取视频创作信息：
+
+任务描述：{task_description}
+
+请以JSON格式返回：
+{{
+    "title": "视频标题",
+    "script": "视频脚本内容（如果任务描述中包含脚本或文摘，提取完整内容）",
+    "keywords": ["关键词1", "关键词2"],
+    "mode": "quick",
+    "video_type": "ad"
+}}
+
+注意：
+1. 如果任务描述中包含文摘或脚本内容，将其作为script
+2. 如果没有明确标题，根据内容生成一个合适的标题
+3. 对于简单任务使用"quick"模式（生成短视频），复杂任务用"movie"模式
+"""
+        
+        parse_response = await agent.think([{"role": "user", "content": parse_prompt}])
+        
+        # 解析JSON
+        video_params = {
+            "title": "AI生成视频",
+            "script": task_description,
+            "keywords": [],
+            "mode": "quick",
+            "video_type": "ad"
+        }
+        
+        try:
+            json_start = parse_response.find("{")
+            json_end = parse_response.rfind("}") + 1
+            if json_start != -1 and json_end > json_start:
+                parsed = json.loads(parse_response[json_start:json_end])
+                video_params.update(parsed)
+        except json.JSONDecodeError:
+            logger.warning("[小影] 无法解析视频参数，使用默认值")
+        
+        logger.info(f"[小影] 视频参数: title={video_params['title']}, mode={video_params['mode']}")
+        
+        # 调用视频生成
+        result = await agent.process(video_params)
+        
+        logger.info(f"[小影] 视频生成完成: status={result.get('status')}")
+        
+        # 更新任务状态
+        if task_id:
+            await update_task_status(task_id, "completed", {
+                "task_type": "video_creation",
+                "description": task_description,
+                "video_result": result,
+                "executor": "小影"
+            })
+        
+        # 通知用户
+        if user_id:
+            await _notify_video_completion(user_id, task_id, result)
+            
+    except Exception as e:
+        logger.error(f"[小影] 后台视频生成失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        # 更新任务状态为失败
+        if task_id:
+            await update_task_status(task_id, "failed", {"error": str(e)})
+        
+        # 通知用户失败
+        if user_id:
+            await send_text_message([user_id], f"""❌ 视频生成失败
+
+🔖 任务ID: {task_id[:8] if task_id else '未知'}
+👤 执行者: 小影
+⚠️ 错误: {str(e)}
+
+请检查任务描述后重试。""")
+
+
+async def _notify_video_completion(user_id: str, task_id: str, result: Dict[str, Any]):
+    """通知用户视频生成完成"""
+    try:
+        task_id_short = task_id[:8] if task_id else ""
+        status = result.get("status", "unknown")
+        video_url = result.get("video_url", "")
+        message = result.get("message", "")
+        
+        if status == "success" and video_url:
+            msg = f"""🎬 视频生成成功！
+
+🔖 任务ID: {task_id_short}
+👤 执行者: 小影
+⏰ 完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+📹 视频链接：
+{video_url}
+
+💡 {message}"""
+        elif status == "api_not_configured":
+            msg = f"""⚠️ 视频脚本已生成
+
+🔖 任务ID: {task_id_short}
+👤 执行者: 小影
+
+📝 视频脚本已准备好，但可灵AI API未配置，无法生成视频文件。
+
+请联系技术人员配置可灵AI API后重试。"""
+        elif status == "processing":
+            msg = f"""⏳ 视频仍在生成中
+
+🔖 任务ID: {task_id_short}
+👤 执行者: 小影
+
+视频正在AI云端生成，可能需要更长时间。
+请稍后使用「查任务」命令查询状态。"""
+        else:
+            error_msg = result.get("error", message or "未知错误")
+            msg = f"""❌ 视频生成失败
+
+🔖 任务ID: {task_id_short}
+👤 执行者: 小影
+⚠️ 状态: {status}
+⚠️ 原因: {error_msg}
+
+请检查任务描述后重试。"""
+        
+        await send_text_message([user_id], msg)
+        
+    except Exception as e:
+        logger.error(f"[小影] 发送视频完成通知失败: {e}")
 
 
 async def update_task_status(task_id: str, status: str, output_data: Dict[str, Any]):
