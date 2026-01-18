@@ -665,6 +665,19 @@ class ERPConfigManager:
         """保存ERP配置"""
         try:
             async with AsyncSessionLocal() as db:
+                # 如果是保持现有密钥，先获取现有密钥
+                actual_token = auth_token
+                if auth_token == '__KEEP_EXISTING__':
+                    result = await db.execute(
+                        text("SELECT auth_token FROM erp_config WHERE is_active = TRUE LIMIT 1")
+                    )
+                    row = result.fetchone()
+                    if row:
+                        actual_token = row[0]
+                    else:
+                        logger.error("尝试保持现有密钥，但没有找到现有配置")
+                        return False
+                
                 # 先将所有配置设为非活动
                 await db.execute(
                     text("UPDATE erp_config SET is_active = FALSE")
@@ -680,7 +693,7 @@ class ERPConfigManager:
                     {
                         "api_url": api_url,
                         "auth_type": auth_type,
-                        "auth_token": auth_token,
+                        "auth_token": actual_token,
                         "username": username,
                         "description": description or "BP Logistics ERP"
                     }
