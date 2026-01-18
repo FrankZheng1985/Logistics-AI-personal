@@ -123,6 +123,10 @@ jobs:
                 npm ci --legacy-peer-deps
               fi
               
+              # 清理旧的构建缓存（避免缓存损坏导致的构建失败）
+              echo "  🧹 清理构建缓存..."
+              rm -rf .next
+              
               # 重新构建
               echo "  🔨 重新构建..."
               npm run build
