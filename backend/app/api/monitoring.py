@@ -113,15 +113,15 @@ async def get_agent_performance():
             
             result = await db.execute(text("""
                 SELECT 
-                    aa.agent_type,
+                    aa.agent_type::text,
                     aa.name,
-                    aa.status,
+                    aa.status::text,
                     COUNT(wl.id) as tasks_today,
                     SUM(CASE WHEN wl.status = 'success' THEN 1 ELSE 0 END) as completed,
                     SUM(CASE WHEN wl.status = 'failed' THEN 1 ELSE 0 END) as failed,
                     AVG(wl.duration_ms) as avg_duration
                 FROM ai_agents aa
-                LEFT JOIN agent_work_logs wl ON aa.agent_type = wl.agent_type AND DATE(wl.created_at) = :today
+                LEFT JOIN agent_work_logs wl ON aa.agent_type::text = wl.agent_type AND DATE(wl.created_at) = :today
                 GROUP BY aa.id, aa.agent_type, aa.name, aa.status
                 ORDER BY aa.agent_type
             """), {"today": today})
@@ -328,13 +328,13 @@ async def generate_team_report(period: str = "daily"):
             result = await db.execute(text("""
                 SELECT 
                     aa.name,
-                    aa.agent_type,
+                    aa.agent_type::text,
                     COUNT(wl.id) as total_tasks,
                     SUM(CASE WHEN wl.status = 'success' THEN 1 ELSE 0 END) as completed,
                     AVG(wl.duration_ms) as avg_duration,
-                    aa.status
+                    aa.status::text
                 FROM ai_agents aa
-                LEFT JOIN agent_work_logs wl ON aa.agent_type = wl.agent_type AND wl.created_at >= :start
+                LEFT JOIN agent_work_logs wl ON aa.agent_type::text = wl.agent_type AND wl.created_at >= :start
                 GROUP BY aa.id, aa.name, aa.agent_type, aa.status
             """), {"start": start_date})
             
