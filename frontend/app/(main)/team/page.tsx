@@ -285,47 +285,62 @@ function AgentLiveModal({
   useEffect(() => {
     if (!agent) return
     
+    let isMounted = true
+    let ws: WebSocket | null = null
+    let pingInterval: NodeJS.Timeout | null = null
+    
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsUrl = `${protocol}//${window.location.host}/api/ws/agent-live/${agentType}`
     
-    const ws = new WebSocket(wsUrl)
-    wsRef.current = ws
-    
-    ws.onopen = () => {
-      console.log('WebSocket已连接')
-      setConnected(true)
-    }
-    
-    ws.onmessage = (event) => {
-      try {
-        const step = JSON.parse(event.data)
-        if (step.type === 'connected' || step.type === 'pong') return
-        
-        setSteps(prev => [...prev, step])
-      } catch (error) {
-        console.error('解析WebSocket消息失败:', error)
+    // 延迟连接，避免快速打开关闭时的错误
+    const connectTimeout = setTimeout(() => {
+      if (!isMounted) return
+      
+      ws = new WebSocket(wsUrl)
+      wsRef.current = ws
+      
+      ws.onopen = () => {
+        if (!isMounted) {
+          ws?.close()
+          return
+        }
+        setConnected(true)
       }
-    }
-    
-    ws.onclose = () => {
-      console.log('WebSocket已断开')
-      setConnected(false)
-    }
-    
-    ws.onerror = (error) => {
-      console.error('WebSocket错误:', error)
-    }
-    
-    // 心跳
-    const pingInterval = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send('ping')
+      
+      ws.onmessage = (event) => {
+        if (!isMounted) return
+        try {
+          const step = JSON.parse(event.data)
+          if (step.type === 'connected' || step.type === 'pong') return
+          setSteps(prev => [...prev, step])
+        } catch (error) {
+          // 忽略解析错误
+        }
       }
-    }, 30000)
+      
+      ws.onclose = () => {
+        if (isMounted) setConnected(false)
+      }
+      
+      ws.onerror = () => {
+        // 静默处理错误，避免控制台噪音
+      }
+      
+      // 心跳
+      pingInterval = setInterval(() => {
+        if (ws?.readyState === WebSocket.OPEN) {
+          ws.send('ping')
+        }
+      }, 30000)
+    }, 100)
     
     return () => {
-      clearInterval(pingInterval)
-      ws.close()
+      isMounted = false
+      clearTimeout(connectTimeout)
+      if (pingInterval) clearInterval(pingInterval)
+      if (ws && ws.readyState !== WebSocket.CLOSED) {
+        ws.close()
+      }
     }
   }, [agent, agentType])
   
