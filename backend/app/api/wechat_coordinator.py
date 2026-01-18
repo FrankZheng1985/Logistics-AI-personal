@@ -31,15 +31,25 @@ router = APIRouter(prefix="/wechat/coordinator", tags=["企业微信-小调"])
 class CoordinatorWeChatCrypto:
     """小调企业微信消息加解密"""
     
-    def __init__(self, token: str, encoding_aes_key: str, corp_id: str):
-        self.token = token
-        self.corp_id = corp_id
-        self.aes_key = base64.b64decode(encoding_aes_key + "=")
+    def __init__(self):
+        self.token = settings.WECHAT_COORDINATOR_TOKEN or ''
+        self.encoding_aes_key = settings.WECHAT_COORDINATOR_ENCODING_AES_KEY or ''
+        self.corp_id = settings.WECHAT_CORP_ID or ''
+        
+        if self.encoding_aes_key:
+            self.aes_key = base64.b64decode(self.encoding_aes_key + "=")
+        else:
+            self.aes_key = None
     
     def verify_signature(self, msg_signature: str, timestamp: str, nonce: str, echostr: str) -> str:
         """验证URL有效性并返回解密后的echostr"""
+        if not self.token:
+            raise ValueError("Token未配置")
+        
         sort_list = sorted([self.token, timestamp, nonce, echostr])
         sha1 = hashlib.sha1("".join(sort_list).encode()).hexdigest()
+        
+        logger.debug(f"[小调] 签名验证: calculated={sha1}, expected={msg_signature}")
         
         if sha1 != msg_signature:
             raise ValueError(f"签名验证失败")
@@ -48,24 +58,40 @@ class CoordinatorWeChatCrypto:
     
     def _decrypt(self, encrypted: str) -> str:
         """解密消息"""
-        encrypted_bytes = base64.b64decode(encrypted)
-        cipher = AES.new(self.aes_key, AES.MODE_CBC, self.aes_key[:16])
-        decrypted = cipher.decrypt(encrypted_bytes)
+        if not self.aes_key:
+            raise ValueError("EncodingAESKey未配置")
         
-        pad = decrypted[-1]
-        pad_len = pad if isinstance(pad, int) else ord(pad)
-        content = decrypted[:-pad_len] if pad_len > 0 else decrypted
-        
-        if len(content) < 20:
-            raise ValueError(f"解密后内容太短")
-        
-        msg_len = struct.unpack(">I", content[16:20])[0]
-        msg = content[20:20+msg_len].decode("utf-8")
-        
-        return msg
+        try:
+            encrypted_bytes = base64.b64decode(encrypted)
+            cipher = AES.new(self.aes_key, AES.MODE_CBC, self.aes_key[:16])
+            decrypted = cipher.decrypt(encrypted_bytes)
+            
+            # PKCS7去除补位
+            pad = decrypted[-1]
+            pad_len = pad if isinstance(pad, int) else ord(pad)
+            
+            # 验证padding是否合法
+            if pad_len < 1 or pad_len > 32:
+                pad_len = 0
+            
+            content = decrypted[:-pad_len] if pad_len > 0 else decrypted
+            
+            if len(content) < 20:
+                raise ValueError(f"解密后内容太短: {len(content)} bytes")
+            
+            msg_len = struct.unpack(">I", content[16:20])[0]
+            msg = content[20:20+msg_len].decode("utf-8")
+            
+            return msg
+        except Exception as e:
+            logger.error(f"[小调] 解密失败: {e}")
+            raise
     
     def decrypt_message(self, msg_signature: str, timestamp: str, nonce: str, encrypted_msg: str) -> str:
         """解密接收的消息"""
+        if not self.token:
+            raise ValueError("Token未配置")
+        
         sort_list = sorted([self.token, timestamp, nonce, encrypted_msg])
         sha1 = hashlib.sha1("".join(sort_list).encode()).hexdigest()
         
@@ -92,12 +118,9 @@ def mark_message_processed(msg_id: str):
 
 def get_crypto() -> Optional[CoordinatorWeChatCrypto]:
     """获取小调专用的加解密实例"""
-    token = settings.WECHAT_COORDINATOR_TOKEN
-    aes_key = settings.WECHAT_COORDINATOR_ENCODING_AES_KEY
-    corp_id = settings.WECHAT_CORP_ID
-    
-    if token and aes_key and corp_id:
-        return CoordinatorWeChatCrypto(token, aes_key, corp_id)
+    crypto = CoordinatorWeChatCrypto()
+    if crypto.token and crypto.aes_key and crypto.corp_id:
+        return crypto
     return None
 
 
