@@ -264,6 +264,7 @@ export default function ERPSettingsPage() {
               onChange={e => setConfig(prev => ({ ...prev, api_url: e.target.value }))}
               className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
               placeholder="https://api.xianfeng-eu.com"
+              autoComplete="url"
             />
           </div>
           
@@ -318,6 +319,7 @@ export default function ERPSettingsPage() {
               onChange={e => setConfig(prev => ({ ...prev, username: e.target.value }))}
               className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
               placeholder="如: readonly_client"
+              autoComplete="username"
             />
           </div>
         </div>
@@ -330,6 +332,7 @@ export default function ERPSettingsPage() {
             onChange={e => setConfig(prev => ({ ...prev, description: e.target.value }))}
             className="w-full px-4 py-2.5 bg-deep-space/50 border border-gray-700 rounded-lg text-white focus:border-cyber-blue focus:outline-none"
             placeholder="BP Logistics ERP 只读账户"
+            autoComplete="off"
           />
         </div>
         
