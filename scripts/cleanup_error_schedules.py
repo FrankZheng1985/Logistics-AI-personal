@@ -5,7 +5,9 @@ import sys
 import os
 
 # 添加backend目录到路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
+backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'backend'))
+sys.path.insert(0, backend_path)
+os.chdir(backend_path)
 
 from sqlalchemy import text
 from app.core.database import AsyncSessionLocal
