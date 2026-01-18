@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     WECHAT_EU_MONITOR_TOKEN: Optional[str] = None
     WECHAT_EU_MONITOR_ENCODING_AES_KEY: Optional[str] = None
     
+    # 企业微信配置 - 小调（AI调度主管）
+    WECHAT_COORDINATOR_AGENT_ID: Optional[str] = None
+    WECHAT_COORDINATOR_SECRET: Optional[str] = None
+    WECHAT_COORDINATOR_TOKEN: Optional[str] = None
+    WECHAT_COORDINATOR_ENCODING_AES_KEY: Optional[str] = None
+    WECHAT_COORDINATOR_ADMIN_USERS: str = ""  # 可以给小调发任务的管理员用户ID，逗号分隔
+    
     # 邮件配置
     SMTP_HOST: str = ""
     SMTP_PORT: int = 465

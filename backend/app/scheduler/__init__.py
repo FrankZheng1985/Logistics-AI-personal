@@ -100,6 +100,12 @@ async def init_scheduler():
     
     # ==================== 小调任务 ====================
     
+    # 导入小调企业微信汇报任务
+    from app.scheduler.coordinator_tasks import (
+        coordinator_wechat_daily_report,
+        coordinator_wechat_morning_greeting
+    )
+    
     # 每日汇总 - 每天下午6点
     scheduler.add_job(
         daily_summary_task,
@@ -109,6 +115,26 @@ async def init_scheduler():
         replace_existing=True
     )
     logger.info(f"📅 注册任务: [小调] 每日工作汇总 - {settings.DAILY_SUMMARY_HOUR}:00")
+    
+    # 企业微信日报 - 每天下午6点30分发送给管理员
+    scheduler.add_job(
+        coordinator_wechat_daily_report,
+        CronTrigger(hour=18, minute=30),
+        id="coordinator_wechat_daily_report",
+        name="[小调] 企业微信日报推送",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小调] 企业微信日报推送 - 18:30")
+    
+    # 早间问候 - 每天早上8点30分
+    scheduler.add_job(
+        coordinator_wechat_morning_greeting,
+        CronTrigger(hour=8, minute=30),
+        id="coordinator_wechat_morning",
+        name="[小调] 企业微信早间问候",
+        replace_existing=True
+    )
+    logger.info("📅 注册任务: [小调] 企业微信早间问候 - 08:30")
     
     # 重置每日统计 - 每天凌晨0点
     scheduler.add_job(

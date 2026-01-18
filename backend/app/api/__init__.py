@@ -11,7 +11,8 @@ from app.api import (
     topics,  # 热门话题（小猎话题发现模式）
     products,  # 产品趋势（小猎产品发现模式）
     websocket,  # WebSocket实时工作直播
-    wechat_eu_monitor  # 小欧间谍企业微信回调
+    wechat_eu_monitor,  # 小欧间谍企业微信回调
+    wechat_coordinator  # 小调企业微信回调
 )
 
 router = APIRouter()
@@ -45,3 +46,4 @@ router.include_router(topics.router, prefix="/topics", tags=["热门话题"])
 router.include_router(products.router, prefix="/products", tags=["产品趋势"])
 router.include_router(websocket.router, tags=["实时工作直播"])
 router.include_router(wechat_eu_monitor.router, prefix="/wechat/eu-monitor", tags=["企业微信-小欧间谍"])
+router.include_router(wechat_coordinator.router, tags=["企业微信-小调"])
