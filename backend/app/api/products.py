@@ -211,22 +211,48 @@ async def get_product_trend(
 @router.post("/discover")
 async def discover_product_trends(
     max_keywords: int = Query(10, ge=1, le=20),
+    background: bool = Query(True, description="是否后台执行"),
     db: AsyncSession = Depends(get_db)
 ):
     """
     触发产品趋势发现任务
     
     - max_keywords: 最大搜索关键词数量
+    - background: 是否后台执行（默认True，立即返回）
     """
+    import asyncio
+    
     try:
         from app.agents.lead_hunter import lead_hunter_agent
         
-        result = await lead_hunter_agent.process({
-            "action": "discover_products",
-            "max_keywords": max_keywords
-        })
-        
-        return result
+        if background:
+            # 后台异步执行，立即返回
+            async def run_discovery():
+                try:
+                    result = await lead_hunter_agent.process({
+                        "action": "discover_products",
+                        "max_keywords": max_keywords
+                    })
+                    logger.info(f"产品趋势发现完成: 发现 {result.get('total_products', 0)} 个产品")
+                except Exception as e:
+                    logger.error(f"后台产品趋势发现失败: {e}")
+            
+            # 创建后台任务
+            asyncio.create_task(run_discovery())
+            
+            return {
+                "status": "started",
+                "message": "产品趋势发现任务已启动，正在后台执行",
+                "max_keywords": max_keywords,
+                "tip": "请稍后刷新页面查看结果"
+            }
+        else:
+            # 同步执行（等待完成）
+            result = await lead_hunter_agent.process({
+                "action": "discover_products",
+                "max_keywords": max_keywords
+            })
+            return result
         
     except Exception as e:
         logger.error(f"触发产品趋势发现失败: {e}")
