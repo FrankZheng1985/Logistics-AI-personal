@@ -2,7 +2,12 @@
 定时任务模块
 使用APScheduler实现定时任务调度
 支持7个AI员工的24小时自动化工作
+
+注意：使用文件锁确保多worker模式下只有一个worker运行调度器，
+避免定时任务被重复执行（如Serper API被调用多次）。
 """
+import os
+import fcntl
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -13,6 +18,36 @@ from app.core.config import settings
 
 # 全局调度器实例
 scheduler: AsyncIOScheduler = None
+
+# 调度器锁文件句柄（保持打开以维持锁）
+_scheduler_lock_file = None
+_is_scheduler_worker = False
+
+SCHEDULER_LOCK_PATH = "/tmp/logistics_scheduler.lock"
+
+
+def _try_acquire_scheduler_lock() -> bool:
+    """
+    尝试获取调度器独占锁。
+    使用文件锁确保多个Gunicorn worker中只有一个启动调度器。
+    锁在进程退出时自动释放。
+    """
+    global _scheduler_lock_file, _is_scheduler_worker
+    try:
+        _scheduler_lock_file = open(SCHEDULER_LOCK_PATH, 'w')
+        fcntl.flock(_scheduler_lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _scheduler_lock_file.write(str(os.getpid()))
+        _scheduler_lock_file.flush()
+        _is_scheduler_worker = True
+        logger.info(f"🔒 调度器锁获取成功 (PID: {os.getpid()})，当前worker负责运行定时任务")
+        return True
+    except (IOError, OSError):
+        # 锁已被其他worker持有
+        if _scheduler_lock_file:
+            _scheduler_lock_file.close()
+            _scheduler_lock_file = None
+        _is_scheduler_worker = False
+        return False
 
 
 def get_scheduler() -> AsyncIOScheduler:
@@ -27,6 +62,11 @@ async def init_scheduler():
     """初始化并启动定时任务"""
     if not settings.SCHEDULER_ENABLED:
         logger.info("📅 定时任务已禁用")
+        return
+    
+    # 多worker模式下，只允许一个worker运行调度器
+    if not _try_acquire_scheduler_lock():
+        logger.info(f"📅 调度器已由其他worker启动，当前worker (PID: {os.getpid()}) 跳过定时任务初始化")
         return
     
     global scheduler
@@ -353,10 +393,21 @@ async def init_scheduler():
 
 async def shutdown_scheduler():
     """关闭定时任务"""
-    global scheduler
+    global scheduler, _scheduler_lock_file, _is_scheduler_worker
     if scheduler and scheduler.running:
         scheduler.shutdown(wait=False)
         logger.info("📅 定时任务调度器已关闭")
+    
+    # 释放调度器锁
+    if _scheduler_lock_file:
+        try:
+            fcntl.flock(_scheduler_lock_file.fileno(), fcntl.LOCK_UN)
+            _scheduler_lock_file.close()
+            _scheduler_lock_file = None
+            _is_scheduler_worker = False
+            logger.info("🔓 调度器锁已释放")
+        except Exception as e:
+            logger.warning(f"释放调度器锁失败: {e}")
 
 
 def add_job(func, trigger, job_id: str, name: str, **kwargs):
