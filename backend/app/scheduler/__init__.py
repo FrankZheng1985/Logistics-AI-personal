@@ -72,310 +72,185 @@ async def init_scheduler():
     global scheduler
     scheduler = get_scheduler()
     
-    # ==================== 导入任务 ====================
+    # ==================== 导入任务（容错处理） ====================
     
     # 跟进任务
-    from app.scheduler.follow_tasks import (
-        daily_follow_check,
-        check_no_reply_customers,
-        daily_summary_task,
-        reset_daily_stats
-    )
+    try:
+        from app.scheduler.follow_tasks import (
+            daily_follow_check,
+            check_no_reply_customers,
+            daily_summary_task,
+            reset_daily_stats
+        )
+    except ImportError as e:
+        logger.warning(f"跟进任务导入失败: {e}")
+        daily_follow_check = check_no_reply_customers = daily_summary_task = reset_daily_stats = None
     
     # 市场情报任务
-    from app.scheduler.market_tasks import (
-        collect_market_intelligence,
-        send_boss_daily_report,
-        send_boss_weekly_report,
-        check_urgent_intel,
-        collect_eu_customs_news
-    )
+    try:
+        from app.scheduler.market_tasks import (
+            collect_market_intelligence,
+            send_boss_daily_report,
+            send_boss_weekly_report,
+            check_urgent_intel,
+        )
+    except ImportError as e:
+        logger.warning(f"市场情报任务导入失败: {e}")
+        collect_market_intelligence = send_boss_daily_report = send_boss_weekly_report = check_urgent_intel = None
+    
+    # 欧洲海关新闻采集（可选）
+    try:
+        from app.scheduler.market_tasks import collect_eu_customs_news
+    except ImportError:
+        logger.info("collect_eu_customs_news 未找到，跳过欧洲海关新闻采集任务")
+        collect_eu_customs_news = None
     
     # 内容发布任务
-    from app.scheduler.content_tasks import (
-        lead_hunt_task,
-        auto_video_generation,
-        auto_content_publish,
-        auto_xiaohongshu_publish,
-        knowledge_base_update,
-        daily_content_generation,
-        batch_content_generation,
-        content_publish_reminder
-    )
+    try:
+        from app.scheduler.content_tasks import (
+            lead_hunt_task,
+            auto_video_generation,
+            auto_content_publish,
+            auto_xiaohongshu_publish,
+            knowledge_base_update,
+            daily_content_generation,
+            batch_content_generation,
+            content_publish_reminder
+        )
+    except ImportError as e:
+        logger.warning(f"内容发布任务导入失败: {e}")
+        lead_hunt_task = auto_video_generation = auto_content_publish = None
+        auto_xiaohongshu_publish = knowledge_base_update = daily_content_generation = None
+        batch_content_generation = content_publish_reminder = None
     
     # 素材采集任务
-    from app.scheduler.asset_tasks import asset_collection_task
+    try:
+        from app.scheduler.asset_tasks import asset_collection_task
+    except ImportError as e:
+        logger.warning(f"素材采集任务导入失败: {e}")
+        asset_collection_task = None
+    
+    # ==================== 辅助函数 ====================
+    
+    def _safe_add_job(func, trigger, job_id, name, **kwargs):
+        """安全注册任务，跳过未成功导入的任务"""
+        if func is None:
+            logger.warning(f"⚠️ 跳过任务注册: {name} (函数未导入)")
+            return
+        scheduler.add_job(func, trigger, id=job_id, name=name, replace_existing=True, **kwargs)
+        logger.info(f"📅 注册任务: {name}")
     
     # ==================== 小跟任务 ====================
     
-    # 每日跟进检查 - 每天早上9点（第一批）
-    scheduler.add_job(
-        daily_follow_check,
-        CronTrigger(hour=9, minute=0),
-        id="daily_follow_check_morning",
-        name="[小跟] 每日跟进检查(上午)",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小跟] 每日跟进检查(上午) - 09:00")
+    _safe_add_job(daily_follow_check, CronTrigger(hour=9, minute=0),
+                  "daily_follow_check_morning", "[小跟] 每日跟进检查(上午)")
     
-    # 每日跟进检查 - 每天下午14点（第二批）
-    scheduler.add_job(
-        daily_follow_check,
-        CronTrigger(hour=14, minute=0),
-        id="daily_follow_check_afternoon",
-        name="[小跟] 每日跟进检查(下午)",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小跟] 每日跟进检查(下午) - 14:00")
+    _safe_add_job(daily_follow_check, CronTrigger(hour=14, minute=0),
+                  "daily_follow_check_afternoon", "[小跟] 每日跟进检查(下午)")
     
-    # 未回复检查 - 每4小时
-    scheduler.add_job(
-        check_no_reply_customers,
-        IntervalTrigger(hours=4),
-        id="check_no_reply",
-        name="[小跟] 未回复客户检查",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小跟] 未回复客户检查 - 每4小时")
+    _safe_add_job(check_no_reply_customers, IntervalTrigger(hours=4),
+                  "check_no_reply", "[小跟] 未回复客户检查")
     
     # ==================== 小调任务 ====================
     
     # 导入小调企业微信汇报任务
-    from app.scheduler.coordinator_tasks import (
-        coordinator_wechat_daily_report,
-        coordinator_wechat_morning_greeting
-    )
+    try:
+        from app.scheduler.coordinator_tasks import (
+            coordinator_wechat_daily_report,
+            coordinator_wechat_morning_greeting
+        )
+    except ImportError as e:
+        logger.warning(f"小调任务导入失败: {e}")
+        coordinator_wechat_daily_report = coordinator_wechat_morning_greeting = None
     
-    # 每日汇总 - 每天下午6点
-    scheduler.add_job(
-        daily_summary_task,
-        CronTrigger(hour=settings.DAILY_SUMMARY_HOUR, minute=0),
-        id="daily_summary",
-        name="[小调] 每日工作汇总",
-        replace_existing=True
-    )
-    logger.info(f"📅 注册任务: [小调] 每日工作汇总 - {settings.DAILY_SUMMARY_HOUR}:00")
+    _safe_add_job(daily_summary_task, CronTrigger(hour=settings.DAILY_SUMMARY_HOUR, minute=0),
+                  "daily_summary", f"[小调] 每日工作汇总 - {settings.DAILY_SUMMARY_HOUR}:00")
     
-    # 企业微信日报 - 每天下午6点30分发送给管理员
-    scheduler.add_job(
-        coordinator_wechat_daily_report,
-        CronTrigger(hour=18, minute=30),
-        id="coordinator_wechat_daily_report",
-        name="[小调] 企业微信日报推送",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小调] 企业微信日报推送 - 18:30")
+    _safe_add_job(coordinator_wechat_daily_report, CronTrigger(hour=18, minute=30),
+                  "coordinator_wechat_daily_report", "[小调] 企业微信日报推送 - 18:30")
     
-    # 早间问候 - 每天早上8点30分
-    scheduler.add_job(
-        coordinator_wechat_morning_greeting,
-        CronTrigger(hour=8, minute=30),
-        id="coordinator_wechat_morning",
-        name="[小调] 企业微信早间问候",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小调] 企业微信早间问候 - 08:30")
+    _safe_add_job(coordinator_wechat_morning_greeting, CronTrigger(hour=8, minute=30),
+                  "coordinator_wechat_morning", "[小调] 企业微信早间问候 - 08:30")
     
-    # 重置每日统计 - 每天凌晨0点
-    scheduler.add_job(
-        reset_daily_stats,
-        CronTrigger(hour=0, minute=5),
-        id="reset_daily_stats",
-        name="[系统] 重置每日统计",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [系统] 重置每日统计 - 00:05")
+    _safe_add_job(reset_daily_stats, CronTrigger(hour=0, minute=5),
+                  "reset_daily_stats", "[系统] 重置每日统计 - 00:05")
     
     # ==================== 小猎任务 (24小时智能搜索) ====================
     
     # 导入加强搜索和夜间搜索任务
-    from app.scheduler.content_tasks import (
-        lead_hunt_intensive_task,
-        lead_hunt_night_task
-    )
+    try:
+        from app.scheduler.content_tasks import (
+            lead_hunt_intensive_task,
+            lead_hunt_night_task
+        )
+    except ImportError as e:
+        logger.warning(f"小猎加强搜索任务导入失败: {e}")
+        lead_hunt_intensive_task = lead_hunt_night_task = None
     
-    # 常规线索搜索 - 每小时执行（工作时间 7-23点）
-    scheduler.add_job(
-        lead_hunt_task,
-        CronTrigger(hour='7-23', minute=15),
-        id="lead_hunt_regular",
-        name="[小猎] 常规线索搜索",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小猎] 常规线索搜索 - 每小时(7:15-23:15)")
+    _safe_add_job(lead_hunt_task, CronTrigger(hour='7-23', minute=15),
+                  "lead_hunt_regular", "[小猎] 常规线索搜索 - 每小时(7:15-23:15)")
     
-    # 加强线索搜索 - 高峰时段（上午9-11点、下午14-17点、晚间19-21点）
-    scheduler.add_job(
-        lead_hunt_intensive_task,
-        CronTrigger(hour='9,10,14,15,16,19,20', minute=45),
-        id="lead_hunt_intensive",
-        name="[小猎] 加强线索搜索",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小猎] 加强线索搜索 - 高峰时段(9/10/14/15/16/19/20点)")
+    _safe_add_job(lead_hunt_intensive_task, CronTrigger(hour='9,10,14,15,16,19,20', minute=45),
+                  "lead_hunt_intensive", "[小猎] 加强线索搜索 - 高峰时段")
     
-    # 夜间轻量搜索 - 凌晨时段（0-6点，每2小时）
-    scheduler.add_job(
-        lead_hunt_night_task,
-        CronTrigger(hour='0,2,4,6', minute=30),
-        id="lead_hunt_night",
-        name="[小猎] 夜间轻量搜索",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小猎] 夜间轻量搜索 - 凌晨(0/2/4/6点)")
+    _safe_add_job(lead_hunt_night_task, CronTrigger(hour='0,2,4,6', minute=30),
+                  "lead_hunt_night", "[小猎] 夜间轻量搜索 - 凌晨")
     
     # ==================== 小析任务 ====================
     
-    # 市场情报采集 - 每日早上6点
-    scheduler.add_job(
-        collect_market_intelligence,
-        CronTrigger(hour=6, minute=0),
-        id="market_intel_collect",
-        name="[小析] 市场情报采集",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小析] 市场情报采集 - 06:00")
+    _safe_add_job(collect_market_intelligence, CronTrigger(hour=6, minute=0),
+                  "market_intel_collect", "[小析] 市场情报采集 - 06:00")
     
-    # 老板日报 - 每日早上8点
-    scheduler.add_job(
-        send_boss_daily_report,
-        CronTrigger(hour=8, minute=0),
-        id="boss_daily_report",
-        name="[小析] 老板日报推送",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小析] 老板日报推送 - 08:00")
+    _safe_add_job(send_boss_daily_report, CronTrigger(hour=8, minute=0),
+                  "boss_daily_report", "[小析] 老板日报推送 - 08:00")
     
-    # 老板周报 - 每周一早上8点
-    scheduler.add_job(
-        send_boss_weekly_report,
-        CronTrigger(day_of_week='mon', hour=8, minute=30),
-        id="boss_weekly_report",
-        name="[小析] 老板周报推送",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小析] 老板周报推送 - 每周一 08:30")
+    _safe_add_job(send_boss_weekly_report, CronTrigger(day_of_week='mon', hour=8, minute=30),
+                  "boss_weekly_report", "[小析] 老板周报推送 - 每周一 08:30")
     
-    # 紧急情报检查 - 每小时
-    scheduler.add_job(
-        check_urgent_intel,
-        IntervalTrigger(hours=1),
-        id="urgent_intel_check",
-        name="[小析] 紧急情报检查",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小析] 紧急情报检查 - 每小时")
+    _safe_add_job(check_urgent_intel, IntervalTrigger(hours=1),
+                  "urgent_intel_check", "[小析] 紧急情报检查 - 每小时")
     
     # ==================== 小欧间谍任务 ====================
     
-    # 欧洲海关新闻采集 - 每日早上6点
-    scheduler.add_job(
-        collect_eu_customs_news,
-        CronTrigger(hour=6, minute=0),
-        id="eu_customs_news_collect",
-        name="[小欧间谍] 欧洲海关新闻采集",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小欧间谍] 欧洲海关新闻采集 - 06:00")
+    _safe_add_job(collect_eu_customs_news, CronTrigger(hour=6, minute=0),
+                  "eu_customs_news_collect", "[小欧间谍] 欧洲海关新闻采集 - 06:00")
     
     # ==================== 小视任务 ====================
     
-    # 自动视频生成 - 每日上午10点
-    scheduler.add_job(
-        auto_video_generation,
-        CronTrigger(hour=10, minute=0),
-        id="auto_video_generation",
-        name="[小视] 自动视频生成",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小视] 自动视频生成 - 10:00")
+    _safe_add_job(auto_video_generation, CronTrigger(hour=10, minute=0),
+                  "auto_video_generation", "[小视] 自动视频生成 - 10:00")
     
     # ==================== 小文任务 ====================
     
-    # 自动内容发布(企业微信) - 每周一/三/五下午3点
-    scheduler.add_job(
-        auto_content_publish,
-        CronTrigger(day_of_week='mon,wed,fri', hour=15, minute=0),
-        id="auto_content_publish",
-        name="[小文] 企业微信文案发布",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小文] 企业微信文案发布 - 周一/三/五 15:00")
+    _safe_add_job(auto_content_publish, CronTrigger(day_of_week='mon,wed,fri', hour=15, minute=0),
+                  "auto_content_publish", "[小文] 企业微信文案发布 - 周一/三/五 15:00")
     
-    # 小红书内容发布 - 每周二/四/六中午12点（小红书高峰时段）
-    scheduler.add_job(
-        auto_xiaohongshu_publish,
-        CronTrigger(day_of_week='tue,thu,sat', hour=12, minute=0),
-        id="auto_xiaohongshu_publish",
-        name="[小文] 小红书笔记发布",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小文] 小红书笔记发布 - 周二/四/六 12:00")
+    _safe_add_job(auto_xiaohongshu_publish, CronTrigger(day_of_week='tue,thu,sat', hour=12, minute=0),
+                  "auto_xiaohongshu_publish", "[小文] 小红书笔记发布 - 周二/四/六 12:00")
     
     # ==================== 小析2任务 ====================
     
-    # 知识库更新 - 每日23点
-    scheduler.add_job(
-        knowledge_base_update,
-        CronTrigger(hour=23, minute=0),
-        id="knowledge_base_update",
-        name="[小析2] 知识库更新",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小析2] 知识库更新 - 23:00")
+    _safe_add_job(knowledge_base_update, CronTrigger(hour=23, minute=0),
+                  "knowledge_base_update", "[小析2] 知识库更新 - 23:00")
     
     # ==================== 小媒任务 (内容营销) ====================
     
-    # 每日内容生成 - 凌晨5点生成明天的内容
-    scheduler.add_job(
-        daily_content_generation,
-        CronTrigger(hour=5, minute=0),
-        id="daily_content_generation",
-        name="[小媒] 每日内容生成",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小媒] 每日内容生成 - 05:00")
+    _safe_add_job(daily_content_generation, CronTrigger(hour=5, minute=0),
+                  "daily_content_generation", "[小媒] 每日内容生成 - 05:00")
     
-    # 批量内容生成 - 每周日凌晨4点生成下周内容
-    scheduler.add_job(
-        batch_content_generation,
-        CronTrigger(day_of_week='sun', hour=4, minute=0),
-        id="batch_content_generation",
-        name="[小媒] 批量内容生成",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小媒] 批量内容生成 - 每周日 04:00")
+    _safe_add_job(batch_content_generation, CronTrigger(day_of_week='sun', hour=4, minute=0),
+                  "batch_content_generation", "[小媒] 批量内容生成 - 每周日 04:00")
     
-    # 内容发布提醒 - 每天上午9点
-    scheduler.add_job(
-        content_publish_reminder,
-        CronTrigger(hour=9, minute=5),
-        id="content_publish_reminder",
-        name="[小媒] 内容发布提醒",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小媒] 内容发布提醒 - 09:05")
+    _safe_add_job(content_publish_reminder, CronTrigger(hour=9, minute=5),
+                  "content_publish_reminder", "[小媒] 内容发布提醒 - 09:05")
     
     # ==================== 小采任务 ====================
     
-    # 素材采集 - 每日上午7点和下午16点
-    scheduler.add_job(
-        asset_collection_task,
-        CronTrigger(hour=7, minute=0),
-        id="asset_collection_morning",
-        name="[小采] 素材采集(上午)",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小采] 素材采集(上午) - 07:00")
+    _safe_add_job(asset_collection_task, CronTrigger(hour=7, minute=0),
+                  "asset_collection_morning", "[小采] 素材采集(上午) - 07:00")
     
-    scheduler.add_job(
-        asset_collection_task,
-        CronTrigger(hour=16, minute=0),
-        id="asset_collection_afternoon",
-        name="[小采] 素材采集(下午)",
-        replace_existing=True
-    )
-    logger.info("📅 注册任务: [小采] 素材采集(下午) - 16:00")
+    _safe_add_job(asset_collection_task, CronTrigger(hour=16, minute=0),
+                  "asset_collection_afternoon", "[小采] 素材采集(下午) - 16:00")
     
     # ==================== 启动调度器 ====================
     
