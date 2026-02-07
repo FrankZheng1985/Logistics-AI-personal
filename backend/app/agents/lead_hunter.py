@@ -1218,8 +1218,8 @@ URL：{url}
                             query = f"{enhanced_keyword} {site_filter}".strip()
                             self.log(f"🔍 搜索: {query}")
                             
-                            # 话题发现放宽时间范围到过去一年，提高搜索成功率
-                            search_results = await self._search_with_serper(query, time_range="y")
+                            # 话题发现严格限制在过去一个月内，确保内容的时效性
+                            search_results = await self._search_with_serper(query, time_range="m")
                             
                             if search_results:
                                 results["platforms_searched"].append(platform_name)
