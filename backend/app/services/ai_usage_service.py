@@ -2,6 +2,7 @@
 AI用量监控服务
 记录大模型API调用用量、费用估算、告警通知
 """
+import json
 from typing import Optional, Dict, Any, List
 from datetime import datetime, date, timedelta
 from decimal import Decimal
@@ -189,7 +190,7 @@ class AIUsageService:
                         "response_time_ms": response_time_ms,
                         "is_success": is_success,
                         "error_message": error_message,
-                        "extra_data": extra_data or {}
+                        "extra_data": json.dumps(extra_data or {})
                     }
                 )
                 await db.commit()
