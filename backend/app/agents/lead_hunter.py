@@ -1095,6 +1095,35 @@ URL：{url}
 
     # ==================== 话题发现模式（新增）====================
     
+    def _enhance_search_keyword(self, keyword: str) -> str:
+        """
+        增强搜索关键词，添加同义词和相关术语以提高搜索覆盖率
+        """
+        # 关键词同义词映射
+        keyword_synonyms = {
+            "跨境电商物流": "跨境电商物流 OR 跨境物流 OR 国际电商物流",
+            "国际货运代理": "国际货运代理 OR 货代 OR 国际货代",
+            "海外仓": "海外仓 OR 海外仓储 OR 境外仓",
+            "双清包税": "双清包税 OR DDP OR 双清",
+            "海运费查询": "海运费查询 OR 海运价格 OR 海运费用",
+            "FBA头程": "FBA头程 OR FBA物流 OR 亚马逊头程",
+            "清关": "清关 OR 报关 OR 通关",
+        }
+        
+        # 如果关键词有同义词，使用扩展后的查询
+        if keyword in keyword_synonyms:
+            return keyword_synonyms[keyword]
+        
+        # 对于包含特定术语的关键词，添加相关搜索词
+        if "物流" in keyword and "跨境" not in keyword:
+            return f"{keyword} OR 国际物流"
+        if "货代" in keyword:
+            return f"{keyword} OR 国际货代"
+        if "FBA" in keyword:
+            return f"{keyword} OR 亚马逊物流"
+        
+        return keyword
+
     async def _discover_topics(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         发现热门话题 - 用于内容引流
@@ -1148,16 +1177,25 @@ URL：{url}
                         ("货物被扣怎么办", "问题求助"),
                         ("货代怎么选", "选择咨询"),
                         ("海运清关流程", "流程咨询"),
-                        ("国际物流报价", "报价咨询")
+                        ("国际物流报价", "报价咨询"),
+                        ("跨境电商物流", "行业讨论"),
+                        ("国际货运代理", "选择咨询"),
+                        ("海外仓服务", "流程咨询"),
+                        ("双清包税", "流程咨询"),
+                        ("海运费查询", "报价咨询")
                     ]
                     keywords_data = [(None, kw, cat, None, 8) for kw, cat in default_keywords]
                 
                 self.log(f"使用 {len(keywords_data)} 个关键词搜索话题")
                 
-                # 2. 定义搜索平台（专注高质量内容平台）
+                # 2. 定义搜索平台（扩展更多平台，提高话题发现覆盖率）
                 platforms = [
                     ("zhihu", "site:zhihu.com/question", "知乎问答"),
                     ("xiaohongshu", "site:xiaohongshu.com", "小红书"),
+                    ("baidu_zhidao", "site:zhidao.baidu.com", "百度知道"),
+                    ("tieba", "site:tieba.baidu.com", "百度贴吧"),
+                    ("douyin", "site:douyin.com", "抖音"),
+                    ("weibo", "site:weibo.com", "微博"),
                 ]
                 
                 all_topics = []
@@ -1167,17 +1205,21 @@ URL：{url}
                     kw_id, keyword, category, kw_platform, priority = kw_data
                     results["keywords_used"].append(keyword)
                     
+                    # 增强搜索关键词
+                    enhanced_keyword = self._enhance_search_keyword(keyword)
+                    
                     for platform_id, site_filter, platform_name in platforms:
                         # 如果关键词指定了平台，只搜索该平台
                         if kw_platform and kw_platform != platform_id:
                             continue
                         
                         try:
-                            # 构建搜索查询（搜索最近的内容）
-                            query = f"{keyword} {site_filter}"
+                            # 构建搜索查询（优化查询逻辑，支持更广泛的行业术语）
+                            query = f"{enhanced_keyword} {site_filter}".strip()
                             self.log(f"🔍 搜索: {query}")
                             
-                            search_results = await self._search_with_serper(query)
+                            # 话题发现放宽时间范围到过去一年，提高搜索成功率
+                            search_results = await self._search_with_serper(query, time_range="y")
                             
                             if search_results:
                                 results["platforms_searched"].append(platform_name)
