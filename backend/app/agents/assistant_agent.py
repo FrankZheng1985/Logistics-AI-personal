@@ -292,44 +292,51 @@ class ClauwdbotAgent(BaseAgent):
                 )
                 agents = agent_result.fetchall()
             
-            lines = ["🤖 AI团队状态报告", "━" * 18]
+            # 构造原始数据描述，交给 LLM 口语化回复
+            agent_names = {v["type"].value: v["name"] for v in self.AGENT_INFO.values()}
             
-            # 显示已注册的AI员工
+            raw_lines = []
+            online_count = 0
+            offline_count = 0
+            
             if agents:
                 for agent in agents:
-                    status_icon = "🟢" if agent[2] in ["active", "online"] else "🔴"
-                    lines.append(f"{status_icon} {agent[1]} | 今日: {agent[3]}任务 | 总计: {agent[4]}")
+                    is_online = agent[2] in ["active", "online"]
+                    if is_online:
+                        online_count += 1
+                    else:
+                        offline_count += 1
+                    status_text = "在线" if is_online else "离线"
+                    raw_lines.append(f"{agent[1]}：{status_text}，今日{agent[3]}个任务，累计{agent[4]}个任务")
             
-            # 显示今日任务统计
+            task_lines = []
             if stats:
-                lines.append("")
-                lines.append("📊 今日任务统计")
-                lines.append("━" * 18)
-                
-                agent_names = {v["type"].value: v["name"] for v in self.AGENT_INFO.values()}
-                
                 for row in stats:
-                    agent_type = row[0]
+                    name = agent_names.get(row[0], row[0])
                     total = row[1]
                     completed = row[2]
                     failed = row[3]
                     in_progress = row[4]
-                    
-                    name = agent_names.get(agent_type, agent_type)
                     success_rate = (completed / total * 100) if total > 0 else 0
-                    status_emoji = "✅" if success_rate >= 80 else "⚠️" if success_rate >= 50 else "🔴"
-                    
-                    lines.append(f"{status_emoji} {name}: {completed}/{total}完成 ({success_rate:.0f}%)")
-                    if in_progress > 0:
-                        lines.append(f"   🔄 进行中: {in_progress}")
-            else:
-                lines.append("")
-                lines.append("今日暂无任务记录")
+                    task_lines.append(f"{name}：{completed}/{total}完成（成功率{success_rate:.0f}%），进行中{in_progress}，失败{failed}")
             
-            lines.append("")
-            lines.append(f"📅 {datetime.now(self.CHINA_TZ).strftime('%Y-%m-%d %H:%M')}")
+            context = f"""用户问：{message}
+当前时间：{datetime.now(self.CHINA_TZ).strftime('%Y-%m-%d %H:%M')}
+
+团队概况：共{len(agents) if agents else 0}个AI员工，{online_count}个在线，{offline_count}个离线。
+
+各员工状态：
+{chr(10).join(raw_lines) if raw_lines else '暂无员工数据'}
+
+今日任务统计：
+{chr(10).join(task_lines) if task_lines else '今天暂时没有任务记录'}"""
+
+            smart_response = await self.chat(
+                context,
+                "你是Clauwdbot，一个温柔利索的AI女助理。请像在微信上跟郑总聊天一样回复，不要用任何标签、markdown格式、分隔线或表格。用口语把团队情况说清楚就好，挑重点说，不要逐个列举每一个员工。如果有表现突出或需要关注的员工可以提一下。"
+            )
             
-            return {"success": True, "response": "\n".join(lines)}
+            return {"success": True, "response": smart_response}
             
         except Exception as e:
             logger.error(f"[Clauwdbot] 查询团队状态失败: {e}")
@@ -637,33 +644,44 @@ class ClauwdbotAgent(BaseAgent):
                 tasks = result.fetchall()
             
             if not tasks:
-                return {"success": True, "response": "📋 暂无任务记录"}
+                context = f"用户问：{message}\n查询结果：目前没有任何任务记录。"
+                smart_response = await self.chat(
+                    context,
+                    "你是Clauwdbot，一个温柔利索的AI女助理。像在微信上跟郑总聊天一样回复，不要用标签或markdown。"
+                )
+                return {"success": True, "response": smart_response}
             
             agent_names = {v["type"].value: v["name"] for v in self.AGENT_INFO.values()}
             
-            status_emoji = {
-                "pending": "⏳", "processing": "🔄",
-                "completed": "✅", "failed": "❌"
+            status_map = {
+                "pending": "等待中", "processing": "进行中",
+                "completed": "已完成", "failed": "失败"
             }
             
-            lines = ["📋 最近任务状态", "━" * 18]
-            
+            task_lines = []
             for task in tasks:
-                task_id = str(task[0])[:8]
                 agent_type = task[2]
                 status = task[3]
                 input_data = task[4] if isinstance(task[4], dict) else json.loads(task[4] or '{}')
                 created_at = task[5]
                 
                 name = agent_names.get(agent_type, agent_type)
-                emoji = status_emoji.get(status, "❓")
-                desc = input_data.get("description", "")[:30]
+                status_text = status_map.get(status, status)
+                desc = input_data.get("description", "无描述")[:50]
                 time_str = self.to_china_time(created_at).strftime('%m-%d %H:%M') if created_at else ""
                 
-                lines.append(f"{emoji} [{task_id}] {desc}")
-                lines.append(f"   {name} | {status} | {time_str}")
+                task_lines.append(f"{name}的任务「{desc}」- {status_text}，时间{time_str}")
             
-            return {"success": True, "response": "\n".join(lines)}
+            context = f"""用户问：{message}
+最近5条任务记录：
+{chr(10).join(task_lines)}"""
+
+            smart_response = await self.chat(
+                context,
+                "你是Clauwdbot，一个温柔利索的AI女助理。像在微信上跟郑总聊天一样回复，不要用标签、markdown或分隔线。用口语简要说说最近任务的情况就好。"
+            )
+            
+            return {"success": True, "response": smart_response}
             
         except Exception as e:
             logger.error(f"[Clauwdbot] 查询任务状态失败: {e}")
@@ -1314,33 +1332,12 @@ class ClauwdbotAgent(BaseAgent):
     
     async def _handle_help(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
         """处理帮助请求"""
-        return {
-            "success": True,
-            "response": """🤖 我是Clauwdbot，AI中心超级助理
-
-🔧 **AI团队管理**
-• "团队状态" - 查看AI员工工作情况
-• "让小猎搜索XXX" - 分配任务
-• "优化小文的写作风格" - 升级AI员工
-• "系统状态" - 健康检查
-• "日报" - AI团队工作报告
-
-📅 **日程管理**
-• "明天下午3点和张总开会"
-• "今天有什么安排"
-
-📋 **待办事项**
-• "记得下周五交报告"
-• "待办列表"
-
-📼 **会议纪要**
-• 发送会议录音给我
-
-📧 **邮件** / 📊 **ERP数据**
-• "查看新邮件" / "今天订单情况"
-
-有什么需要帮忙的？"""
-        }
+        context = f"用户问：{message}\n用户想知道Clauwdbot能做什么。"
+        smart_response = await self.chat(
+            context,
+            "你是Clauwdbot，一个温柔利索的AI女助理。用户在问你能做什么，用聊天的口吻简单介绍一下就好，不要用markdown、标签或bullet point列表。像朋友介绍自己一样自然地说，比如'我能帮您管团队、记日程、看邮件...'这种感觉。"
+        )
+        return {"success": True, "response": smart_response}
     
     async def _handle_unknown(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
         """处理无法识别的意图 - 使用AI智能回复"""
