@@ -77,6 +77,14 @@ class MultiEmailService:
             "smtp_port": 465,
             "imap_ssl": True,
             "smtp_ssl": True
+        },
+        "icloud": {
+            "imap_host": "imap.mail.me.com",
+            "imap_port": 993,
+            "smtp_host": "smtp.mail.me.com",
+            "smtp_port": 587,
+            "imap_ssl": True,
+            "smtp_ssl": False  # iCloud使用STARTTLS
         }
     }
     

@@ -520,7 +520,95 @@ MARIA_TOOLS: List[Dict[str, Any]] = [
         }
     },
 
-    # ── 10. 身份管理 ──
+    # ── 10. 邮件管理（增强版）──
+    {
+        "type": "function",
+        "function": {
+            "name": "send_email",
+            "description": "通过老板的邮箱发送邮件。可以指定用哪个邮箱发，如果不指定就用默认邮箱",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to_emails": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "收件人邮箱地址列表"
+                    },
+                    "subject": {
+                        "type": "string",
+                        "description": "邮件主题"
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "邮件正文内容"
+                    },
+                    "account_name": {
+                        "type": "string",
+                        "description": "可选，用哪个邮箱发（如'iCloud邮箱'、'工作邮箱'），不指定则用默认邮箱"
+                    }
+                },
+                "required": ["to_emails", "subject", "body"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "sync_emails",
+            "description": "同步拉取邮箱里的最新邮件，然后可以查看未读邮件。相当于刷新收件箱",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "account_name": {
+                        "type": "string",
+                        "description": "可选，同步哪个邮箱。不指定则同步全部邮箱"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "manage_email_account",
+            "description": "管理邮箱账户：添加新邮箱、查看已有邮箱列表、删除邮箱、测试邮箱连接",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "add", "delete", "test"],
+                        "description": "操作：list=查看邮箱列表, add=添加新邮箱, delete=删除邮箱, test=测试连接"
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "添加时：邮箱别名（如'工作邮箱'、'个人邮箱'）"
+                    },
+                    "email_address": {
+                        "type": "string",
+                        "description": "添加时：邮箱地址"
+                    },
+                    "password": {
+                        "type": "string",
+                        "description": "添加时：邮箱密码或授权码"
+                    },
+                    "provider": {
+                        "type": "string",
+                        "enum": ["icloud", "gmail", "outlook", "qq", "qq_enterprise", "163", "aliyun", "other"],
+                        "description": "添加时：邮箱服务商（自动配置IMAP/SMTP）"
+                    },
+                    "account_name": {
+                        "type": "string",
+                        "description": "删除/测试时：要操作的邮箱别名"
+                    }
+                },
+                "required": ["action"]
+            }
+        }
+    },
+
+    # ── 11. 身份管理 ──
     {
         "type": "function",
         "function": {
@@ -616,6 +704,9 @@ class MariaToolExecutor:
             "web_search": self._tool_web_search,
             "fetch_webpage": self._tool_fetch_webpage,
             "add_to_apple_calendar": self._tool_add_to_apple_calendar,
+            "send_email": self._tool_send_email,
+            "sync_emails": self._tool_sync_emails,
+            "manage_email_account": self._tool_manage_email_account,
         }
         return handler_map.get(tool_name)
 
@@ -808,3 +899,15 @@ class MariaToolExecutor:
     async def _tool_add_to_apple_calendar(self, message, intent, user_id, args):
         """直接写入苹果日历"""
         return await self.agent._handle_add_to_apple_calendar(args=args)
+
+    async def _tool_send_email(self, message, intent, user_id, args):
+        """发送邮件"""
+        return await self.agent._handle_send_email(args=args)
+
+    async def _tool_sync_emails(self, message, intent, user_id, args):
+        """同步邮件"""
+        return await self.agent._handle_sync_emails(args=args)
+
+    async def _tool_manage_email_account(self, message, intent, user_id, args):
+        """管理邮箱账户"""
+        return await self.agent._handle_manage_email_account(args=args)
