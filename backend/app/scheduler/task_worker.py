@@ -317,20 +317,32 @@ async def _notify_user(user_id: str, agent_type: str, input_data: Dict, result: 
         agent_name = agent_names.get(agent_type, agent_type)
         task_desc = input_data.get("description", "")[:50]
         
-        # 提取结果摘要
+        # 提取结果摘要（按优先级尝试多个字段）
         if isinstance(result, dict):
-            response = result.get("response") or result.get("readable_report") or result.get("result", "")
+            response = (
+                result.get("response")
+                or result.get("readable_report")
+                or result.get("result")
+                or result.get("script")       # 小文的视频脚本
+                or result.get("content")      # 通用内容
+                or result.get("report")       # 报告
+                or result.get("analysis")     # 分析结果
+                or ""
+            )
             if isinstance(response, dict):
-                response = json.dumps(response, ensure_ascii=False)[:500]
-            elif isinstance(response, str) and len(response) > 500:
-                response = response[:500] + "..."
+                response = json.dumps(response, ensure_ascii=False)[:800]
+            elif isinstance(response, str) and len(response) > 800:
+                response = response[:800] + "..."
         else:
-            response = str(result)[:500]
+            response = str(result)[:800]
         
         # 构建推送消息
         msg = f"【{agent_name}完成任务】\n"
         msg += f"任务：{task_desc}\n"
-        msg += f"结果：{response if response else '任务已完成，无文本输出'}"
+        if response:
+            msg += f"结果：{response}"
+        else:
+            msg += "结果：任务已完成，详细内容已保存到系统中。"
         
         await send_text_message(user_id, msg)
         logger.info(f"[TaskWorker] 结果已推送给 {user_id}")
@@ -411,10 +423,16 @@ def _extract_output_summary(result: Dict) -> str:
     if not isinstance(result, dict):
         return str(result)[:200]
     
+    # 按优先级尝试多个字段
     response = (
         result.get("response")
         or result.get("readable_report")
         or result.get("result")
+        or result.get("script")       # 小文的视频脚本
+        or result.get("content")      # 通用内容
+        or result.get("report")       # 报告
+        or result.get("analysis")     # 分析结果
+        or result.get("title")        # 至少有标题
         or ""
     )
     
@@ -424,4 +442,4 @@ def _extract_output_summary(result: Dict) -> str:
     if isinstance(response, str) and len(response) > 200:
         return response[:200] + "..."
     
-    return str(response) if response else "任务完成，无文本输出"
+    return str(response) if response else "任务完成（结果已保存到系统）"
