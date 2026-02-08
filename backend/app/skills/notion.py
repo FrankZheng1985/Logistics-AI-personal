@@ -27,9 +27,20 @@ class NotionSkill(BaseSkill):
         "search_notion",
     ]
 
+    # Notion 工作台分区定义
+    SECTIONS = {
+        "project":  {"icon": "📋", "title": "📋 项目方案",  "keywords": ["方案", "项目", "计划", "设计", "架构", "开发", "系统", "技术"]},
+        "report":   {"icon": "📊", "title": "📊 报告分析",  "keywords": ["日报", "周报", "月报", "报告", "分析", "调研", "总结", "数据"]},
+        "meeting":  {"icon": "📝", "title": "📝 会议纪要",  "keywords": ["会议", "纪要", "讨论", "决策", "会议记录"]},
+        "idea":     {"icon": "💡", "title": "💡 创意灵感",  "keywords": ["创意", "灵感", "想法", "脑暴", "思路", "营销"]},
+        "knowledge":{"icon": "📚", "title": "📚 知识库",    "keywords": ["文档", "手册", "SOP", "培训", "教程", "操作", "指南"]},
+        "archive":  {"icon": "🗂️", "title": "🗂️ 归档",     "keywords": ["归档", "历史", "已完成"]},
+    }
+
     def __init__(self, agent=None):
         super().__init__(agent)
         self._client = None
+        self._section_cache: Dict[str, str] = {}  # section_key -> page_id 缓存
 
     def _get_client(self):
         """懒加载 Notion Client"""
@@ -65,6 +76,92 @@ class NotionSkill(BaseSkill):
 
     # ==================== 创建页面 ====================
 
+    def _detect_section(self, title: str, page_type: str) -> str:
+        """根据标题和类型自动判断应该放在哪个分区"""
+        # 先按 page_type 映射
+        type_to_section = {
+            "plan": "project", "proposal": "project",
+            "report": "report",
+            "meeting": "meeting",
+            "document": None,  # 需要进一步判断
+        }
+
+        section = type_to_section.get(page_type)
+        if section:
+            return section
+
+        # 按关键词匹配
+        combined = title.lower()
+        for key, info in self.SECTIONS.items():
+            if any(kw in combined for kw in info["keywords"]):
+                return key
+
+        # 默认放到项目方案
+        return "project"
+
+    def _ensure_dated_title(self, title: str) -> str:
+        """确保标题带日期前缀"""
+        # 如果已经有日期前缀，直接返回
+        if re.match(r'^\[\d{4}-\d{2}-\d{2}\]', title):
+            return title
+        today = datetime.now().strftime("%Y-%m-%d")
+        return f"[{today}] {title}"
+
+    async def _get_or_create_section(self, section_key: str) -> str:
+        """获取或创建分区页面，返回分区的 page_id"""
+        # 先查缓存
+        if section_key in self._section_cache:
+            return self._section_cache[section_key]
+
+        section_info = self.SECTIONS.get(section_key)
+        if not section_info:
+            return self._get_root_page_id()
+
+        section_title = section_info["title"]
+
+        try:
+            client = self._get_client()
+            root_id = self._get_root_page_id()
+
+            # 搜索是否已有此分区页面
+            search_result = client.search(
+                query=section_title,
+                filter={"property": "object", "value": "page"},
+                page_size=5,
+            )
+
+            for item in search_result.get("results", []):
+                item_title = self._extract_title(item)
+                if item_title == section_title:
+                    page_id = item["id"]
+                    self._section_cache[section_key] = page_id
+                    logger.info(f"[NotionSkill] 找到已有分区: {section_title} -> {page_id}")
+                    return page_id
+
+            # 不存在则创建分区页面
+            new_section = client.pages.create(
+                parent={"page_id": root_id},
+                properties={
+                    "title": [{"text": {"content": section_title}}]
+                },
+                icon={"type": "emoji", "emoji": section_info["icon"]},
+                children=[
+                    self._make_paragraph(
+                        f"此分区由 Maria AI 自动创建，用于归类{section_title.split(' ', 1)[-1]}相关文档。",
+                        color="gray"
+                    )
+                ],
+            )
+
+            page_id = new_section["id"]
+            self._section_cache[section_key] = page_id
+            logger.info(f"[NotionSkill] 创建新分区: {section_title} -> {page_id}")
+            return page_id
+
+        except Exception as e:
+            logger.warning(f"[NotionSkill] 获取/创建分区失败: {e}，使用根页面")
+            return self._get_root_page_id()
+
     async def _handle_create_page(self, args: Dict, message: str, user_id: str) -> Dict[str, Any]:
         """在 Notion 中创建新页面"""
         title = args.get("title", "").strip()
@@ -75,6 +172,9 @@ class NotionSkill(BaseSkill):
         if not title:
             return self._err("请提供页面标题")
 
+        # 自动加日期前缀
+        title = self._ensure_dated_title(title)
+
         await self.log_step("action", "创建 Notion 页面", title)
 
         # 如果没有给内容，用 LLM 生成
@@ -84,13 +184,20 @@ class NotionSkill(BaseSkill):
             content = await self.chat(
                 generation_prompt,
                 "你是一个专业的文档撰写助手。根据用户需求生成结构化的 Markdown 内容。"
-                "使用清晰的标题层级（## ##）、列表、加粗等格式。内容要专业、完整、实用。"
+                "使用清晰的标题层级（## ###）、列表、加粗等格式。内容要专业、完整、实用。"
                 "不要在开头重复标题。直接输出正文内容。"
             )
 
         try:
             client = self._get_client()
-            parent_id = parent_page_id or self._get_root_page_id()
+
+            # 自动归类到对应分区
+            if parent_page_id:
+                parent_id = parent_page_id
+            else:
+                section_key = self._detect_section(title, page_type)
+                parent_id = await self._get_or_create_section(section_key)
+                logger.info(f"[NotionSkill] 页面归类到分区: {section_key}")
 
             # 构建 Notion 页面属性
             page_properties = {
