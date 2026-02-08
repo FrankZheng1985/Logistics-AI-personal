@@ -402,12 +402,14 @@ class MultiEmailService:
                 conn.login(account["imap_user"], account["imap_password"])
                 conn.select("INBOX")
                 
-                # 搜索最近N天的邮件（强制英文月份格式，避免中文环境locale问题）
+                # 搜索最近N天的邮件（强制英文月份格式 + 字节串编码，避免中文环境locale和编码问题）
                 date_obj = datetime.now() - timedelta(days=days_back)
                 month_names_en = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", 
                                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
                 since_date = f"{date_obj.day:02d}-{month_names_en[date_obj.month - 1]}-{date_obj.year}"
-                _, message_numbers = conn.search(None, f'(SINCE {since_date})')
+                # IMAP search需要bytes或ASCII字符串，明确编码为ASCII
+                search_criterion = f'(SINCE {since_date})'.encode('ascii')
+                _, message_numbers = conn.search(None, search_criterion)
                 
                 email_ids = message_numbers[0].split()[-max_emails:]  # 取最新的N封
                 
