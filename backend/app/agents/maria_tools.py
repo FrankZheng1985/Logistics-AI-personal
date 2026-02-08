@@ -793,10 +793,16 @@ class MariaToolExecutor:
                 return result
             else:
                 logger.warning(f"[Maria Tool] 未找到工具 {tool_name} 对应的Skill")
-                return {"status": "error", "message": f"未知工具: {tool_name}"}
+                return {"status": "error", "message": f"未知工具: {tool_name}，这个功能我还不支持"}
         except Exception as e:
-            logger.error(f"[Maria Tool] 工具 {tool_name} 执行失败: {e}")
-            return {"status": "error", "message": f"执行失败: {str(e)}"}
+            logger.error(f"[Maria Tool] 工具 {tool_name} 执行失败: {e}", exc_info=True)
+            # 返回详细错误信息，让 LLM 能据此给老板清楚的回复
+            return {
+                "status": "error",
+                "message": f"执行 {tool_name} 时出错：{str(e)[:300]}",
+                "tool_name": tool_name,
+                "error_type": type(e).__name__,
+            }
 
     @staticmethod
     def _build_message(tool_name: str, arguments: Dict[str, Any]) -> str:

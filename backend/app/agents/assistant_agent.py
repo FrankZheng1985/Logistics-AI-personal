@@ -276,14 +276,79 @@ class ClauwdbotAgent(BaseAgent):
             return result
             
         except Exception as e:
-            logger.error(f"[Maria] 处理消息失败: {e}")
+            logger.error(f"[Maria] 处理消息失败: {e}", exc_info=True)
             await self.log_error(str(e))
             await self.end_task_session(error_message=str(e))
+            
+            # 生成对老板有用的错误说明
+            error_msg = str(e)
+            user_friendly = self._build_error_report(error_msg, message)
+            
             return {
                 "success": False,
-                "response": "老板，出了点小状况，我再试试。",
-                "error": str(e)
+                "response": user_friendly,
+                "error": error_msg
             }
+    
+    @staticmethod
+    def _build_error_report(error_msg: str, user_request: str) -> str:
+        """把技术错误翻译成老板能看懂的汇报"""
+        
+        # 错误类型识别与翻译
+        error_map = [
+            # Notion 相关
+            ("NOTION_API_KEY", "Notion API 密钥未配置或已失效，需要重新设置"),
+            ("NOTION_ROOT_PAGE_ID", "Notion 根页面未配置，需要设置 Maria 工作台的页面 ID"),
+            ("notion", "Notion 连接出了问题，可能是权限不足或者网络超时"),
+            ("Could not find page", "找不到 Notion 页面，可能页面被删了或者没给我权限"),
+            ("Unauthorized", "Notion 授权失败，API 密钥可能过期了"),
+            
+            # 邮件相关
+            ("IMAP", "邮箱连接失败（IMAP协议问题），可能是密码错了或者服务器拒绝了"),
+            ("SMTP", "邮件发送失败（SMTP协议问题），可能是授权码过期了"),
+            ("email", "邮件操作失败"),
+            
+            # 数据库相关
+            ("database", "数据库连接出了问题"),
+            ("relation", "数据库表还没创建"),
+            ("asyncpg", "数据库连接超时或断开了"),
+            
+            # 网络相关
+            ("timeout", "操作超时了，网络可能不太好"),
+            ("ConnectionError", "网络连接失败"),
+            ("httpx", "网络请求失败"),
+            
+            # LLM 相关
+            ("rate_limit", "AI 接口调用太频繁了，被限流了，稍等一下再试"),
+            ("insufficient_quota", "AI 接口额度用完了，需要充值"),
+            ("model", "AI 模型调用出了问题"),
+            
+            # 权限相关
+            ("Permission", "权限不够，无法执行这个操作"),
+            ("Forbidden", "被拒绝了，没有权限"),
+            
+            # 通用
+            ("asyncio", "内部并发处理出了问题"),
+            ("JSON", "数据解析出了问题"),
+        ]
+        
+        # 匹配错误类型
+        diagnosis = None
+        for keyword, desc in error_map:
+            if keyword.lower() in error_msg.lower():
+                diagnosis = desc
+                break
+        
+        if not diagnosis:
+            diagnosis = f"出了一个意外错误"
+        
+        # 构建清晰的错误汇报
+        report = f"老板，你让我「{user_request[:30]}」的时候出了问题。\n\n"
+        report += f"原因：{diagnosis}\n"
+        report += f"错误详情：{error_msg[:150]}\n\n"
+        report += "我已经记录了这个问题。你可以让我再试一次，或者告诉开发团队排查。"
+        
+        return report
     
     # ==================== 前置处理 ====================
     
