@@ -367,7 +367,9 @@ class MultiEmailService:
             return result
             
         except Exception as e:
+            import traceback
             logger.error(f"同步邮件失败: {account['name']} - {e}")
+            logger.error(f"详细堆栈:\n{traceback.format_exc()}")
             
             # 记录错误
             async with AsyncSessionLocal() as db:
