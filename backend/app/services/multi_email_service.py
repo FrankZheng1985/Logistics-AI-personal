@@ -410,14 +410,23 @@ class MultiEmailService:
                 
                 for email_id in email_ids:
                     try:
-                        _, msg_data = conn.fetch(email_id, "(RFC822)")
-                        # msg_data 可能是 [(flags, bytes), b')'] 格式
-                        # 需要找到包含邮件内容的 tuple
+                        # 优先用 BODY.PEEK[]（不标记已读），iCloud不支持RFC822
+                        _, msg_data = conn.fetch(email_id, "(BODY.PEEK[])")
+                        
+                        # 从返回数据中提取邮件bytes
                         email_body = None
                         for part in msg_data:
                             if isinstance(part, tuple) and len(part) >= 2 and isinstance(part[1], bytes):
                                 email_body = part[1]
                                 break
+                        
+                        if not email_body:
+                            # 降级尝试 RFC822
+                            _, msg_data = conn.fetch(email_id, "(RFC822)")
+                            for part in msg_data:
+                                if isinstance(part, tuple) and len(part) >= 2 and isinstance(part[1], bytes):
+                                    email_body = part[1]
+                                    break
                         
                         if not email_body:
                             continue
