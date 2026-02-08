@@ -137,6 +137,17 @@ async def init_scheduler():
         logger.warning(f"Maria巡检任务导入失败: {e}")
         run_maria_inspection = None
     
+    # Maria 后台智能任务
+    try:
+        from app.scheduler.maria_tasks import (
+            auto_sync_emails,
+            auto_sync_calendar,
+            maria_morning_brief
+        )
+    except ImportError as e:
+        logger.warning(f"Maria后台任务导入失败: {e}")
+        auto_sync_emails = auto_sync_calendar = maria_morning_brief = None
+    
     # ==================== 辅助函数 ====================
     
     def _safe_add_job(func, trigger, job_id, name, **kwargs):
@@ -266,6 +277,17 @@ async def init_scheduler():
     
     _safe_add_job(run_maria_inspection, CronTrigger(hour=18, minute=0),
                   "maria_inspection_evening", "[Maria] 晚间系统巡检 - 18:00")
+    
+    # ==================== Maria 后台智能任务（速度优化）====================
+    
+    _safe_add_job(auto_sync_emails, IntervalTrigger(minutes=10),
+                  "maria_auto_sync_emails", "[Maria] 邮件自动同步 - 每10分钟")
+    
+    _safe_add_job(auto_sync_calendar, IntervalTrigger(minutes=5),
+                  "maria_auto_sync_calendar", "[Maria] 日历自动同步 - 每5分钟")
+    
+    _safe_add_job(maria_morning_brief, CronTrigger(hour=9, minute=0),
+                  "maria_morning_brief", "[Maria] 早间智能简报 - 09:00")
     
     # ==================== 启动调度器 ====================
     

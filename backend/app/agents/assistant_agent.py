@@ -171,13 +171,19 @@ class ClauwdbotAgent(BaseAgent):
                     content = response.get("content", "") if isinstance(response, dict) else str(response)
                     
                     # 拦截“口头承诺”：如果回复里说要操作但没调工具，强制它再想一次
-                    commitment_keywords = ["稍等", "操作一下", "正在处理", "为您添加", "为您生成", "为您查询", "好的", "处理好了", "完成了", "已经", "帮你", "帮您", "马上", "立刻", "现在就", "这就", "正在", "开始"]
-                    task_keywords = ["同步", "邮件", "读取", "查看", "添加", "日历", "日程", "生成", "分析", "查询", "统计", "搜索", "发送", "检查", "管理", "解读"]
+                    # 精准拦截：只拦截真正的"假完成"
+                    strong_promises = ["处理好了", "完成了", "已经添加", "已经生成", "已经发送", "同步完成", "添加成功"]
+                    task_verbs = ["同步", "添加", "生成", "发送", "查询", "检查"]
+                    valid_responses = ["没有", "不能", "无法", "不支持", "暂时", "清净", "空的", "0封", "问题", "失败"]
                     
-                    is_commitment = any(kw in content for kw in commitment_keywords)
-                    is_task_request = any(kw in message for kw in task_keywords)
+                    has_strong_promise = any(word in content for word in strong_promises)
+                    user_requests_task = any(verb in message for verb in task_verbs)
+                    is_valid_response = any(word in content for word in valid_responses)
                     
-                    if turn == 0 and (is_commitment or is_task_request):
+                    # 只拦截：明确承诺完成 OR (用户要任务 AND 回复不合理且很短)
+                    should_intercept = has_strong_promise or (user_requests_task and not is_valid_response and len(content) < 50)
+                    
+                    if turn == 0 and should_intercept:
                         logger.warning(f"[Maria ReAct] 拦截：口头承诺或任务请求未调工具 | user: '{message[:30]}...' | bot: '{content[:30]}...'")
                         messages.append({"role": "assistant", "content": content})
                         messages.append({"role": "user", "content": "❌ 错误：你必须调用工具执行实际操作，不能只说不做或编造数据。请重新回答，这次必须使用工具。"})

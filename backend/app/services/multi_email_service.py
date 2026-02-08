@@ -630,7 +630,13 @@ class MultiEmailService:
     # ==================== 邮件查询 ====================
     
     async def get_unread_summary(self) -> Dict[str, Any]:
-        """获取所有邮箱的未读邮件摘要"""
+        """获取所有邮箱的未读邮件摘要（带缓存）"""
+        # 尝试从缓存获取
+        from app.services.cache_service import cache_service
+        cached = await cache_service.get("email:unread_summary")
+        if cached:
+            return cached
+        
         async with AsyncSessionLocal() as db:
             # 获取每个账户的未读邮件统计
             result = await db.execute(
@@ -666,10 +672,15 @@ class MultiEmailService:
                 "recent_emails": recent_emails
             })
         
-        return {
+        result = {
             "total_unread": total_unread,
             "accounts": accounts
         }
+        
+        # 缓存结果（2分钟）
+        await cache_service.set("email:unread_summary", result, ttl=120)
+        
+        return result
     
     async def get_unread_emails(
         self, 

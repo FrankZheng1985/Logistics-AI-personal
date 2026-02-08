@@ -36,6 +36,10 @@ async def lifespan(app: FastAPI):
     await task_queue.init()
     await init_task_handlers()
     
+    # 初始化智能缓存服务
+    from app.services.cache_service import cache_service
+    await cache_service.connect()
+    
     # 初始化定时任务
     from app.scheduler import init_scheduler, shutdown_scheduler
     await init_scheduler()
@@ -51,6 +55,7 @@ async def lifespan(app: FastAPI):
     
     # 关闭时执行
     await task_queue.close()
+    await cache_service.close()
     await shutdown_scheduler()
     logger.info("👋 系统关闭中...")
 
