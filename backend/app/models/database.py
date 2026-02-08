@@ -18,6 +18,8 @@ engine = create_async_engine(
     pool_size=5,
     max_overflow=10,
     pool_pre_ping=True,
+    pool_recycle=1800,  # 30分钟回收连接，防止长时间空闲断开
+    pool_timeout=30,    # 获取连接超时30秒
 )
 
 # 创建异步会话工厂

@@ -74,48 +74,13 @@ class ClauwdbotAgent(BaseAgent):
         "sales": {"name": "小销", "type": AgentType.SALES, "prompt_file": None},
         "follow": {"name": "小跟", "type": AgentType.FOLLOW, "prompt_file": None},
         "analyst": {"name": "小析", "type": AgentType.ANALYST, "prompt_file": None},
-        "lead_hunter": {"name": "小猎", "type": AgentType.LEAD_HUNTER, "prompt_file": None},
-        "analyst2": {"name": "小析2", "type": AgentType.ANALYST2, "prompt_file": None},
-        "eu_customs_monitor": {"name": "小欧间谍", "type": AgentType.EU_CUSTOMS_MONITOR, "prompt_file": None},
+        "lead_hunter": {"name": "小猎", "type": AgentType.LEAD_HUNTER, "prompt_file": "lead_hunter.py"},
+        "analyst2": {"name": "小析2", "type": AgentType.ANALYST2, "prompt_file": "analyst2.py"},
+        "eu_customs_monitor": {"name": "小欧间谍", "type": AgentType.EU_CUSTOMS_MONITOR, "prompt_file": "eu_customs_monitor.py"},
     }
     
-    # 意图分类（全能版）
-    INTENT_TYPES = {
-        # === 自我配置意图 ===
-        "change_name": ["你叫", "名字叫", "以后叫", "改名", "叫你", "你的名字", "称呼你为"],
-        # === 管理类意图 ===
-        "agent_status": ["团队状态", "员工状态", "AI状态", "谁在工作", "工作情况", "检查一下", "做事情有没有偷懒"],
-        "agent_dispatch": ["让小", "安排小", "派小", "叫小", "通知小"],
-        "agent_upgrade": ["优化", "升级", "改进", "修改prompt", "修改提示词", "调整风格"],
-        "agent_code_modify": ["改一下", "改改", "修改代码", "改代码", "帮我改", "调一下", "改他的", "改她的"],
-        "agent_code_read": ["看一下代码", "查看代码", "读取代码", "代码逻辑"],
-        "system_status": ["系统状态", "健康检查", "系统健康"],
-        "task_status": ["任务状态", "进度", "完成了吗", "怎么样了"],
-        # === 专业文档意图 ===
-        "generate_ppt": ["做ppt", "做PPT", "做个ppt", "PPT", "ppt", "演示文稿", "幻灯片"],
-        "generate_word": ["计划书", "方案书", "写报告", "写文档", "做计划", "写个方案", "写一份"],
-        "generate_code": ["写代码", "写脚本", "写程序", "爬虫", "帮我写个", "编程", "代码"],
-        # === 邮件深度阅读 ===
-        "email_deep_read": ["帮我看邮件", "读邮件", "邮件内容", "分析邮件", "邮件详情"],
-        "email_query": ["邮件", "收件箱", "新邮件", "查看邮件", "未读邮件"],
-        "email_reply": ["回复邮件", "发邮件", "帮我回"],
-        # === 工作总结 ===
-        "daily_summary": ["日报", "今日总结", "今天总结", "今天干了啥", "工作汇报", "总结一下"],
-        "weekly_summary": ["周报", "这周总结", "周总结", "这周干的怎么样", "一周总结"],
-        "daily_report_ai": ["AI报告", "AI日报", "团队日报"],
-        # === 个人助理意图 ===
-        "schedule_query": ["有什么安排", "有什么会", "查看日程", "查询日程", "今天安排", "明天安排", "今天有", "明天有", "日程", "行程"],
-        "schedule_update": ["修改", "改成", "改为", "调整时间", "更改", "变更日程"],
-        "schedule_cancel": ["取消", "删除日程", "不开了"],
-        "schedule_add": ["记住", "记录", "添加日程", "提醒我", "帮我记"],
-        "todo_query": ["待办列表", "还有什么没做", "待办事项"],
-        "todo_complete": ["完成了", "做完了", "搞定了"],
-        "todo_add": ["待办", "要做", "记得做", "别忘了"],
-        "meeting_record": ["会议纪要", "整理会议", "会议结束"],
-        "erp_query": ["订单", "今天多少单", "财务", "营收"],
-        "report": ["简报"],
-        "help": ["帮助", "你能做什么", "功能"],
-    }
+    # ReAct 最大循环轮次
+    MAX_REACT_TURNS = 5
     
     @staticmethod
     def to_china_time(dt):
@@ -127,12 +92,8 @@ class ClauwdbotAgent(BaseAgent):
         return dt.astimezone(ClauwdbotAgent.CHINA_TZ)
     
     def _build_system_prompt(self) -> str:
-        base_prompt = CLAUWDBOT_SYSTEM_PROMPT
-        
-        # 动态替换名字
-        bot_name = getattr(self, '_bot_display_name', None)
-        if bot_name and bot_name != "Clauwdbot":
-            base_prompt = base_prompt.replace("Clauwdbot", bot_name)
+        bot_name = getattr(self, '_bot_display_name', None) or "Clauwdbot"
+        base_prompt = CLAUWDBOT_SYSTEM_PROMPT.format(bot_name=bot_name)
         
         # 如果有记忆上下文，动态注入
         memory_ctx = getattr(self, '_user_memory_context', '')
@@ -143,229 +104,199 @@ class ClauwdbotAgent(BaseAgent):
     
     async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        处理用户消息 - Clauwdbot超级助理（含自学习闭环）
+        处理用户消息 - Maria/Clauwdbot 大模型原生对话引擎
         
-        流程：加载记忆 -> 解析意图 -> 处理 -> 保存交互 -> 异步学习
+        架构：ReAct (Reasoning + Acting) 循环
+        LLM 自主决定是直接回复还是调用工具干活，最多循环 MAX_REACT_TURNS 轮
         """
         message = input_data.get("message", "")
         user_id = input_data.get("user_id", "")
         message_type = input_data.get("message_type", "text")
         file_url = input_data.get("file_url")
         
-        await self.start_task_session("process_message", f"Clauwdbot处理消息: {message[:50]}...")
+        await self.start_task_session("process_message", f"处理消息: {message[:50]}...")
         
         try:
-            # 0. 【学习前钩子】加载用户记忆 + 名字，注入到系统 Prompt
-            memory_context = ""
-            try:
-                from app.services.memory_service import memory_service
-                memory_context = await memory_service.get_context_for_llm(user_id)
-                if memory_context:
-                    self._user_memory_context = memory_context
-                    logger.info(f"[Clauwdbot] 已加载{user_id}的记忆上下文")
-                
-                # 加载自定义名字
-                bot_name = await memory_service.recall(user_id, "bot_name")
-                if bot_name:
-                    self._bot_display_name = bot_name
-                    logger.info(f"[Clauwdbot] 使用自定义名字: {bot_name}")
-                else:
-                    self._bot_display_name = "Clauwdbot"
-            except Exception as e:
-                logger.warning(f"[Clauwdbot] 加载记忆失败（不影响主流程）: {e}")
+            # ===== 0. 前置准备（记忆、纠错、审批检测）=====
+            await self._pre_process(user_id, message)
             
-            # 0.5 【纠错检测】如果老板在纠正，先学习
-            try:
-                from app.services.memory_service import memory_service
-                if await memory_service.detect_correction(message):
-                    await memory_service.learn_from_correction(user_id, "", message)
-                    logger.info(f"[Clauwdbot] 检测到纠正，已学习")
-            except Exception as e:
-                logger.warning(f"[Clauwdbot] 纠错检测失败: {e}")
-            
-            # 0.8 【审批检测】检查是否有待审批的方案
+            # 审批检测：如果有待审批方案且用户在回复审批
             try:
                 from app.services.memory_service import memory_service
                 pending_raw = await memory_service.recall(user_id, "pending_approval")
                 if pending_raw:
                     approval_result = await self._check_approval(user_id, message, pending_raw)
                     if approval_result:
-                        # 审批已处理（通过/拒绝），直接返回
                         await self._save_interaction(user_id, message, message_type, {"type": "approval"}, approval_result.get("response", ""))
                         await self.end_task_session("审批处理完成")
                         return approval_result
             except Exception as e:
-                logger.warning(f"[Clauwdbot] 审批检测失败: {e}")
+                logger.warning(f"[Maria] 审批检测失败: {e}")
             
-            # 0.9 【对话上下文】加载最近对话历史
-            self._recent_history = []
-            try:
-                self._recent_history = await self._load_recent_history(user_id, limit=6)
-                if self._recent_history:
-                    logger.info(f"[Clauwdbot] 已加载{len(self._recent_history)}条对话历史")
-            except Exception as e:
-                logger.warning(f"[Clauwdbot] 加载对话历史失败: {e}")
-            
-            # 1. 如果是语音/文件消息，处理录音
+            # ===== 1. 音频/文件直接处理 =====
             if message_type in ["voice", "file"] and file_url:
-                await self.log_live_step("think", "收到音频文件", "准备进行会议录音转写")
                 result = await self._handle_audio_file(file_url, user_id)
-                await self.end_task_session("会议录音处理完成")
+                await self.end_task_session("音频处理完成")
                 return result
             
-            # 2. 解析用户意图（带对话上下文）
-            await self.log_live_step("think", "Clauwdbot分析指令", message[:100])
-            intent = await self._parse_intent(message)
+            # ===== 2. 构建对话消息 =====
+            messages = self._build_conversation_messages(message)
             
-            # 3. 根据意图处理
-            handler_map = {
-                # === 自我配置处理器 ===
-                "change_name": self._handle_change_name,
-                # === 管理类处理器 ===
-                "agent_status": self._handle_agent_status,
-                "agent_dispatch": self._handle_agent_dispatch,
-                "agent_upgrade": self._handle_agent_upgrade,
-                "agent_code_modify": self._handle_agent_code_modify,
-                "agent_code_read": self._handle_agent_code_read,
-                "system_status": self._handle_system_status,
-                "daily_report_ai": self._handle_ai_daily_report,
-                "task_status": self._handle_task_status,
-                # === 专业文档处理器（新增）===
-                "generate_ppt": self._handle_generate_ppt,
-                "generate_word": self._handle_generate_word,
-                "generate_code": self._handle_generate_code,
-                # === 邮件处理器（升级）===
-                "email_deep_read": self._handle_email_deep_read,
-                "email_query": self._handle_email_query,
-                "email_reply": self._handle_email_reply,
-                # === 工作总结处理器（新增）===
-                "daily_summary": self._handle_daily_summary,
-                "weekly_summary": self._handle_weekly_summary,
-                # === 个人助理处理器 ===
-                "schedule_add": self._handle_schedule_add,
-                "schedule_update": self._handle_schedule_update,
-                "schedule_query": self._handle_schedule_query,
-                "schedule_cancel": self._handle_schedule_cancel,
-                "todo_add": self._handle_todo_add,
-                "todo_query": self._handle_todo_query,
-                "todo_complete": self._handle_todo_complete,
-                "meeting_record": self._handle_meeting_record,
-                "erp_query": self._handle_erp_query,
-                "report": self._handle_daily_summary,
-                "help": self._handle_help,
-            }
+            # ===== 3. ReAct 循环 =====
+            from app.agents.maria_tools import MARIA_TOOLS, MariaToolExecutor
+            from app.core.llm import chat_completion
             
-            handler = handler_map.get(intent["type"], self._handle_unknown)
-            result = await handler(message, intent, user_id)
+            tool_executor = MariaToolExecutor(self)
+            system_prompt = self._build_system_prompt()
             
-            # 4. 记录交互
-            await self._save_interaction(user_id, message, message_type, intent, result.get("response", ""))
+            final_text = ""
+            collected_files = []  # 收集工具返回的文件
             
-            # 5. 【学习后钩子】异步学习，不阻塞回复
+            for turn in range(self.MAX_REACT_TURNS):
+                logger.info(f"[Maria ReAct] 第{turn + 1}轮")
+                
+                response = await chat_completion(
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    tools=MARIA_TOOLS,
+                    use_advanced=True,  # 优先用 DeepSeek
+                    agent_name="Maria",
+                    task_type="react_turn",
+                )
+                
+                # --- 情况A：纯文本回复（没有工具调用）-> 结束循环 ---
+                tool_calls = response.get("tool_calls") if isinstance(response, dict) else None
+                
+                if not tool_calls:
+                    final_text = response.get("content", "") if isinstance(response, dict) else str(response)
+                    break
+                
+                # --- 情况B：有工具调用 -> 执行工具 + 继续循环 ---
+                # 先把 assistant 的 tool_calls 消息加入对话
+                assistant_msg = {
+                    "role": "assistant",
+                    "content": response.get("content") or "",
+                    "tool_calls": tool_calls,
+                }
+                messages.append(assistant_msg)
+                
+                # 执行每个工具调用
+                for tool_call in tool_calls:
+                    func_name = tool_call["function"]["name"]
+                    try:
+                        arguments = json.loads(tool_call["function"]["arguments"])
+                    except (json.JSONDecodeError, TypeError):
+                        arguments = {}
+                    
+                    await self.log_live_step("action", f"执行: {func_name}", json.dumps(arguments, ensure_ascii=False)[:100])
+                    
+                    # 调用工具
+                    tool_result = await tool_executor.execute(func_name, arguments, user_id)
+                    
+                    # 收集文件路径
+                    if tool_result.get("filepath"):
+                        collected_files.append(tool_result["filepath"])
+                    
+                    # 把工具结果加入对话，让 LLM 在下一轮看到
+                    tool_result_str = json.dumps(tool_result, ensure_ascii=False, default=str)
+                    # 截断过长的工具结果
+                    if len(tool_result_str) > 3000:
+                        tool_result_str = tool_result_str[:3000] + "...(结果已截断)"
+                    
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call["id"],
+                        "content": tool_result_str,
+                    })
+                    
+                    logger.info(f"[Maria ReAct] 工具 {func_name} 执行完毕")
+            else:
+                # 循环耗尽，取最后一轮的文本
+                if not final_text:
+                    final_text = "好的，处理好了。"
+            
+            # ===== 4. 构建返回结果 =====
+            result = {"success": True, "response": final_text}
+            
+            # 如果有文件，附上第一个文件路径（微信一次只发一个文件）
+            if collected_files:
+                result["filepath"] = collected_files[0]
+            
+            # ===== 5. 保存交互 + 异步学习 =====
+            await self._save_interaction(user_id, message, message_type, {"type": "react"}, final_text)
+            
             try:
                 import asyncio
                 from app.services.memory_service import memory_service
                 asyncio.create_task(
-                    memory_service.auto_learn(user_id, message, result.get("response", ""), intent.get("type", "unknown"))
+                    memory_service.auto_learn(user_id, message, final_text, "react")
                 )
             except Exception as e:
-                logger.warning(f"[Clauwdbot] 异步学习启动失败: {e}")
+                logger.warning(f"[Maria] 异步学习启动失败: {e}")
             
-            await self.end_task_session(f"处理完成: {intent['type']}")
+            await self.end_task_session("处理完成")
             return result
             
         except Exception as e:
-            logger.error(f"[Clauwdbot] 处理消息失败: {e}")
+            logger.error(f"[Maria] 处理消息失败: {e}")
             await self.log_error(str(e))
             await self.end_task_session(error_message=str(e))
             return {
                 "success": False,
-                "response": "老板，处理您的请求时出现了问题，请稍后再试。",
+                "response": "老板，出了点小状况，我再试试。",
                 "error": str(e)
             }
     
-    async def _parse_intent(self, message: str) -> Dict[str, Any]:
-        """
-        解析用户意图（带对话上下文的智能版）
-        
-        策略：
-        - 长消息（>15字）且含明确关键词 -> 关键词快速匹配
-        - 短消息/模糊消息/跟进消息 -> LLM + 对话上下文
-        """
-        message_lower = message.lower().strip()
-        msg_len = len(message_lower)
-        
-        # === 判断是否可能是跟进消息 ===
-        # 短消息（<=15字）很可能是对上一句的追问，不走关键词匹配
-        is_short_msg = msg_len <= 15
-        # 典型跟进词
-        followup_patterns = ["怎么样了", "什么样了", "改成什么", "好了吗", "结果呢",
-                             "然后呢", "再说说", "详细说说", "看看", "给我看", "具体呢"]
-        is_followup = any(p in message_lower for p in followup_patterns)
-        
-        # 只有长消息且不像跟进 -> 才走关键词快速匹配
-        if not is_short_msg and not is_followup:
-            best_match = None
-            best_length = 0
-            
-            for intent_type, keywords in self.INTENT_TYPES.items():
-                for keyword in keywords:
-                    if keyword in message_lower and len(keyword) > best_length:
-                        best_match = {"type": intent_type, "confidence": 0.8, "keyword": keyword}
-                        best_length = len(keyword)
-            
-            # 关键词够长（>=3字）才信任
-            if best_match and best_length >= 3:
-                return best_match
-        
-        # === LLM + 对话上下文分析 ===
-        # 构建最近对话摘要
-        history_text = ""
-        recent_history = getattr(self, '_recent_history', [])
-        if recent_history:
-            history_lines = []
-            for msg in recent_history[-8:]:  # 最近4轮对话
-                role = "老板" if msg["role"] == "user" else "Maria"
-                content = msg["content"][:150]
-                history_lines.append(f"{role}：{content}")
-            history_text = "\n".join(history_lines)
-        
-        analysis_prompt = f"""分析用户的最新消息属于哪种意图。
-
-{"最近对话记录（注意上下文衔接）：" + chr(10) + history_text + chr(10) if history_text else ""}
-用户最新消息：{message}
-
-重要规则：
-- 如果最新消息是对上一轮对话的追问/跟进，意图应该和上一轮保持一致
-- 比如上一轮在讨论修改员工Prompt，用户问"现在改成什么样了"，应该是 agent_code_read 而不是 schedule_update
-- "修改成什么样了"如果上下文是在改代码/Prompt，就是 agent_code_read
-- 只有明确说"改日程""改时间"才是 schedule_update
-
-可能的意图类型：
-【管理类】agent_status/agent_dispatch/agent_upgrade/agent_code_modify/agent_code_read/system_status/task_status
-【文档类】generate_ppt/generate_word/generate_code
-【邮件类】email_deep_read/email_query/email_reply
-【总结类】daily_summary/weekly_summary/daily_report_ai
-【助理类】schedule_add/schedule_update/schedule_query/schedule_cancel/todo_add/todo_query/todo_complete/meeting_record/erp_query/help
-【通用】chat（日常聊天/闲聊/问答）
-【无法识别】unknown
-
-返回格式：{{"type": "xxx", "confidence": 0.9}}
-只返回JSON。"""
-        
+    async def _pre_process(self, user_id: str, message: str):
+        """前置处理：加载记忆、纠错检测"""
+        # 加载用户记忆
         try:
-            response = await self.think([{"role": "user", "content": analysis_prompt}], temperature=0.3)
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
-            if json_match:
-                parsed = json.loads(json_match.group())
-                # chat 类型 -> 走 unknown 处理器（用对话式 LLM 回复）
-                if parsed.get("type") == "chat":
-                    parsed["type"] = "unknown"
-                return parsed
+            from app.services.memory_service import memory_service
+            memory_context = await memory_service.get_context_for_llm(user_id)
+            if memory_context:
+                self._user_memory_context = memory_context
+            
+            # 加载自定义名字
+            bot_name = await memory_service.recall(user_id, "bot_name")
+            if bot_name:
+                self._bot_display_name = bot_name
+            else:
+                self._bot_display_name = "Clauwdbot"
         except Exception as e:
-            logger.warning(f"[Clauwdbot] AI意图分析失败: {e}")
+            logger.warning(f"[Maria] 加载记忆失败: {e}")
         
-        return {"type": "unknown", "confidence": 0.5}
+        # 纠错检测
+        try:
+            from app.services.memory_service import memory_service
+            if await memory_service.detect_correction(message):
+                await memory_service.learn_from_correction(user_id, "", message)
+        except Exception as e:
+            logger.warning(f"[Maria] 纠错检测失败: {e}")
+        
+        # 加载对话历史
+        self._recent_history = []
+        try:
+            self._recent_history = await self._load_recent_history(user_id, limit=6)
+        except Exception as e:
+            logger.warning(f"[Maria] 加载对话历史失败: {e}")
+    
+    def _build_conversation_messages(self, current_message: str) -> List[Dict[str, str]]:
+        """构建发送给 LLM 的对话消息列表（含历史上下文）"""
+        messages = []
+        
+        # 加入最近对话历史
+        for hist in getattr(self, '_recent_history', []):
+            user_msg = hist.get("user_msg", "")
+            bot_msg = hist.get("bot_msg", "")
+            if user_msg:
+                messages.append({"role": "user", "content": user_msg})
+            if bot_msg:
+                messages.append({"role": "assistant", "content": bot_msg})
+        
+        # 当前消息
+        messages.append({"role": "user", "content": current_message})
+        
+        return messages
     
     # ==================== AI团队管理能力 ====================
     

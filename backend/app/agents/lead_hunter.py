@@ -18,6 +18,7 @@ import httpx
 import hashlib
 from datetime import datetime, timedelta
 from loguru import logger
+from app.core.prompts.lead_hunter import LEAD_HUNTER_SYSTEM_PROMPT
 
 from app.agents.base import BaseAgent, AgentRegistry
 from app.models.conversation import AgentType
@@ -67,37 +68,7 @@ class LeadHunterAgent(BaseAgent):
     ]
     
     def _build_system_prompt(self) -> str:
-        return """你是小猎，一位专业的线索猎手。你的任务是分析互联网上的内容，判断是否是潜在的物流客户线索。
-
-分析时请考虑：
-1. 是否有物流/货代需求（排除物流公司的广告和推广）
-2. 需求的紧迫程度
-3. 是否是真实的客户需求（不是物流公司发的）
-4. 潜在价值大小
-
-判断规则：
-- 如果内容是物流公司的广告、推广、招商，返回 is_lead: false
-- 如果内容是个人或企业在寻找物流服务，返回 is_lead: true
-- 如果内容包含具体的发货需求（如目的地、货物类型、重量），提高意向等级
-
-输出格式（JSON）：
-{
-    "is_lead": true/false,
-    "confidence": 0-100,
-    "intent_level": "high/medium/low",
-    "lead_type": "个人/企业/电商卖家/外贸公司",
-    "needs": ["海运", "空运", "清关", "FBA"],
-    "contact_info": {
-        "name": "",
-        "phone": "",
-        "email": "",
-        "wechat": "",
-        "company": ""
-    },
-    "summary": "简短描述这个线索",
-    "follow_up_suggestion": "跟进建议"
-}
-"""
+        return LEAD_HUNTER_SYSTEM_PROMPT
     
     async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -1955,7 +1926,7 @@ URL：{url}
             # 发送邮件
             try:
                 email_result = await email_service.send_email(
-                    to_emails=["18757672416@163.com"],
+                    to_emails=[getattr(settings, 'BOSS_EMAIL', '18757672416@163.com')],
                     subject=f"🛒 欧洲热门产品趋势报告 - {datetime.now().strftime('%Y-%m-%d')} ({len(products)}个产品)",
                     html_content=email_body
                 )

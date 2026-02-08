@@ -397,6 +397,111 @@ class OpenAILLM(BaseLLM):
             raise
 
 
+    async def chat_with_tools(
+        self,
+        messages: List[Dict[str, str]],
+        tools: List[Dict[str, Any]],
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+        system_prompt: Optional[str] = None,
+        tool_choice: str = "auto"
+    ) -> Dict[str, Any]:
+        """
+        带工具调用的聊天（Function Calling）
+        
+        Args:
+            messages: 消息列表
+            tools: OpenAI 格式的工具定义列表
+            temperature: 温度
+            max_tokens: 最大token数
+            system_prompt: 系统提示词
+            tool_choice: 工具选择策略（auto/none/required）
+        
+        Returns:
+            {"content": "文本回复", "tool_calls": [{"id": "...", "function": {"name": "...", "arguments": "..."}}]}
+        """
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        full_messages = messages.copy()
+        if system_prompt:
+            full_messages.insert(0, {"role": "system", "content": system_prompt})
+        
+        payload = {
+            "model": self.model,
+            "messages": full_messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "tools": tools,
+            "tool_choice": tool_choice,
+        }
+        
+        # 估算输入tokens
+        input_text = ""
+        for msg in full_messages:
+            input_text += msg.get("content", "") or ""
+        estimated_input_tokens = estimate_tokens(input_text)
+        
+        start_time = time.time()
+        request_id = str(uuid.uuid4())[:8]
+        
+        async def _make_request():
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=120.0  # 工具调用可能需要更多时间思考
+                )
+                response.raise_for_status()
+                return response.json()
+        
+        try:
+            data = await retry_with_exponential_backoff(_make_request)
+            message = data["choices"][0]["message"]
+            
+            response_time_ms = int((time.time() - start_time) * 1000)
+            
+            usage = data.get("usage", {})
+            input_tokens = usage.get("prompt_tokens", estimated_input_tokens)
+            output_tokens = usage.get("completion_tokens", 0)
+            
+            await self._record_usage(
+                model_name=self.model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                response_time_ms=response_time_ms,
+                is_success=True,
+                request_id=request_id
+            )
+            
+            # 返回标准化格式
+            result = {
+                "content": message.get("content", ""),
+                "tool_calls": message.get("tool_calls", None),
+                "role": "assistant"
+            }
+            return result
+            
+        except Exception as e:
+            response_time_ms = int((time.time() - start_time) * 1000)
+            
+            await self._record_usage(
+                model_name=self.model,
+                input_tokens=estimated_input_tokens,
+                output_tokens=0,
+                response_time_ms=response_time_ms,
+                is_success=False,
+                error_message=str(e),
+                request_id=request_id
+            )
+            
+            logger.error(f"OpenAI API (tools) 调用失败: {e}")
+            raise
+
+
 class LLMFactory:
     """LLM工厂类"""
     
@@ -471,8 +576,10 @@ async def chat_completion(
     auto_fallback: bool = True,
     agent_name: str = None,
     task_type: str = None,
-    agent_id: int = None
-) -> str:
+    agent_id: int = None,
+    tools: List[Dict[str, Any]] = None,
+    tool_choice: str = "auto"
+) -> Any:
     """
     统一的聊天完成接口（带自动降级和用量记录）
     
@@ -489,7 +596,8 @@ async def chat_completion(
         agent_id: AI员工ID（用于用量统计）
     
     Returns:
-        AI回复内容
+        - 无 tools 时：str（AI回复文本）
+        - 有 tools 时：dict（{"content": "...", "tool_calls": [...]}）
     """
     # 设置调用上下文
     if agent_name or task_type or agent_id:
@@ -503,6 +611,44 @@ async def chat_completion(
     }
     
     try:
+        # ===== 带工具调用的模式 =====
+        if tools:
+            tools_kwargs = {
+                **kwargs,
+                "tools": tools,
+                "tool_choice": tool_choice,
+            }
+            
+            # 优先用高级模型（DeepSeek）
+            if use_advanced:
+                llm = LLMFactory.get_advanced()
+            else:
+                llm = LLMFactory.get_primary()
+            
+            # 只有 OpenAILLM 支持 chat_with_tools
+            if hasattr(llm, 'chat_with_tools'):
+                try:
+                    return await llm.chat_with_tools(**tools_kwargs)
+                except Exception as e:
+                    if auto_fallback:
+                        logger.warning(f"LLM tools调用失败，尝试备用: {e}")
+                        for fallback_llm in [LLMFactory.get_advanced(), LLMFactory.get_primary()]:
+                            if fallback_llm is not llm and hasattr(fallback_llm, 'chat_with_tools'):
+                                try:
+                                    return await fallback_llm.chat_with_tools(**tools_kwargs)
+                                except Exception:
+                                    continue
+                        # 所有工具调用都失败，降级为纯文本
+                        logger.warning("所有LLM的tools调用都失败，降级为纯文本对话")
+                        result = await llm.chat(**kwargs)
+                        return {"content": result, "tool_calls": None}
+                    raise
+            else:
+                # 不支持工具调用的 LLM，降级为纯文本
+                result = await llm.chat(**kwargs)
+                return {"content": result, "tool_calls": None}
+        
+        # ===== 普通文本模式（保持原有逻辑）=====
         if use_fallback:
             llm = LLMFactory.get_fallback()
             return await llm.chat(**kwargs)
