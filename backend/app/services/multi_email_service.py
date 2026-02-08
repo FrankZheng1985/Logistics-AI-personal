@@ -687,7 +687,7 @@ class MultiEmailService:
                 text(f"""
                     SELECT ec.id, ec.subject, ec.from_address, ec.from_name,
                            ec.received_at, ec.has_attachments, ec.is_important,
-                           ea.name as account_name
+                           ea.name as account_name, ec.body_text, ec.body_preview
                     FROM email_cache ec
                     JOIN email_accounts ea ON ec.account_id = ea.id
                     WHERE ec.is_read = FALSE
@@ -708,7 +708,9 @@ class MultiEmailService:
                 "received_at": row[4].isoformat() if row[4] else None,
                 "has_attachments": row[5],
                 "is_important": row[6],
-                "account_name": row[7]
+                "account_name": row[7],
+                "body_text": row[8],
+                "body_preview": row[9]
             }
             for row in rows
         ]

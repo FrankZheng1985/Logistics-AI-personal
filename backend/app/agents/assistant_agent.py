@@ -1891,14 +1891,20 @@ class ClauwdbotAgent(BaseAgent):
             if summary.get("total_unread", 0) == 0:
                 return {"success": True, "response": "郑总，邮箱里没有新邮件呢，挺清净的~"}
             
-            # 收集所有未读邮件
+            # 收集所有未读邮件（获取完整内容）
             all_emails = []
             for account in summary.get("accounts", []):
                 for email in account.get("recent_emails", []):
+                    # 优先使用完整body_text，如果没有则用body_preview
+                    body_content = email.get("body_text") or email.get("body_preview", "")
+                    # 限制单封邮件正文长度，避免token过多
+                    if len(body_content) > 2000:
+                        body_content = body_content[:2000] + "..."
+                    
                     all_emails.append({
                         "from": email.get("from_name") or email.get("from_address", ""),
                         "subject": email.get("subject", ""),
-                        "body": email.get("body_preview", ""),
+                        "body": body_content,
                         "date": email.get("date", "")
                     })
             
