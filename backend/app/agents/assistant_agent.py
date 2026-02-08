@@ -124,19 +124,20 @@ class ClauwdbotAgent(BaseAgent):
         return dt.astimezone(ClauwdbotAgent.CHINA_TZ)
     
     def _build_system_prompt(self) -> str:
-        return CLAUWDBOT_SYSTEM_PROMPT
+        base_prompt = CLAUWDBOT_SYSTEM_PROMPT
+        
+        # 如果有记忆上下文，动态注入
+        memory_ctx = getattr(self, '_user_memory_context', '')
+        if memory_ctx:
+            base_prompt += f"\n\n## 你记住的关于老板的信息（请据此调整回复风格和内容）\n{memory_ctx}"
+        
+        return base_prompt
     
     async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        处理用户消息 - Clauwdbot超级助理
+        处理用户消息 - Clauwdbot超级助理（含自学习闭环）
         
-        Args:
-            input_data: {
-                "message": 用户消息内容,
-                "user_id": 企业微信用户ID,
-                "message_type": text/voice/file,
-                "file_url": 文件URL（如果是语音/文件）
-            }
+        流程：加载记忆 -> 解析意图 -> 处理 -> 保存交互 -> 异步学习
         """
         message = input_data.get("message", "")
         user_id = input_data.get("user_id", "")
@@ -146,6 +147,27 @@ class ClauwdbotAgent(BaseAgent):
         await self.start_task_session("process_message", f"Clauwdbot处理消息: {message[:50]}...")
         
         try:
+            # 0. 【学习前钩子】加载用户记忆，注入到系统 Prompt
+            memory_context = ""
+            try:
+                from app.services.memory_service import memory_service
+                memory_context = await memory_service.get_context_for_llm(user_id)
+                if memory_context:
+                    # 动态补充系统 Prompt（让 LLM 知道老板的偏好）
+                    self._user_memory_context = memory_context
+                    logger.info(f"[Clauwdbot] 已加载{user_id}的记忆上下文")
+            except Exception as e:
+                logger.warning(f"[Clauwdbot] 加载记忆失败（不影响主流程）: {e}")
+            
+            # 0.5 【纠错检测】如果老板在纠正，先学习
+            try:
+                from app.services.memory_service import memory_service
+                if await memory_service.detect_correction(message):
+                    await memory_service.learn_from_correction(user_id, "", message)
+                    logger.info(f"[Clauwdbot] 检测到纠正，已学习")
+            except Exception as e:
+                logger.warning(f"[Clauwdbot] 纠错检测失败: {e}")
+            
             # 1. 如果是语音/文件消息，处理录音
             if message_type in ["voice", "file"] and file_url:
                 await self.log_live_step("think", "收到音频文件", "准备进行会议录音转写")
@@ -197,6 +219,16 @@ class ClauwdbotAgent(BaseAgent):
             
             # 4. 记录交互
             await self._save_interaction(user_id, message, message_type, intent, result.get("response", ""))
+            
+            # 5. 【学习后钩子】异步学习，不阻塞回复
+            try:
+                import asyncio
+                from app.services.memory_service import memory_service
+                asyncio.create_task(
+                    memory_service.auto_learn(user_id, message, result.get("response", ""), intent.get("type", "unknown"))
+                )
+            except Exception as e:
+                logger.warning(f"[Clauwdbot] 异步学习启动失败: {e}")
             
             await self.end_task_session(f"处理完成: {intent['type']}")
             return result
