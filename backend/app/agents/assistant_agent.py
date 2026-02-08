@@ -197,6 +197,15 @@ class ClauwdbotAgent(BaseAgent):
             except Exception as e:
                 logger.warning(f"[Clauwdbot] 审批检测失败: {e}")
             
+            # 0.9 【对话上下文】加载最近对话历史
+            self._recent_history = []
+            try:
+                self._recent_history = await self._load_recent_history(user_id, limit=6)
+                if self._recent_history:
+                    logger.info(f"[Clauwdbot] 已加载{len(self._recent_history)}条对话历史")
+            except Exception as e:
+                logger.warning(f"[Clauwdbot] 加载对话历史失败: {e}")
+            
             # 1. 如果是语音/文件消息，处理录音
             if message_type in ["voice", "file"] and file_url:
                 await self.log_live_step("think", "收到音频文件", "准备进行会议录音转写")
@@ -204,7 +213,7 @@ class ClauwdbotAgent(BaseAgent):
                 await self.end_task_session("会议录音处理完成")
                 return result
             
-            # 2. 解析用户意图
+            # 2. 解析用户意图（带对话上下文）
             await self.log_live_step("think", "Clauwdbot分析指令", message[:100])
             intent = await self._parse_intent(message)
             
@@ -276,74 +285,83 @@ class ClauwdbotAgent(BaseAgent):
             }
     
     async def _parse_intent(self, message: str) -> Dict[str, Any]:
-        """解析用户意图（增强版：支持管理类指令）"""
-        message_lower = message.lower()
+        """
+        解析用户意图（带对话上下文的智能版）
         
-        # 先用关键词匹配
-        best_match = None
-        best_length = 0
+        策略：
+        - 长消息（>15字）且含明确关键词 -> 关键词快速匹配
+        - 短消息/模糊消息/跟进消息 -> LLM + 对话上下文
+        """
+        message_lower = message.lower().strip()
+        msg_len = len(message_lower)
         
-        for intent_type, keywords in self.INTENT_TYPES.items():
-            for keyword in keywords:
-                if keyword in message_lower and len(keyword) > best_length:
-                    best_match = {"type": intent_type, "confidence": 0.8, "keyword": keyword}
-                    best_length = len(keyword)
+        # === 判断是否可能是跟进消息 ===
+        # 短消息（<=15字）很可能是对上一句的追问，不走关键词匹配
+        is_short_msg = msg_len <= 15
+        # 典型跟进词
+        followup_patterns = ["怎么样了", "什么样了", "改成什么", "好了吗", "结果呢",
+                             "然后呢", "再说说", "详细说说", "看看", "给我看", "具体呢"]
+        is_followup = any(p in message_lower for p in followup_patterns)
         
-        if best_match:
-            return best_match
+        # 只有长消息且不像跟进 -> 才走关键词快速匹配
+        if not is_short_msg and not is_followup:
+            best_match = None
+            best_length = 0
+            
+            for intent_type, keywords in self.INTENT_TYPES.items():
+                for keyword in keywords:
+                    if keyword in message_lower and len(keyword) > best_length:
+                        best_match = {"type": intent_type, "confidence": 0.8, "keyword": keyword}
+                        best_length = len(keyword)
+            
+            # 关键词够长（>=3字）才信任
+            if best_match and best_length >= 3:
+                return best_match
         
-        # 关键词匹配失败，使用AI分析
-        analysis_prompt = f"""分析用户消息的意图，返回JSON格式：
+        # === LLM + 对话上下文分析 ===
+        # 构建最近对话摘要
+        history_text = ""
+        recent_history = getattr(self, '_recent_history', [])
+        if recent_history:
+            history_lines = []
+            for msg in recent_history[-8:]:  # 最近4轮对话
+                role = "老板" if msg["role"] == "user" else "Maria"
+                content = msg["content"][:150]
+                history_lines.append(f"{role}：{content}")
+            history_text = "\n".join(history_lines)
+        
+        analysis_prompt = f"""分析用户的最新消息属于哪种意图。
 
-用户消息：{message}
+{"最近对话记录（注意上下文衔接）：" + chr(10) + history_text + chr(10) if history_text else ""}
+用户最新消息：{message}
+
+重要规则：
+- 如果最新消息是对上一轮对话的追问/跟进，意图应该和上一轮保持一致
+- 比如上一轮在讨论修改员工Prompt，用户问"现在改成什么样了"，应该是 agent_code_read 而不是 schedule_update
+- "修改成什么样了"如果上下文是在改代码/Prompt，就是 agent_code_read
+- 只有明确说"改日程""改时间"才是 schedule_update
 
 可能的意图类型：
-【管理类】
-- agent_status: 查看AI团队/员工状态
-- agent_dispatch: 让某个AI员工执行任务
-- agent_upgrade: 优化/升级AI员工
-- agent_code_modify: 修改AI员工的代码或Prompt
-- agent_code_read: 查看AI员工代码
-- system_status: 系统状态检查
-- task_status: 查询任务进度
+【管理类】agent_status/agent_dispatch/agent_upgrade/agent_code_modify/agent_code_read/system_status/task_status
+【文档类】generate_ppt/generate_word/generate_code
+【邮件类】email_deep_read/email_query/email_reply
+【总结类】daily_summary/weekly_summary/daily_report_ai
+【助理类】schedule_add/schedule_update/schedule_query/schedule_cancel/todo_add/todo_query/todo_complete/meeting_record/erp_query/help
+【通用】chat（日常聊天/闲聊/问答）
+【无法识别】unknown
 
-【专业文档类】
-- generate_ppt: 制作PPT演示文稿
-- generate_word: 写计划书/方案/报告（Word文档）
-- generate_code: 写代码/脚本/程序
-
-【邮件类】
-- email_deep_read: 深度阅读分析邮件内容
-- email_query: 查看未读邮件摘要
-- email_reply: 回复/发送邮件
-
-【工作总结类】
-- daily_summary: 今日工作总结/日报
-- weekly_summary: 一周工作总结/周报
-- daily_report_ai: AI团队专项报告
-
-【个人助理类】
-- schedule_add: 添加新日程
-- schedule_update: 修改现有日程
-- schedule_query: 查询日程
-- schedule_cancel: 取消日程
-- todo_add: 添加待办事项
-- todo_query: 查询待办
-- todo_complete: 完成待办
-- meeting_record: 会议纪要相关
-- erp_query: 查询订单/财务数据
-- help: 帮助
-- unknown: 无法识别
-
-返回格式：{{"type": "xxx", "confidence": 0.9, "extracted": {{"target": "...", "content": "..."}}}}
-只返回JSON，不要其他内容。
-"""
+返回格式：{{"type": "xxx", "confidence": 0.9}}
+只返回JSON。"""
         
         try:
             response = await self.think([{"role": "user", "content": analysis_prompt}], temperature=0.3)
             json_match = re.search(r'\{.*\}', response, re.DOTALL)
             if json_match:
-                return json.loads(json_match.group())
+                parsed = json.loads(json_match.group())
+                # chat 类型 -> 走 unknown 处理器（用对话式 LLM 回复）
+                if parsed.get("type") == "chat":
+                    parsed["type"] = "unknown"
+                return parsed
         except Exception as e:
             logger.warning(f"[Clauwdbot] AI意图分析失败: {e}")
         
@@ -1864,17 +1882,74 @@ class ClauwdbotAgent(BaseAgent):
             return {"success": True, "response": "郑总，这周的数据还在汇总中，我整理好了发给您~"}
     
     async def _handle_unknown(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
-        """处理无法识别的意图 - 使用AI智能回复"""
-        # 增强上下文，告诉 LLM 它能做的事情
-        context = f"""用户消息：{message}
-你现在的身份是 Clauwdbot，AI中心超级助理。
-你拥有管理AI团队、操作日程、待办、邮件和ERP数据的权限。
-如果用户的问题涉及这些领域但意图识别不准，请你以专业助理的身份直接回答或引导。
-"""
-        response = await self.chat(context, "你是郑总的私人助理，在微信上聊天。短句口语，说重点就好，不要用markdown、标签。")
-        return {"success": True, "response": response}
+        """处理无法识别的意图 - 带对话上下文的AI智能回复"""
+        # 构建对话上下文
+        recent_history = getattr(self, '_recent_history', [])
+        
+        # 用 messages 数组传给 LLM，保持对话连贯
+        messages = []
+        system_msg = "你是郑总的私人助理，在微信上聊天。短句口语，说重点就好，不要用markdown、标签、分隔线。你能管理AI员工团队、操作日程、待办、邮件和ERP。直接回答问题，不要说你无法做什么。"
+        messages.append({"role": "system", "content": system_msg})
+        
+        # 注入最近对话历史
+        for msg in recent_history[-8:]:
+            messages.append({"role": msg["role"], "content": msg["content"][:300]})
+        
+        # 当前用户消息
+        messages.append({"role": "user", "content": message})
+        
+        try:
+            from app.core.llm import chat_completion
+            response = await chat_completion(
+                messages=messages,
+                max_tokens=800,
+                temperature=0.7
+            )
+            return {"success": True, "response": response}
+        except Exception as e:
+            logger.error(f"[Clauwdbot] 对话回复失败: {e}")
+            # 降级：无上下文直接回复
+            response = await self.chat(message, system_msg)
+            return {"success": True, "response": response}
     
     # ==================== 工具方法 ====================
+    
+    async def _load_recent_history(self, user_id: str, limit: int = 6) -> List[Dict]:
+        """
+        加载最近的对话历史（用于上下文理解）
+        返回: [{"role": "user"/"assistant", "content": "..."}]
+        """
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    text("""
+                        SELECT content, response, interaction_type, created_at
+                        FROM assistant_interactions
+                        WHERE user_id = :user_id
+                        ORDER BY created_at DESC
+                        LIMIT :limit
+                    """),
+                    {"user_id": user_id, "limit": limit}
+                )
+                rows = result.fetchall()
+            
+            if not rows:
+                return []
+            
+            # 倒序还原（从旧到新）
+            history = []
+            for row in reversed(rows):
+                content, response, intent_type, _ = row[0], row[1], row[2], row[3]
+                if content:
+                    history.append({"role": "user", "content": content})
+                if response:
+                    history.append({"role": "assistant", "content": response})
+            
+            return history
+            
+        except Exception as e:
+            logger.warning(f"[Clauwdbot] 加载对话历史失败: {e}")
+            return []
     
     async def _save_interaction(self, user_id: str, message: str, message_type: str,
                                 intent: Dict, response: str):
