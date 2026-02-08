@@ -284,7 +284,7 @@ class ClauwdbotAgent(BaseAgent):
                 # 查询AI员工的注册状态
                 agent_result = await db.execute(
                     text("""
-                        SELECT agent_type, agent_name, status, tasks_completed_today, 
+                        SELECT agent_type, name, status, tasks_completed_today, 
                                total_tasks_completed, last_active_at
                         FROM ai_agents
                         ORDER BY agent_type
