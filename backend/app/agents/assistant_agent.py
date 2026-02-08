@@ -164,11 +164,21 @@ class ClauwdbotAgent(BaseAgent):
                     task_type="react_turn",
                 )
                 
-                # --- 情况A：纯文本回复（没有工具调用）-> 结束循环 ---
+                # --- 情况A：纯文本回复（没有工具调用）---
                 tool_calls = response.get("tool_calls") if isinstance(response, dict) else None
                 
                 if not tool_calls:
-                    final_text = response.get("content", "") if isinstance(response, dict) else str(response)
+                    content = response.get("content", "") if isinstance(response, dict) else str(response)
+                    
+                    # 拦截“口头承诺”：如果回复里说要操作但没调工具，强制它再想一次
+                    commitment_keywords = ["稍等", "操作一下", "正在处理", "为您添加", "为您生成", "为您查询"]
+                    if any(kw in content for kw in commitment_keywords) and turn == 0:
+                        logger.warning(f"[Maria ReAct] 拦截到口头承诺但未行动，强制重试: {content[:50]}...")
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append({"role": "user", "content": "请立刻调用工具执行你刚才说的操作，不要只说不做。"})
+                        continue
+                        
+                    final_text = content
                     break
                 
                 # --- 情况B：有工具调用 -> 执行工具 + 继续循环 ---
