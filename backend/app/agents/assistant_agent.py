@@ -171,11 +171,16 @@ class ClauwdbotAgent(BaseAgent):
                     content = response.get("content", "") if isinstance(response, dict) else str(response)
                     
                     # 拦截“口头承诺”：如果回复里说要操作但没调工具，强制它再想一次
-                    commitment_keywords = ["稍等", "操作一下", "正在处理", "为您添加", "为您生成", "为您查询"]
-                    if any(kw in content for kw in commitment_keywords) and turn == 0:
-                        logger.warning(f"[Maria ReAct] 拦截到口头承诺但未行动，强制重试: {content[:50]}...")
+                    commitment_keywords = ["稍等", "操作一下", "正在处理", "为您添加", "为您生成", "为您查询", "好的", "处理好了", "完成了", "已经", "帮你", "帮您", "马上", "立刻", "现在就", "这就", "正在", "开始"]
+                    task_keywords = ["同步", "邮件", "读取", "查看", "添加", "日历", "日程", "生成", "分析", "查询", "统计", "搜索", "发送", "检查", "管理", "解读"]
+                    
+                    is_commitment = any(kw in content for kw in commitment_keywords)
+                    is_task_request = any(kw in current_message for kw in task_keywords)
+                    
+                    if turn == 0 and (is_commitment or is_task_request):
+                        logger.warning(f"[Maria ReAct] 拦截：口头承诺或任务请求未调工具 | user: '{current_message[:30]}...' | bot: '{content[:30]}...'")
                         messages.append({"role": "assistant", "content": content})
-                        messages.append({"role": "user", "content": "请立刻调用工具执行你刚才说的操作，不要只说不做。"})
+                        messages.append({"role": "user", "content": "❌ 错误：你必须调用工具执行实际操作，不能只说不做或编造数据。请重新回答，这次必须使用工具。"})
                         continue
                         
                     final_text = content
