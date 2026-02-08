@@ -87,6 +87,7 @@ class ClauwdbotAgent(BaseAgent):
         "agent_status": ["团队状态", "员工状态", "AI状态", "谁在工作", "工作情况", "检查一下", "做事情有没有偷懒"],
         "agent_dispatch": ["让小", "安排小", "派小", "叫小", "通知小"],
         "agent_upgrade": ["优化", "升级", "改进", "修改prompt", "修改提示词", "调整风格"],
+        "agent_code_modify": ["改一下", "改改", "修改代码", "改代码", "帮我改", "调一下", "改他的", "改她的"],
         "agent_code_read": ["看一下代码", "查看代码", "读取代码", "代码逻辑"],
         "system_status": ["系统状态", "健康检查", "系统健康"],
         "task_status": ["任务状态", "进度", "完成了吗", "怎么样了"],
@@ -201,6 +202,7 @@ class ClauwdbotAgent(BaseAgent):
                 "agent_status": self._handle_agent_status,
                 "agent_dispatch": self._handle_agent_dispatch,
                 "agent_upgrade": self._handle_agent_upgrade,
+                "agent_code_modify": self._handle_agent_code_modify,
                 "agent_code_read": self._handle_agent_code_read,
                 "system_status": self._handle_system_status,
                 "daily_report_ai": self._handle_ai_daily_report,
@@ -286,6 +288,7 @@ class ClauwdbotAgent(BaseAgent):
 - agent_status: 查看AI团队/员工状态
 - agent_dispatch: 让某个AI员工执行任务
 - agent_upgrade: 优化/升级AI员工
+- agent_code_modify: 修改AI员工的代码或Prompt
 - agent_code_read: 查看AI员工代码
 - system_status: 系统状态检查
 - task_status: 查询任务进度
@@ -804,6 +807,105 @@ class ClauwdbotAgent(BaseAgent):
             
         except Exception as e:
             return {"success": False, "error": str(e)}
+    
+    async def write_agent_file(self, filepath: str, content: str) -> Dict[str, Any]:
+        """写入/修改AI员工相关文件（受限，只能改绿区）"""
+        if not self._is_path_allowed(filepath, for_write=True):
+            return {
+                "success": False,
+                "error": f"权限不足：无法修改 {filepath}。这个文件属于系统底层。"
+            }
+        
+        try:
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            full_path = os.path.join(base_dir, filepath.replace("backend/", ""))
+            
+            # 写入前备份
+            if os.path.exists(full_path):
+                backup_path = full_path + ".bak"
+                import shutil
+                shutil.copy2(full_path, backup_path)
+                logger.info(f"[Clauwdbot] 已备份: {filepath} -> {filepath}.bak")
+            
+            with open(full_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            logger.info(f"[Clauwdbot] 文件已修改: {filepath}")
+            return {"success": True, "filepath": filepath}
+            
+        except Exception as e:
+            logger.error(f"[Clauwdbot] 写入文件失败: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def _handle_agent_code_modify(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """修改AI员工代码/Prompt - Maria真正动手改"""
+        # 识别目标员工
+        target_agent_key = None
+        target_agent_name = None
+        
+        for key, info in self.AGENT_INFO.items():
+            if info["name"] in message:
+                target_agent_key = key
+                target_agent_name = info["name"]
+                break
+        
+        if not target_agent_key:
+            return {"success": True, "response": "你要我改哪个员工的代码呀？小调、小影、小文、小销、小跟、小析、小猎、小析2、小欧间谍，说一个就行。"}
+        
+        # 读取当前 Prompt
+        agent = AgentRegistry.get(self.AGENT_INFO[target_agent_key]["type"])
+        if not agent:
+            return {"success": True, "response": f"{target_agent_name}现在不在线呢。"}
+        
+        current_prompt = agent.system_prompt or ""
+        
+        # 用 LLM 根据老板指令生成修改后的 Prompt
+        modify_prompt = f"""你是一个AI工程师助手。老板要求修改AI员工「{target_agent_name}」的系统Prompt。
+
+老板的要求：{message}
+
+当前Prompt内容（截取前2000字）：
+{current_prompt[:2000]}
+
+请根据老板的要求，生成修改后的完整Prompt。注意：
+1. 保留员工的核心职责不变
+2. 按照老板的要求做针对性修改
+3. 保持Prompt的专业性
+4. 返回完整的修改后Prompt，不要省略任何部分
+
+只返回修改后的完整Prompt内容，不要加任何说明。"""
+        
+        try:
+            from app.core.llm import chat_completion
+            new_prompt = await chat_completion(
+                messages=[{"role": "user", "content": modify_prompt}],
+                use_advanced=True,
+                max_tokens=4000,
+                temperature=0.5
+            )
+            
+            # 应用修改 - 直接更新 agent 的 system_prompt
+            agent.system_prompt = new_prompt
+            logger.info(f"[Clauwdbot] 已修改{target_agent_name}的Prompt（内存生效）")
+            
+            # 尝试持久化到 Prompt 文件
+            prompt_file = self.AGENT_INFO[target_agent_key].get("prompt_file")
+            if prompt_file:
+                filepath = f"backend/app/core/prompts/{prompt_file}"
+                write_result = await self.write_agent_file(filepath, f'"""\n{target_agent_name} 的系统Prompt\n"""\n\nSYSTEM_PROMPT = """{new_prompt}"""\n')
+                if write_result["success"]:
+                    logger.info(f"[Clauwdbot] Prompt已持久化到文件: {filepath}")
+            
+            # 返回简洁反馈
+            changes_preview = new_prompt[:200] + "..." if len(new_prompt) > 200 else new_prompt
+            return {
+                "success": True,
+                "response": f"搞定了，{target_agent_name}的Prompt已经改好了。主要改了你说的那些点，已经生效了。"
+            }
+            
+        except Exception as e:
+            logger.error(f"[Clauwdbot] 修改员工代码失败: {e}")
+            return {"success": True, "response": f"改的时候出了点问题：{str(e)[:100]}"}
     
     # ==================== 个人助理能力（保留原有） ====================
     

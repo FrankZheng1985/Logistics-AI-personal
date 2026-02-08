@@ -352,7 +352,7 @@ async def process_text_message(user_id: str, content: str):
 
 
 async def _execute_dispatched_task(user_id: str, dispatch_result: dict):
-    """后台执行Clauwdbot分配的任务"""
+    """后台执行Clauwdbot分配的任务，结果翻译成人话再发"""
     from app.agents.base import AgentRegistry
     from app.models.conversation import AgentType
     
@@ -363,7 +363,6 @@ async def _execute_dispatched_task(user_id: str, dispatch_result: dict):
         if not target_agent_key:
             return
         
-        # 获取Agent实例
         from app.agents.assistant_agent import clauwdbot_agent
         agent_info = clauwdbot_agent.AGENT_INFO.get(target_agent_key)
         if not agent_info:
@@ -371,11 +370,10 @@ async def _execute_dispatched_task(user_id: str, dispatch_result: dict):
         
         agent = AgentRegistry.get(agent_info["type"])
         if not agent:
-            await send_text_message(user_id, f"❌ {agent_info['name']}未上线，无法执行任务。")
+            await send_text_message(user_id, f"{agent_info['name']}现在不在线，任务没法执行。")
             return
         
-        # 使用agent的chat方法执行任务
-        # 从dispatch_result中提取原始任务描述
+        # 提取任务描述
         task_desc = dispatch_result.get("response", "").split("📋 任务: ")[-1].split("\n")[0] if "📋 任务:" in dispatch_result.get("response", "") else ""
         
         if not task_desc:
@@ -383,7 +381,7 @@ async def _execute_dispatched_task(user_id: str, dispatch_result: dict):
         
         logger.info(f"[Clauwdbot] 后台执行任务: {agent_info['name']} -> {task_desc[:50]}")
         
-        response = await agent.chat(task_desc)
+        raw_response = await agent.chat(task_desc)
         
         # 更新任务状态
         if task_id:
@@ -398,25 +396,38 @@ async def _execute_dispatched_task(user_id: str, dispatch_result: dict):
                         output_data = :output, completed_at = NOW()
                         WHERE id = :id
                     """),
-                    {"id": task_id, "output": json.dumps({"response": response[:2000]}, ensure_ascii=False)}
+                    {"id": task_id, "output": json.dumps({"response": raw_response[:2000]}, ensure_ascii=False)}
                 )
                 await db.commit()
         
-        # 发送结果
-        task_id_short = task_id[:8] if task_id else ""
-        result_msg = f"""✅ 任务执行完成
-
-🔖 任务ID: {task_id_short}
-👤 执行者: {agent_info['name']}
-
-📋 结果：
-{response[:1800]}"""
+        # ===== 关键：把原始结果翻译成人话 =====
+        from app.core.llm import chat_completion
         
-        await send_text_message(user_id, result_msg)
+        summary_prompt = f"""你是郑总的私人助理。{agent_info['name']}刚完成了一个任务，以下是原始结果。
+请用口语把结果简单告诉郑总，像微信聊天一样。不要贴JSON、不要贴代码、不要用markdown。
+只说关键信息，3-5句话。
+
+任务描述：{task_desc[:200]}
+执行者：{agent_info['name']}
+原始结果：{raw_response[:1500]}"""
+        
+        try:
+            human_summary = await chat_completion(
+                messages=[{"role": "user", "content": summary_prompt}],
+                max_tokens=500,
+                temperature=0.7
+            )
+        except Exception:
+            # LLM 翻译失败就用截断的原文
+            human_summary = raw_response[:500] if len(raw_response) <= 500 else raw_response[:500] + "..."
+        
+        await send_text_message(user_id, human_summary)
         
     except Exception as e:
         logger.error(f"[Clauwdbot] 后台任务执行失败: {e}")
-        await send_text_message(user_id, f"❌ 任务执行失败: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        await send_text_message(user_id, f"任务执行遇到了点问题：{str(e)[:100]}")
 
 
 async def process_voice_message(user_id: str, media_id: str):
