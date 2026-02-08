@@ -295,6 +295,25 @@ async def process_text_message(user_id: str, content: str):
     
     logger.info(f"[Maria] 处理文本消息: user={user_id}, content={content[:50]}...")
     
+    # ===== 0. 判断是否需要发送"处理中"提示 =====
+    # 复杂任务关键词（可能需要较长处理时间）
+    heavy_keywords = [
+        "notion", "Notion", "方案", "计划", "报告", "文档", "PPT", "ppt",
+        "Word", "word", "搜索", "查找", "分析", "升级", "日报", "周报",
+        "邮件", "同步", "生成", "写一", "做一", "帮我写", "帮我做",
+    ]
+    needs_thinking_hint = any(kw in content for kw in heavy_keywords)
+    
+    if needs_thinking_hint:
+        # 先给老板一个即时反馈，让他知道 Maria 在干活
+        thinking_hints = [
+            "收到，我来处理一下...",
+            "好的，正在处理中...",
+            "收到，让我想想怎么搞...",
+        ]
+        import random
+        await send_text_message(user_id, random.choice(thinking_hints))
+    
     try:
         # ===== 1. 调用 Maria ReAct 引擎 =====
         result = await clauwdbot_agent.process({
@@ -325,7 +344,10 @@ async def process_text_message(user_id: str, content: str):
         logger.error(f"[Maria] 处理消息失败: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        await send_text_message(user_id, "出了点小状况，我再试试。")
+        # 详细错误信息
+        error_msg = str(e)
+        user_friendly = f"老板，你让我「{content[:30]}」的时候系统出了问题。\n\n错误：{error_msg[:150]}\n\n我已记录，你可以让我再试一次。"
+        await send_text_message(user_id, user_friendly)
 
 
 async def _execute_dispatched_task(user_id: str, dispatch_result: dict):
