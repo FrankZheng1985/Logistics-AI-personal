@@ -189,6 +189,77 @@ async def send_text_message(user_id: str, content: str):
         logger.error(f"[Clauwdbot] 发送消息异常: {e}")
 
 
+async def upload_media(filepath: str, media_type: str = "file") -> Optional[str]:
+    """上传临时素材到企业微信，返回 media_id"""
+    import os
+    
+    if not os.path.exists(filepath):
+        logger.error(f"[Clauwdbot] 文件不存在: {filepath}")
+        return None
+    
+    try:
+        access_token = await get_access_token()
+        url = f"https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token={access_token}&type={media_type}"
+        
+        filename = os.path.basename(filepath)
+        
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            with open(filepath, "rb") as f:
+                files = {"media": (filename, f, "application/octet-stream")}
+                response = await client.post(url, files=files)
+                result = response.json()
+        
+        if result.get("errcode") != 0:
+            logger.error(f"[Clauwdbot] 上传文件失败: {result}")
+            return None
+        
+        media_id = result.get("media_id")
+        logger.info(f"[Clauwdbot] 文件上传成功: {filename} -> {media_id}")
+        return media_id
+        
+    except Exception as e:
+        logger.error(f"[Clauwdbot] 上传文件异常: {e}")
+        return None
+
+
+async def send_file_message(user_id: str, filepath: str):
+    """发送文件消息给用户（上传+发送）"""
+    config = get_config()
+    
+    # 1. 上传文件获取 media_id
+    media_id = await upload_media(filepath)
+    if not media_id:
+        await send_text_message(user_id, "文件发送失败，请稍后重试。")
+        return
+    
+    # 2. 发送文件消息
+    try:
+        access_token = await get_access_token()
+        url = f"https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token={access_token}"
+        
+        data = {
+            "touser": user_id,
+            "msgtype": "file",
+            "agentid": int(config["agent_id"]),
+            "file": {"media_id": media_id},
+            "safe": 0
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=data)
+            result = response.json()
+        
+        if result.get("errcode") != 0:
+            logger.error(f"[Clauwdbot] 发送文件消息失败: {result}")
+            await send_text_message(user_id, "文件发送失败，请稍后重试。")
+        else:
+            logger.info(f"[Clauwdbot] 文件已发送给 {user_id}")
+                
+    except Exception as e:
+        logger.error(f"[Clauwdbot] 发送文件异常: {e}")
+        await send_text_message(user_id, "文件发送出了点问题，请稍后重试。")
+
+
 async def download_media(media_id: str) -> Optional[bytes]:
     """下载媒体文件"""
     try:
@@ -229,6 +300,11 @@ async def process_text_message(user_id: str, content: str):
         # 发送回复
         response = result.get("response", "抱歉，我没能理解你的意思。")
         await send_text_message(user_id, response)
+        
+        # 如果有文件，发送文件到对话框
+        if result.get("file"):
+            import asyncio
+            asyncio.create_task(send_file_message(user_id, result["file"]))
         
         # 如果有异步执行的任务（如任务分配），后台执行
         if result.get("async_execute") and result.get("task_id"):
