@@ -18,7 +18,7 @@ import httpx
 import hashlib
 from datetime import datetime, timedelta
 from loguru import logger
-from app.core.prompts.lead_hunter import LEAD_HUNTER_SYSTEM_PROMPT
+from app.core.prompts.lead_hunter import SYSTEM_PROMPT as LEAD_HUNTER_SYSTEM_PROMPT
 
 from app.agents.base import BaseAgent, AgentRegistry
 from app.models.conversation import AgentType

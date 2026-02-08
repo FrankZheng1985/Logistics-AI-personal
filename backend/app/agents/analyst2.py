@@ -12,7 +12,7 @@ from loguru import logger
 from app.agents.base import BaseAgent, AgentRegistry
 from app.models.conversation import AgentType
 from app.core.config import settings
-from app.core.prompts.analyst2 import ANALYST2_SYSTEM_PROMPT
+from app.core.prompts.analyst2 import SYSTEM_PROMPT as ANALYST2_SYSTEM_PROMPT
 
 
 class Analyst2Agent(BaseAgent):

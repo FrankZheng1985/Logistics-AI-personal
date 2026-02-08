@@ -14,7 +14,7 @@ import httpx
 from app.agents.base import BaseAgent, AgentRegistry
 from app.models.conversation import AgentType
 from app.core.config import settings
-from app.core.prompts.eu_customs_monitor import EU_CUSTOMS_MONITOR_SYSTEM_PROMPT
+from app.core.prompts.eu_customs_monitor import SYSTEM_PROMPT as EU_CUSTOMS_MONITOR_SYSTEM_PROMPT
 
 
 class EUCustomsMonitorAgent(BaseAgent):
