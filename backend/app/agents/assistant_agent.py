@@ -15,6 +15,7 @@ from loguru import logger
 import json
 import os
 import pytz
+import asyncio
 
 from app.agents.base import BaseAgent, AgentRegistry
 from app.models.conversation import AgentType
@@ -189,7 +190,7 @@ class ClauwdbotAgent(BaseAgent):
                     final_text = content
                     break
                 
-                # --- 情况B：有工具调用 -> 执行工具 + 继续循环 ---
+                # --- 情况B：有工具调用 -> 并行执行工具 + 继续循环 ---
                 assistant_msg = {
                     "role": "assistant",
                     "content": response.get("content") or "",
@@ -197,31 +198,54 @@ class ClauwdbotAgent(BaseAgent):
                 }
                 messages.append(assistant_msg)
                 
-                for tool_call in tool_calls:
+                # 准备并行任务
+                tool_tasks = []
+                tool_call_indices = [] # 保持顺序对应
+
+                for i, tool_call in enumerate(tool_calls):
                     func_name = tool_call["function"]["name"]
                     try:
                         arguments = json.loads(tool_call["function"]["arguments"])
                     except (json.JSONDecodeError, TypeError):
                         arguments = {}
                     
-                    await self.log_live_step("action", f"执行: {func_name}", json.dumps(arguments, ensure_ascii=False)[:100])
+                    # 前端日志脱敏
+                    safe_args_str = json.dumps(arguments, ensure_ascii=False)
+                    if "password" in safe_args_str.lower():
+                        safe_args_str = "******"
+                    else:
+                        safe_args_str = safe_args_str[:100]
+
+                    await self.log_live_step("action", f"执行: {func_name}", safe_args_str)
                     
-                    tool_result = await tool_executor.execute(func_name, arguments, user_id)
+                    # 添加到任务列表
+                    tool_tasks.append(tool_executor.execute(func_name, arguments, user_id))
+                    tool_call_indices.append(i)
+                
+                # 并行执行所有工具
+                if tool_tasks:
+                    results = await asyncio.gather(*tool_tasks)
                     
-                    if tool_result.get("filepath"):
-                        collected_files.append(tool_result["filepath"])
-                    
-                    tool_result_str = json.dumps(tool_result, ensure_ascii=False, default=str)
-                    if len(tool_result_str) > 3000:
-                        tool_result_str = tool_result_str[:3000] + "...(结果已截断)"
-                    
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call["id"],
-                        "content": tool_result_str,
-                    })
-                    
-                    logger.info(f"[Maria ReAct] 工具 {func_name} 执行完毕")
+                    # 处理结果
+                    for i, tool_result in enumerate(results):
+                        original_index = tool_call_indices[i]
+                        tool_call = tool_calls[original_index]
+                        func_name = tool_call["function"]["name"]
+
+                        if tool_result.get("filepath"):
+                            collected_files.append(tool_result["filepath"])
+                        
+                        tool_result_str = json.dumps(tool_result, ensure_ascii=False, default=str)
+                        if len(tool_result_str) > 3000:
+                            tool_result_str = tool_result_str[:3000] + "...(结果已截断)"
+                        
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call["id"],
+                            "content": tool_result_str,
+                        })
+                        
+                        logger.info(f"[Maria ReAct] 工具 {func_name} 执行完毕")
             else:
                 if not final_text:
                     final_text = "好的，处理好了。"

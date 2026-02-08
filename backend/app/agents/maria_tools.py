@@ -677,11 +677,24 @@ class MariaToolExecutor:
         except ImportError as e:
             logger.warning(f"[MariaToolExecutor] 部分Skill模块加载失败: {e}")
 
+    @staticmethod
+    def _mask_sensitive_data(data: Dict[str, Any]) -> Dict[str, Any]:
+        """脱敏处理（用于日志记录）"""
+        masked = data.copy()
+        sensitive_keys = {"password", "api_key", "secret", "token", "credential", "auth"}
+        
+        for key in masked:
+            if any(s in key.lower() for s in sensitive_keys):
+                masked[key] = "******"
+        return masked
+
     async def execute(self, tool_name: str, arguments: Dict[str, Any], user_id: str) -> Dict[str, Any]:
         """
         执行一个工具调用 - 路由到对应的Skill模块
         """
-        logger.info(f"[Maria Tool] 执行工具: {tool_name}, 参数: {arguments}")
+        # 日志脱敏
+        safe_args = self._mask_sensitive_data(arguments)
+        logger.info(f"[Maria Tool] 执行工具: {tool_name}, 参数: {safe_args}")
 
         # 构造自然语言 message（用于Skill内部LLM解析）
         message = self._build_message(tool_name, arguments)
