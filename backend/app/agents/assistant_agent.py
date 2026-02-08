@@ -297,7 +297,7 @@ class ClauwdbotAgent(BaseAgent):
             # 显示已注册的AI员工
             if agents:
                 for agent in agents:
-                    status_icon = "🟢" if agent[2] == "active" else "🔴"
+                    status_icon = "🟢" if agent[2] in ["active", "online"] else "🔴"
                     lines.append(f"{status_icon} {agent[1]} | 今日: {agent[3]}任务 | 总计: {agent[4]}")
             
             # 显示今日任务统计
