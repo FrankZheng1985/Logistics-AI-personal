@@ -830,6 +830,7 @@ class ClauwdbotAgent(BaseAgent):
         query_date = today
         date_label = "今天"
         
+        # 识别查询日期
         if "明天" in message or "明日" in message:
             query_date = today + timedelta(days=1)
             date_label = "明天"
@@ -854,27 +855,39 @@ class ClauwdbotAgent(BaseAgent):
             )
             schedules = result.fetchall()
         
-        if not schedules:
-            weekday = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][query_date.weekday()]
-            return {
-                "success": True,
-                "response": f"📅 {date_label}（{query_date.month}月{query_date.day}日 {weekday}）\n\n暂无安排，可以好好休息~"
-            }
+        # 构造基础数据
+        weekday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+        weekday = weekday_names[query_date.weekday()]
         
-        weekday = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][query_date.weekday()]
-        lines = [f"📅 {date_label}安排（{query_date.month}月{query_date.day}日 {weekday}）", "━" * 18]
+        raw_data = {
+            "date": query_date.strftime('%Y-%m-%d'),
+            "weekday": weekday,
+            "label": date_label,
+            "count": len(schedules),
+            "items": [
+                {
+                    "title": s[0],
+                    "time": self.to_china_time(s[1]).strftime("%H:%M"),
+                    "location": s[3],
+                    "priority": s[4]
+                } for s in schedules
+            ]
+        }
+
+        # 使用 LLM 进行智能回复润色
+        context = f"用户询问：{message}\n查询结果：{date_label}({raw_data['date']})共有{len(schedules)}项安排。"
+        if schedules:
+            items_desc = "\n".join([f"- {i['time']} {i['title']} @ {i['location'] or '无'}" for i in raw_data['items']])
+            context += f"\n具体事项：\n{items_desc}"
+        else:
+            context += "\n目前暂无日程安排。"
+
+        smart_response = await self.chat(
+            context, 
+            "你是Clauwdbot。请根据查询结果，以超级助理的身份给出专业、主动的回复。如果没日程，要建议老板如何利用时间或询问是否需要记录新行程。"
+        )
         
-        for s in schedules:
-            china_time = self.to_china_time(s[1])
-            time_str = china_time.strftime("%H:%M")
-            location_str = f" - {s[3]}" if s[3] else ""
-            priority_icon = {"urgent": "🔴", "high": "🟡"}.get(s[4], "")
-            lines.append(f"{time_str} {priority_icon}{s[0]}{location_str}")
-        
-        lines.append("━" * 18)
-        lines.append(f"共{len(schedules)}项安排")
-        
-        return {"success": True, "response": "\n".join(lines)}
+        return {"success": True, "response": smart_response}
     
     async def _query_schedule_range(self, start_date, end_date, label: str) -> Dict[str, Any]:
         """查询日期范围内的日程"""
@@ -1331,7 +1344,13 @@ class ClauwdbotAgent(BaseAgent):
     
     async def _handle_unknown(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
         """处理无法识别的意图 - 使用AI智能回复"""
-        response = await self.chat(message, "用户向你咨询，请以Clauwdbot的身份简洁回答或引导他使用你的功能")
+        # 增强上下文，告诉 LLM 它能做的事情
+        context = f"""用户消息：{message}
+你现在的身份是 Clauwdbot，AI中心超级助理。
+你拥有管理AI团队、操作日程、待办、邮件和ERP数据的权限。
+如果用户的问题涉及这些领域但意图识别不准，请你以专业助理的身份直接回答或引导。
+"""
+        response = await self.chat(context, "请以Clauwdbot的身份简洁、专业地回答老板，体现出你的主动性和掌控力。")
         return {"success": True, "response": response}
     
     # ==================== 工具方法 ====================
