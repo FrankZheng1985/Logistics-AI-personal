@@ -409,14 +409,28 @@ class MultiEmailService:
                 email_ids = message_numbers[0].split()[-max_emails:]  # 取最新的N封
                 
                 for email_id in email_ids:
-                    _, msg_data = conn.fetch(email_id, "(RFC822)")
-                    email_body = msg_data[0][1]
-                    msg = email.message_from_bytes(email_body)
-                    
-                    # 解析邮件
-                    parsed = self._parse_email(msg)
-                    if parsed:
-                        emails.append(parsed)
+                    try:
+                        _, msg_data = conn.fetch(email_id, "(RFC822)")
+                        # msg_data 可能是 [(flags, bytes), b')'] 格式
+                        # 需要找到包含邮件内容的 tuple
+                        email_body = None
+                        for part in msg_data:
+                            if isinstance(part, tuple) and len(part) >= 2 and isinstance(part[1], bytes):
+                                email_body = part[1]
+                                break
+                        
+                        if not email_body:
+                            continue
+                        
+                        msg = email.message_from_bytes(email_body)
+                        
+                        # 解析邮件
+                        parsed = self._parse_email(msg)
+                        if parsed:
+                            emails.append(parsed)
+                    except Exception as fetch_err:
+                        logger.warning(f"获取单封邮件失败: {fetch_err}")
+                        continue
                 
                 conn.logout()
                 
