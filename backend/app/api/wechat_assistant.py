@@ -194,7 +194,7 @@ async def upload_media(filepath: str, media_type: str = "file") -> Optional[str]
     import os
     
     if not os.path.exists(filepath):
-        logger.error(f"[Clauwdbot] 文件不存在: {filepath}")
+        logger.error(f"[Clauwdbot] 文件上传失败，文件不存在: {filepath}")
         return None
     
     try:
@@ -202,6 +202,7 @@ async def upload_media(filepath: str, media_type: str = "file") -> Optional[str]
         url = f"https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token={access_token}&type={media_type}"
         
         filename = os.path.basename(filepath)
+        logger.info(f"[Clauwdbot] 正在上传文件到企业微信: {filename}, url: {url}")
         
         async with httpx.AsyncClient(timeout=60.0) as client:
             with open(filepath, "rb") as f:
@@ -210,26 +211,30 @@ async def upload_media(filepath: str, media_type: str = "file") -> Optional[str]
                 result = response.json()
         
         if result.get("errcode") != 0:
-            logger.error(f"[Clauwdbot] 上传文件失败: {result}")
+            logger.error(f"[Clauwdbot] 企业微信上传接口返回错误: {result}")
             return None
         
         media_id = result.get("media_id")
-        logger.info(f"[Clauwdbot] 文件上传成功: {filename} -> {media_id}")
+        logger.info(f"[Clauwdbot] 文件上传成功，media_id: {media_id}")
         return media_id
         
     except Exception as e:
-        logger.error(f"[Clauwdbot] 上传文件异常: {e}")
+        logger.error(f"[Clauwdbot] 上传文件过程中出现异常: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return None
 
 
 async def send_file_message(user_id: str, filepath: str):
     """发送文件消息给用户（上传+发送）"""
+    logger.info(f"[Clauwdbot] 开始执行发送文件流程: {filepath} -> {user_id}")
     config = get_config()
     
     # 1. 上传文件获取 media_id
     media_id = await upload_media(filepath)
     if not media_id:
-        await send_text_message(user_id, "文件发送失败，请稍后重试。")
+        logger.error(f"[Clauwdbot] 发送文件失败: 无法获取 media_id")
+        await send_text_message(user_id, "文件上传失败，请检查服务器日志。")
         return
     
     # 2. 发送文件消息
@@ -245,19 +250,20 @@ async def send_file_message(user_id: str, filepath: str):
             "safe": 0
         }
         
+        logger.info(f"[Clauwdbot] 正在发送文件消息: {media_id}")
         async with httpx.AsyncClient() as client:
             response = await client.post(url, json=data)
             result = response.json()
         
         if result.get("errcode") != 0:
-            logger.error(f"[Clauwdbot] 发送文件消息失败: {result}")
-            await send_text_message(user_id, "文件发送失败，请稍后重试。")
+            logger.error(f"[Clauwdbot] 企业微信消息发送接口返回错误: {result}")
+            await send_text_message(user_id, f"文件发送失败，微信返回错误: {result.get('errmsg')}")
         else:
-            logger.info(f"[Clauwdbot] 文件已发送给 {user_id}")
+            logger.info(f"[Clauwdbot] 文件消息已成功发送给 {user_id}")
                 
     except Exception as e:
-        logger.error(f"[Clauwdbot] 发送文件异常: {e}")
-        await send_text_message(user_id, "文件发送出了点问题，请稍后重试。")
+        logger.error(f"[Clauwdbot] 发送文件消息过程中出现异常: {str(e)}")
+        await send_text_message(user_id, "文件发送过程中出现系统异常。")
 
 
 async def download_media(media_id: str) -> Optional[bytes]:
@@ -303,8 +309,8 @@ async def process_text_message(user_id: str, content: str):
         
         # 如果有文件，发送文件到对话框
         if result.get("file"):
-            import asyncio
-            asyncio.create_task(send_file_message(user_id, result["file"]))
+            logger.info(f"[Clauwdbot] 准备发送文件: {result['file']} 给 {user_id}")
+            await send_file_message(user_id, result["file"])
         
         # 如果有异步执行的任务（如任务分配），后台执行
         if result.get("async_execute") and result.get("task_id"):
