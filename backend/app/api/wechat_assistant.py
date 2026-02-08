@@ -290,29 +290,54 @@ async def download_media(media_id: str) -> Optional[bytes]:
 # ==================== 消息处理 ====================
 
 async def process_text_message(user_id: str, content: str):
-    """处理文本消息"""
+    """处理文本消息（含进度反馈）"""
     from app.agents.assistant_agent import clauwdbot_agent
     
     logger.info(f"[Clauwdbot] 处理文本消息: user={user_id}, content={content[:50]}...")
     
     try:
-        # 调用Clauwdbot处理消息
+        # ===== 1. 快速检测是否为耗时任务，秒回进度提示 =====
+        content_lower = content.lower()
+        heavy_task_hints = {
+            "ppt": "好哒郑总，我这就帮您做PPT，大概需要30-60秒，做好了立刻发给您~",
+            "演示文稿": "好哒郑总，我这就帮您做PPT，大概需要30-60秒，做好了立刻发给您~",
+            "幻灯片": "好哒郑总，我这就帮您做PPT，大概需要30-60秒，做好了立刻发给您~",
+            "计划书": "好的郑总，我来帮您写计划书，大概需要1分钟，写好了发给您~",
+            "方案书": "好的郑总，我来帮您写方案，大概需要1分钟，写好了发给您~",
+            "写报告": "好的郑总，我来帮您写报告，大概需要1分钟，写好了发给您~",
+            "写文档": "好的郑总，我这就写，大概需要1分钟~",
+            "写代码": "好哒，我帮您写代码，稍等一下~",
+            "写脚本": "好哒，我帮您写脚本，稍等一下~",
+            "爬虫": "好哒，我帮您写爬虫脚本，稍等一下~",
+            "周报": "好的郑总，我来汇总这周的数据，稍等我一下~",
+            "总结一下": "好的郑总，我来帮您汇总，稍等一下~",
+            "分析邮件": "好哒，我帮您看看邮件，分析完了告诉您~",
+            "帮我看邮件": "好哒，我帮您看看邮件，分析完了告诉您~",
+            "读邮件": "好哒，我帮您看看邮件~",
+        }
+        
+        for keyword, hint_msg in heavy_task_hints.items():
+            if keyword in content_lower:
+                await send_text_message(user_id, hint_msg)
+                break
+        
+        # ===== 2. 正式处理 =====
         result = await clauwdbot_agent.process({
             "message": content,
             "user_id": user_id,
             "message_type": "text"
         })
         
-        # 发送回复
+        # ===== 3. 发送结果 =====
         response = result.get("response", "抱歉，我没能理解你的意思。")
         await send_text_message(user_id, response)
         
-        # 如果有文件，发送文件到对话框
+        # ===== 4. 发送文件（如有）=====
         if result.get("file"):
             logger.info(f"[Clauwdbot] 准备发送文件: {result['file']} 给 {user_id}")
             await send_file_message(user_id, result["file"])
         
-        # 如果有异步执行的任务（如任务分配），后台执行
+        # ===== 5. 异步执行的任务（如任务分配）=====
         if result.get("async_execute") and result.get("task_id"):
             import asyncio
             asyncio.create_task(
@@ -321,6 +346,8 @@ async def process_text_message(user_id: str, content: str):
         
     except Exception as e:
         logger.error(f"[Clauwdbot] 处理消息失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         await send_text_message(user_id, "处理消息时出现了问题，请稍后再试。")
 
 
