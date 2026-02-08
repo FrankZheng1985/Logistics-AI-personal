@@ -24,16 +24,16 @@ class CacheService:
             return
         
         try:
-            self.redis_client = redis.Redis(
-                host=settings.REDIS_HOST,
-                port=settings.REDIS_PORT,
-                password=settings.REDIS_PASSWORD if settings.REDIS_PASSWORD else None,
-                db=1,  # 使用DB1作为缓存数据库（DB0给任务队列）
+            # 从REDIS_URL解析连接参数，使用DB1作为缓存数据库
+            redis_url = settings.REDIS_URL.replace("/0", "/1")  # 使用DB1，DB0给任务队列
+            
+            self.redis_client = redis.from_url(
+                redis_url,
                 decode_responses=True
             )
             await self.redis_client.ping()
             self._connected = True
-            logger.info("✅ 缓存服务已连接Redis")
+            logger.info("✅ 缓存服务已连接Redis (DB1)")
         except Exception as e:
             logger.warning(f"⚠️ Redis连接失败，缓存功能不可用: {e}")
             self.redis_client = None
