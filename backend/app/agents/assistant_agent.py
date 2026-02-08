@@ -175,10 +175,10 @@ class ClauwdbotAgent(BaseAgent):
                     task_keywords = ["同步", "邮件", "读取", "查看", "添加", "日历", "日程", "生成", "分析", "查询", "统计", "搜索", "发送", "检查", "管理", "解读"]
                     
                     is_commitment = any(kw in content for kw in commitment_keywords)
-                    is_task_request = any(kw in current_message for kw in task_keywords)
+                    is_task_request = any(kw in message for kw in task_keywords)
                     
                     if turn == 0 and (is_commitment or is_task_request):
-                        logger.warning(f"[Maria ReAct] 拦截：口头承诺或任务请求未调工具 | user: '{current_message[:30]}...' | bot: '{content[:30]}...'")
+                        logger.warning(f"[Maria ReAct] 拦截：口头承诺或任务请求未调工具 | user: '{message[:30]}...' | bot: '{content[:30]}...'")
                         messages.append({"role": "assistant", "content": content})
                         messages.append({"role": "user", "content": "❌ 错误：你必须调用工具执行实际操作，不能只说不做或编造数据。请重新回答，这次必须使用工具。"})
                         continue
