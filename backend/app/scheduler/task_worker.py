@@ -57,30 +57,50 @@ async def process_pending_tasks():
             agent_type = task["agent_type"]
             input_data = task["input_data"]
             retry_count = task.get("retry_count", 0)
+            notion_page_id = task.get("notion_page_id")
             
             try:
-                # 2. 标记为 processing
+                # 2. 标记为 processing + 更新 Notion 看板
                 await _update_task_status(task_id, "processing")
+                notion_page_id = await _update_notion_board(task_id, {
+                    "status": "进行中",
+                    "started_at": datetime.now().isoformat(),
+                    "notion_page_id": notion_page_id,
+                })
                 
                 # 3. 执行任务
+                started = datetime.now()
                 logger.info(f"[TaskWorker] 开始执行任务 {task_id[:8]}... | 员工: {agent_type}")
                 result = await asyncio.wait_for(
                     _execute_task(agent_type, input_data),
                     timeout=TASK_TIMEOUT
                 )
                 
-                # 4. 标记为 completed，保存结果
+                # 4. 标记为 completed + 更新 Notion 看板
+                completed = datetime.now()
+                duration = _calc_duration(started, completed)
+                
                 await _update_task_status(
                     task_id, "completed",
                     output_data=result
                 )
+                
+                # 提取结果摘要
+                output_summary = _extract_output_summary(result)
+                await _update_notion_board(task_id, {
+                    "status": "已完成",
+                    "completed_at": completed.isoformat(),
+                    "duration": duration,
+                    "output": output_summary,
+                    "notion_page_id": notion_page_id,
+                })
                 
                 # 5. 推送结果给老板
                 from_user = input_data.get("from_user", "")
                 if from_user:
                     await _notify_user(from_user, agent_type, input_data, result)
                 
-                logger.info(f"[TaskWorker] 任务 {task_id[:8]} 执行成功 ✅")
+                logger.info(f"[TaskWorker] 任务 {task_id[:8]} 执行成功 ✅ ({duration})")
                 
             except asyncio.TimeoutError:
                 logger.error(f"[TaskWorker] 任务 {task_id[:8]} 超时 ({TASK_TIMEOUT}s)")
@@ -89,6 +109,12 @@ async def process_pending_tasks():
                     logger.info(f"[TaskWorker] 任务 {task_id[:8]} 将重试 (第{retry_count + 1}次)")
                 else:
                     await _update_task_status(task_id, "failed", error="执行超时")
+                    await _update_notion_board(task_id, {
+                        "status": "失败",
+                        "completed_at": datetime.now().isoformat(),
+                        "output": f"执行超时（{TASK_TIMEOUT}秒）",
+                        "notion_page_id": notion_page_id,
+                    })
                     from_user = input_data.get("from_user", "")
                     if from_user:
                         await _notify_failure(from_user, agent_type, input_data, "任务执行超时")
@@ -100,6 +126,12 @@ async def process_pending_tasks():
                     logger.info(f"[TaskWorker] 任务 {task_id[:8]} 将重试 (第{retry_count + 1}次)")
                 else:
                     await _update_task_status(task_id, "failed", error=str(e)[:500])
+                    await _update_notion_board(task_id, {
+                        "status": "失败",
+                        "completed_at": datetime.now().isoformat(),
+                        "output": f"错误：{str(e)[:200]}",
+                        "notion_page_id": notion_page_id,
+                    })
                     from_user = input_data.get("from_user", "")
                     if from_user:
                         await _notify_failure(from_user, agent_type, input_data, str(e)[:200])
@@ -115,7 +147,7 @@ async def _fetch_pending_tasks(limit: int = 3):
             result = await db.execute(
                 text("""
                     SELECT id, task_type, agent_type, status, priority,
-                           input_data, retry_count, created_at
+                           input_data, retry_count, created_at, notion_page_id
                     FROM ai_tasks
                     WHERE status = 'pending'
                     ORDER BY priority ASC, created_at ASC
@@ -140,6 +172,7 @@ async def _fetch_pending_tasks(limit: int = 3):
                 "input_data": input_data or {},
                 "retry_count": row[6] or 0,
                 "created_at": row[7],
+                "notion_page_id": row[8] if len(row) > 8 else None,
             })
         
         return tasks
@@ -330,3 +363,65 @@ async def _notify_failure(user_id: str, agent_type: str, input_data: Dict, error
         
     except Exception as e:
         logger.error(f"[TaskWorker] 推送失败通知失败: {e}")
+
+
+# ==================== Notion 看板辅助函数 ====================
+
+async def _update_notion_board(task_id: str, data: Dict[str, Any]) -> Optional[str]:
+    """更新 Notion 任务看板（容错，失败不影响主流程）"""
+    try:
+        from app.skills.notion import get_notion_skill
+        skill = await get_notion_skill()
+        notion_page_id = await skill.upsert_task_row(task_id, data)
+        
+        # 如果是新创建的行，把 notion_page_id 存回数据库
+        if notion_page_id and not data.get("notion_page_id"):
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    text("UPDATE ai_tasks SET notion_page_id = :npid WHERE id = :tid"),
+                    {"npid": notion_page_id, "tid": task_id}
+                )
+                await db.commit()
+        
+        return notion_page_id
+    except Exception as e:
+        logger.warning(f"[TaskWorker] Notion看板更新失败（不影响任务执行）: {e}")
+        return data.get("notion_page_id")
+
+
+def _calc_duration(started: datetime, completed: datetime) -> str:
+    """计算任务耗时，返回可读字符串"""
+    delta = completed - started
+    total_seconds = int(delta.total_seconds())
+    
+    if total_seconds < 60:
+        return f"{total_seconds}秒"
+    elif total_seconds < 3600:
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+        return f"{minutes}分{seconds}秒"
+    else:
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        return f"{hours}小时{minutes}分"
+
+
+def _extract_output_summary(result: Dict) -> str:
+    """从任务结果中提取摘要"""
+    if not isinstance(result, dict):
+        return str(result)[:200]
+    
+    response = (
+        result.get("response")
+        or result.get("readable_report")
+        or result.get("result")
+        or ""
+    )
+    
+    if isinstance(response, dict):
+        response = json.dumps(response, ensure_ascii=False)
+    
+    if isinstance(response, str) and len(response) > 200:
+        return response[:200] + "..."
+    
+    return str(response) if response else "任务完成，无文本输出"

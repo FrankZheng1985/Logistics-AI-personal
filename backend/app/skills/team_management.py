@@ -210,6 +210,8 @@ class TeamManagementSkill(BaseSkill):
             await self.log_step("think", f"分配任务给{agent_name}", task_desc[:100])
 
             task_id = str(uuid.uuid4())
+            now_iso = datetime.now(CHINA_TZ).isoformat()
+            
             async with AsyncSessionLocal() as db:
                 await db.execute(
                     text("""
@@ -230,6 +232,28 @@ class TeamManagementSkill(BaseSkill):
                     }
                 )
                 await db.commit()
+
+            # 写入 Notion 任务看板
+            try:
+                from app.skills.notion import get_notion_skill
+                notion_skill = await get_notion_skill()
+                notion_page_id = await notion_skill.upsert_task_row(task_id, {
+                    "title": task_desc[:100],
+                    "agent_type": target_agent_key,
+                    "status": "等待中",
+                    "priority": priority,
+                    "created_at": now_iso,
+                })
+                # 存回 notion_page_id
+                if notion_page_id:
+                    async with AsyncSessionLocal() as db:
+                        await db.execute(
+                            text("UPDATE ai_tasks SET notion_page_id = :npid WHERE id = :tid"),
+                            {"npid": notion_page_id, "tid": task_id}
+                        )
+                        await db.commit()
+            except Exception as e:
+                logger.warning(f"[TeamSkill] Notion看板写入失败（不影响任务分配）: {e}")
 
             return self._ok(
                 f"任务已分配给{agent_name}：{task_desc[:80]}",

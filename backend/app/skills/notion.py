@@ -41,6 +41,7 @@ class NotionSkill(BaseSkill):
         super().__init__(agent)
         self._client = None
         self._section_cache: Dict[str, str] = {}  # section_key -> page_id 缓存
+        self._task_db_id: Optional[str] = None  # 任务看板 Database ID 缓存
 
     def _get_client(self):
         """懒加载 Notion Client"""
@@ -653,5 +654,210 @@ class NotionSkill(BaseSkill):
 """
 
 
+    # ==================== 任务看板 Database 操作 ====================
+
+    TASK_DB_TITLE = "任务看板"
+
+    AGENT_NAMES_SELECT = [
+        {"name": "小调", "color": "gray"},
+        {"name": "小影", "color": "purple"},
+        {"name": "小文", "color": "pink"},
+        {"name": "小销", "color": "orange"},
+        {"name": "小跟", "color": "yellow"},
+        {"name": "小析", "color": "blue"},
+        {"name": "小猎", "color": "green"},
+        {"name": "小析2", "color": "gray"},
+        {"name": "小欧间谍", "color": "red"},
+    ]
+
+    STATUS_SELECT = [
+        {"name": "等待中", "color": "yellow"},
+        {"name": "进行中", "color": "blue"},
+        {"name": "已完成", "color": "green"},
+        {"name": "失败", "color": "red"},
+    ]
+
+    PRIORITY_SELECT = [
+        {"name": "紧急", "color": "red"},
+        {"name": "高", "color": "orange"},
+        {"name": "中", "color": "blue"},
+        {"name": "低", "color": "gray"},
+    ]
+
+    # agent_type -> 中文名映射
+    AGENT_TYPE_TO_NAME = {
+        "coordinator": "小调", "video_creator": "小影",
+        "copywriter": "小文", "sales": "小销",
+        "follow": "小跟", "analyst": "小析",
+        "lead_hunter": "小猎", "analyst2": "小析2",
+        "eu_customs_monitor": "小欧间谍",
+    }
+
+    async def get_or_create_task_db(self) -> str:
+        """获取或创建任务看板 Database，返回 database_id"""
+        if self._task_db_id:
+            return self._task_db_id
+
+        try:
+            client = self._get_client()
+            root_id = self._get_root_page_id()
+
+            # 搜索是否已有任务看板 Database
+            search_result = client.search(
+                query=self.TASK_DB_TITLE,
+                filter={"property": "object", "value": "database"},
+                page_size=5,
+            )
+
+            for item in search_result.get("results", []):
+                title_arr = item.get("title", [])
+                if title_arr and title_arr[0].get("plain_text", "") == self.TASK_DB_TITLE:
+                    self._task_db_id = item["id"]
+                    logger.info(f"[NotionSkill] 找到已有任务看板: {self._task_db_id}")
+                    return self._task_db_id
+
+            # 不存在，创建新的 Database
+            new_db = client.databases.create(
+                parent={"page_id": root_id},
+                title=[{"text": {"content": self.TASK_DB_TITLE}}],
+                icon={"type": "emoji", "emoji": "📊"},
+                properties={
+                    "任务名称": {"title": {}},
+                    "负责人": {"select": {"options": self.AGENT_NAMES_SELECT}},
+                    "状态": {"select": {"options": self.STATUS_SELECT}},
+                    "优先级": {"select": {"options": self.PRIORITY_SELECT}},
+                    "创建时间": {"date": {}},
+                    "开始执行": {"date": {}},
+                    "完成时间": {"date": {}},
+                    "耗时": {"rich_text": {}},
+                    "产出物": {"rich_text": {}},
+                },
+            )
+
+            self._task_db_id = new_db["id"]
+            logger.info(f"[NotionSkill] 创建任务看板 Database: {self._task_db_id}")
+            return self._task_db_id
+
+        except Exception as e:
+            logger.error(f"[NotionSkill] 获取/创建任务看板失败: {e}")
+            raise
+
+    async def upsert_task_row(self, task_id: str, data: Dict[str, Any]) -> Optional[str]:
+        """
+        在任务看板 Database 中插入或更新一行
+        
+        Args:
+            task_id: ai_tasks 表的任务 ID
+            data: 字段数据，可包含:
+                - title: 任务名称
+                - agent_name: 负责人（中文名如"小文"）
+                - agent_type: 负责人类型（英文如"copywriter"，会自动转中文）
+                - status: 状态（等待中/进行中/已完成/失败）
+                - priority: 优先级（紧急/高/中/低）
+                - created_at: 创建时间 (ISO格式字符串)
+                - started_at: 开始执行时间
+                - completed_at: 完成时间
+                - duration: 耗时（如"2分30秒"）
+                - output: 产出物摘要
+                - notion_page_id: 已有的 Notion page_id（用于更新）
+                
+        Returns:
+            notion_page_id (str) 或 None
+        """
+        try:
+            client = self._get_client()
+            db_id = await self.get_or_create_task_db()
+
+            # 构建 properties
+            properties = {}
+
+            if data.get("title"):
+                properties["任务名称"] = {
+                    "title": [{"text": {"content": data["title"][:100]}}]
+                }
+
+            # 负责人
+            agent_name = data.get("agent_name") or self.AGENT_TYPE_TO_NAME.get(data.get("agent_type", ""), "")
+            if agent_name:
+                properties["负责人"] = {"select": {"name": agent_name}}
+
+            if data.get("status"):
+                properties["状态"] = {"select": {"name": data["status"]}}
+
+            if data.get("priority"):
+                # 映射英文优先级到中文
+                priority_map = {"urgent": "紧急", "high": "高", "medium": "中", "low": "低"}
+                priority_cn = priority_map.get(data["priority"], data["priority"])
+                properties["优先级"] = {"select": {"name": priority_cn}}
+
+            if data.get("created_at"):
+                properties["创建时间"] = {
+                    "date": {"start": self._format_date(data["created_at"])}
+                }
+
+            if data.get("started_at"):
+                properties["开始执行"] = {
+                    "date": {"start": self._format_date(data["started_at"])}
+                }
+
+            if data.get("completed_at"):
+                properties["完成时间"] = {
+                    "date": {"start": self._format_date(data["completed_at"])}
+                }
+
+            if data.get("duration"):
+                properties["耗时"] = {
+                    "rich_text": [{"text": {"content": str(data["duration"])}}]
+                }
+
+            if data.get("output"):
+                output_text = str(data["output"])[:2000]
+                properties["产出物"] = {
+                    "rich_text": [{"text": {"content": output_text}}]
+                }
+
+            # 判断是新增还是更新
+            notion_page_id = data.get("notion_page_id")
+
+            if notion_page_id:
+                # 更新已有行
+                client.pages.update(
+                    page_id=notion_page_id,
+                    properties=properties,
+                )
+                logger.info(f"[NotionSkill] 任务看板更新: {task_id[:8]} -> {data.get('status', '?')}")
+                return notion_page_id
+            else:
+                # 插入新行
+                new_page = client.pages.create(
+                    parent={"database_id": db_id},
+                    properties=properties,
+                )
+                new_page_id = new_page["id"]
+                logger.info(f"[NotionSkill] 任务看板新增: {task_id[:8]} -> {new_page_id}")
+                return new_page_id
+
+        except Exception as e:
+            logger.error(f"[NotionSkill] 任务看板操作失败: {e}")
+            return None
+
+    @staticmethod
+    def _format_date(value) -> str:
+        """将各种日期格式统一为 ISO 格式字符串"""
+        if isinstance(value, str):
+            return value
+        if isinstance(value, datetime):
+            return value.isoformat()
+        return str(value)
+
+
+# 全局单例（供 TaskWorker 等外部模块直接使用）
+_notion_skill_instance = NotionSkill()
+
 # 注册
-SkillRegistry.register(NotionSkill())
+SkillRegistry.register(_notion_skill_instance)
+
+
+async def get_notion_skill() -> NotionSkill:
+    """获取 NotionSkill 单例（供外部模块调用任务看板功能）"""
+    return _notion_skill_instance
