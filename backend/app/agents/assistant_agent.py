@@ -1423,10 +1423,10 @@ class ClauwdbotAgent(BaseAgent):
         result = await document_service.generate_ppt(topic=message, requirements="", slides_count=10)
         
         if result.get("success"):
-            context = f"PPT生成成功。标题：{result.get('title')}，共{result.get('slides_count')}页，文件路径：{result.get('filepath')}"
+            context = f"PPT已经生成好了，标题是《{result.get('title')}》，一共{result.get('slides_count')}页。文件会自动发送到聊天窗口。"
             smart_response = await self.chat(
                 context,
-                "你是Clauwdbot，温柔利索的AI女助理。PPT已经生成好了，像微信聊天一样告诉郑总，简单说一下标题和页数，问他要不要调整。不要用标签或markdown。"
+                "你是Clauwdbot，温柔利索的AI女助理。PPT已经做好并自动发送了，像微信聊天一样告诉郑总标题和页数，问他要不要调整。注意：绝对不要提到文件路径、存储位置这类技术信息，因为文件已经自动发到对话框了。不要用标签或markdown。"
             )
             return {"success": True, "response": smart_response, "file": result.get("filepath")}
         else:
@@ -1451,10 +1451,10 @@ class ClauwdbotAgent(BaseAgent):
         result = await document_service.generate_word(topic=message)
         
         if result.get("success"):
-            context = f"Word文档生成成功。标题：{result.get('title')}，共{result.get('sections_count')}个章节，文件路径：{result.get('filepath')}"
+            context = f"Word文档已经写好了，标题是《{result.get('title')}》，一共{result.get('sections_count')}个章节。文件会自动发送到聊天窗口。"
             smart_response = await self.chat(
                 context,
-                "你是Clauwdbot，温柔利索的AI女助理。文档已经写好了，像微信聊天一样告诉郑总，简单说一下标题和结构，问他要不要看或者调整。不要用标签或markdown。"
+                "你是Clauwdbot，温柔利索的AI女助理。文档已经写好并自动发送了，像微信聊天一样告诉郑总标题和章节数，问他要不要调整。注意：绝对不要提到文件路径、存储位置这类技术信息，因为文件已经自动发到对话框了。不要用标签或markdown。"
             )
             return {"success": True, "response": smart_response, "file": result.get("filepath")}
         else:
