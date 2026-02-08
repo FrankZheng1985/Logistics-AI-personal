@@ -81,6 +81,8 @@ class ClauwdbotAgent(BaseAgent):
     
     # 意图分类（全能版）
     INTENT_TYPES = {
+        # === 自我配置意图 ===
+        "change_name": ["你叫", "名字叫", "以后叫", "改名", "叫你", "你的名字", "称呼你为"],
         # === 管理类意图 ===
         "agent_status": ["团队状态", "员工状态", "AI状态", "谁在工作", "工作情况", "检查一下", "做事情有没有偷懒"],
         "agent_dispatch": ["让小", "安排小", "派小", "叫小", "通知小"],
@@ -88,15 +90,15 @@ class ClauwdbotAgent(BaseAgent):
         "agent_code_read": ["看一下代码", "查看代码", "读取代码", "代码逻辑"],
         "system_status": ["系统状态", "健康检查", "系统健康"],
         "task_status": ["任务状态", "进度", "完成了吗", "怎么样了"],
-        # === 专业文档意图（新增）===
+        # === 专业文档意图 ===
         "generate_ppt": ["做ppt", "做PPT", "做个ppt", "PPT", "ppt", "演示文稿", "幻灯片"],
         "generate_word": ["计划书", "方案书", "写报告", "写文档", "做计划", "写个方案", "写一份"],
         "generate_code": ["写代码", "写脚本", "写程序", "爬虫", "帮我写个", "编程", "代码"],
-        # === 邮件深度阅读（升级）===
+        # === 邮件深度阅读 ===
         "email_deep_read": ["帮我看邮件", "读邮件", "邮件内容", "分析邮件", "邮件详情"],
         "email_query": ["邮件", "收件箱", "新邮件", "查看邮件", "未读邮件"],
         "email_reply": ["回复邮件", "发邮件", "帮我回"],
-        # === 工作总结（新增）===
+        # === 工作总结 ===
         "daily_summary": ["日报", "今日总结", "今天总结", "今天干了啥", "工作汇报", "总结一下"],
         "weekly_summary": ["周报", "这周总结", "周总结", "这周干的怎么样", "一周总结"],
         "daily_report_ai": ["AI报告", "AI日报", "团队日报"],
@@ -126,10 +128,15 @@ class ClauwdbotAgent(BaseAgent):
     def _build_system_prompt(self) -> str:
         base_prompt = CLAUWDBOT_SYSTEM_PROMPT
         
+        # 动态替换名字
+        bot_name = getattr(self, '_bot_display_name', None)
+        if bot_name and bot_name != "Clauwdbot":
+            base_prompt = base_prompt.replace("Clauwdbot", bot_name)
+        
         # 如果有记忆上下文，动态注入
         memory_ctx = getattr(self, '_user_memory_context', '')
         if memory_ctx:
-            base_prompt += f"\n\n## 你记住的关于老板的信息（请据此调整回复风格和内容）\n{memory_ctx}"
+            base_prompt += f"\n\n关于老板的偏好（请据此调整回复）：\n{memory_ctx}"
         
         return base_prompt
     
@@ -147,15 +154,22 @@ class ClauwdbotAgent(BaseAgent):
         await self.start_task_session("process_message", f"Clauwdbot处理消息: {message[:50]}...")
         
         try:
-            # 0. 【学习前钩子】加载用户记忆，注入到系统 Prompt
+            # 0. 【学习前钩子】加载用户记忆 + 名字，注入到系统 Prompt
             memory_context = ""
             try:
                 from app.services.memory_service import memory_service
                 memory_context = await memory_service.get_context_for_llm(user_id)
                 if memory_context:
-                    # 动态补充系统 Prompt（让 LLM 知道老板的偏好）
                     self._user_memory_context = memory_context
                     logger.info(f"[Clauwdbot] 已加载{user_id}的记忆上下文")
+                
+                # 加载自定义名字
+                bot_name = await memory_service.recall(user_id, "bot_name")
+                if bot_name:
+                    self._bot_display_name = bot_name
+                    logger.info(f"[Clauwdbot] 使用自定义名字: {bot_name}")
+                else:
+                    self._bot_display_name = "Clauwdbot"
             except Exception as e:
                 logger.warning(f"[Clauwdbot] 加载记忆失败（不影响主流程）: {e}")
             
@@ -181,6 +195,8 @@ class ClauwdbotAgent(BaseAgent):
             
             # 3. 根据意图处理
             handler_map = {
+                # === 自我配置处理器 ===
+                "change_name": self._handle_change_name,
                 # === 管理类处理器 ===
                 "agent_status": self._handle_agent_status,
                 "agent_dispatch": self._handle_agent_dispatch,
@@ -394,7 +410,7 @@ class ClauwdbotAgent(BaseAgent):
 
             smart_response = await self.chat(
                 context,
-                "你是Clauwdbot，一个温柔利索的AI女助理。请像在微信上跟郑总聊天一样回复，不要用任何标签、markdown格式、分隔线或表格。用口语把团队情况说清楚就好，挑重点说，不要逐个列举每一个员工。如果有表现突出或需要关注的员工可以提一下。"
+                "你是郑总的私人助理，在微信上聊天。用口语，短句，挑重点说团队情况就好，不要逐个列举。不要用markdown、标签、分隔线。"
             )
             
             return {"success": True, "response": smart_response}
@@ -708,7 +724,7 @@ class ClauwdbotAgent(BaseAgent):
                 context = f"用户问：{message}\n查询结果：目前没有任何任务记录。"
                 smart_response = await self.chat(
                     context,
-                    "你是Clauwdbot，一个温柔利索的AI女助理。像在微信上跟郑总聊天一样回复，不要用标签或markdown。"
+                    "你是郑总的私人助理，在微信上聊天。短句口语，不要用markdown、标签。"
                 )
                 return {"success": True, "response": smart_response}
             
@@ -739,7 +755,7 @@ class ClauwdbotAgent(BaseAgent):
 
             smart_response = await self.chat(
                 context,
-                "你是Clauwdbot，一个温柔利索的AI女助理。像在微信上跟郑总聊天一样回复，不要用标签、markdown或分隔线。用口语简要说说最近任务的情况就好。"
+                "你是郑总的私人助理，在微信上聊天。用口语简要说任务情况，不要用markdown、标签、分隔线。"
             )
             
             return {"success": True, "response": smart_response}
@@ -963,7 +979,7 @@ class ClauwdbotAgent(BaseAgent):
 
         smart_response = await self.chat(
             context, 
-            "你是Clauwdbot，一个温柔利索的AI女助理。请像在微信上跟郑总聊天一样回复，不要用任何标签或markdown格式。语气亲切自然，办事利索，一次只说重点，不要信息轰炸。"
+            "你是郑总的私人助理，在微信上聊天。短句口语，只说重点，不要用markdown、标签。"
         )
         
         return {"success": True, "response": smart_response}
@@ -1396,11 +1412,45 @@ class ClauwdbotAgent(BaseAgent):
         context = f"用户问：{message}\n用户想知道Clauwdbot能做什么。"
         smart_response = await self.chat(
             context,
-            "你是Clauwdbot，一个温柔利索的AI女助理。用户在问你能做什么，用聊天的口吻简单介绍一下就好，不要用markdown、标签或bullet point列表。像朋友介绍自己一样自然地说，比如'我能帮您管团队、记日程、看邮件...'这种感觉。"
+            "你是郑总的私人助理。用户问你能做什么，用聊天的口吻简单说几句就行，不要列清单。比如'我能帮你管团队、记日程、看邮件、写文档、做PPT这些'。"
         )
         return {"success": True, "response": smart_response}
     
-    # ==================== 专业文档能力（新增）====================
+    # ==================== 自我配置能力 ====================
+    
+    async def _handle_change_name(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """老板要给我改名字 —— 直接改，不废话"""
+        # 用 LLM 提取新名字
+        extract_prompt = f"""从以下消息中提取用户想给AI助理取的新名字。
+用户消息：{message}
+只返回名字本身，不要任何其他内容。比如用户说"你以后名字就叫Maria"，你就返回"Maria"。"""
+        
+        try:
+            new_name = await self.think([{"role": "user", "content": extract_prompt}], temperature=0.1)
+            new_name = new_name.strip().strip('"').strip("'").strip()
+            
+            if not new_name or len(new_name) > 20:
+                return {"success": True, "response": "你想让我叫什么名字呀？"}
+            
+            # 保存到记忆系统
+            from app.services.memory_service import memory_service
+            await memory_service.remember(user_id, "bot_name", new_name, "communication")
+            
+            # 立即生效
+            self._bot_display_name = new_name
+            
+            logger.info(f"[Clauwdbot] 名字已更改为: {new_name}")
+            
+            return {
+                "success": True,
+                "response": f"好呀，以后我就叫{new_name}啦~ 你直接叫我{new_name}就行！"
+            }
+            
+        except Exception as e:
+            logger.error(f"[Clauwdbot] 改名失败: {e}")
+            return {"success": True, "response": "改名的时候出了点小问题，你再说一遍要叫我什么？"}
+    
+    # ==================== 专业文档能力 ====================
     
     async def _handle_generate_ppt(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
         """生成PPT演示文稿"""
@@ -1413,7 +1463,7 @@ class ClauwdbotAgent(BaseAgent):
             context = f"用户说：{message}\n用户想做PPT但信息不够详细。"
             smart_response = await self.chat(
                 context,
-                "你是Clauwdbot，温柔利索的AI女助理。用户想做PPT，但说得不够具体。请像微信聊天一样温柔地询问：1.PPT主题/用途 2.大概几页 3.重点内容。不要用标签或markdown。"
+                "你是郑总的私人助理。他想做PPT但说得不够具体，随意问问主题和大概要几页就行。短句，口语，不要用markdown。"
             )
             return {"success": True, "response": smart_response}
         
@@ -1426,7 +1476,7 @@ class ClauwdbotAgent(BaseAgent):
             context = f"PPT已经生成好了，标题是《{result.get('title')}》，一共{result.get('slides_count')}页。文件会自动发送到聊天窗口。"
             smart_response = await self.chat(
                 context,
-                "你是Clauwdbot，温柔利索的AI女助理。PPT已经做好并自动发送了，像微信聊天一样告诉郑总标题和页数，问他要不要调整。注意：绝对不要提到文件路径、存储位置这类技术信息，因为文件已经自动发到对话框了。不要用标签或markdown。"
+                "你是郑总的私人助理。PPT做好了已经发过去了，简单说一句标题和页数，问要不要改。绝对不要提文件路径。短句口语。"
             )
             return {"success": True, "response": smart_response, "file": result.get("filepath")}
         else:
@@ -1442,7 +1492,7 @@ class ClauwdbotAgent(BaseAgent):
             context = f"用户说：{message}\n用户想写文档但信息不够。"
             smart_response = await self.chat(
                 context,
-                "你是Clauwdbot，温柔利索的AI女助理。用户想写计划书/方案/报告，但信息不够。温柔地询问：1.文档类型和主题 2.大概内容方向 3.有没有特殊要求。不要用标签或markdown。"
+                "你是郑总的私人助理。他想写文档但信息不够，随意问问写什么主题、大概什么方向就行。短句口语，不要用markdown。"
             )
             return {"success": True, "response": smart_response}
         
@@ -1454,7 +1504,7 @@ class ClauwdbotAgent(BaseAgent):
             context = f"Word文档已经写好了，标题是《{result.get('title')}》，一共{result.get('sections_count')}个章节。文件会自动发送到聊天窗口。"
             smart_response = await self.chat(
                 context,
-                "你是Clauwdbot，温柔利索的AI女助理。文档已经写好并自动发送了，像微信聊天一样告诉郑总标题和章节数，问他要不要调整。注意：绝对不要提到文件路径、存储位置这类技术信息，因为文件已经自动发到对话框了。不要用标签或markdown。"
+                "你是郑总的私人助理。文档写好了已经发过去了，简单说一句标题和大概内容，问要不要改。绝对不要提文件路径。短句口语。"
             )
             return {"success": True, "response": smart_response, "file": result.get("filepath")}
         else:
@@ -1470,7 +1520,7 @@ class ClauwdbotAgent(BaseAgent):
             context = f"用户说：{message}\n用户想写代码但需求不清楚。"
             smart_response = await self.chat(
                 context,
-                "你是Clauwdbot，温柔利索的AI女助理。用户想写代码但需求不够具体。温柔地询问：1.想实现什么功能 2.用什么语言 3.有没有特殊要求。不要用标签或markdown。"
+                "你是郑总的私人助理。他想写代码但没说清楚要什么，问问想实现什么功能就行。短句口语。"
             )
             return {"success": True, "response": smart_response}
         
@@ -1562,7 +1612,7 @@ class ClauwdbotAgent(BaseAgent):
 你拥有管理AI团队、操作日程、待办、邮件和ERP数据的权限。
 如果用户的问题涉及这些领域但意图识别不准，请你以专业助理的身份直接回答或引导。
 """
-        response = await self.chat(context, "你是Clauwdbot，一个温柔利索的AI女助理。像在微信上跟郑总聊天一样回复，语气亲切自然，不要用标签或markdown，说重点就好。")
+        response = await self.chat(context, "你是郑总的私人助理，在微信上聊天。短句口语，说重点就好，不要用markdown、标签。")
         return {"success": True, "response": response}
     
     # ==================== 工具方法 ====================
