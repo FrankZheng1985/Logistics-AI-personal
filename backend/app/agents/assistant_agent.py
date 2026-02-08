@@ -1936,6 +1936,172 @@ class ClauwdbotAgent(BaseAgent):
             logger.error(f"[Clauwdbot] 周报生成失败: {e}")
             return {"success": True, "response": "郑总，这周的数据还在汇总中，我整理好了发给您~"}
     
+    # ==================== 联网搜索 ====================
+
+    async def _handle_web_search(self, query: str, search_type: str = "search", num_results: int = 5) -> Dict[str, Any]:
+        """
+        通过 Serper API 搜索 Google
+        
+        Args:
+            query: 搜索关键词
+            search_type: "search"=网页搜索, "news"=新闻搜索
+            num_results: 返回结果数量(1-10)
+        """
+        from app.core.config import settings
+        import httpx
+        
+        api_key = getattr(settings, 'SERPER_API_KEY', None)
+        if not api_key:
+            return {"status": "error", "message": "搜索服务暂不可用（API未配置）"}
+        
+        # 选择搜索端点
+        endpoint = "https://google.serper.dev/news" if search_type == "news" else "https://google.serper.dev/search"
+        
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    endpoint,
+                    headers={
+                        "X-API-KEY": api_key,
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "q": query,
+                        "gl": "cn",
+                        "hl": "zh-cn",
+                        "num": min(num_results, 10)
+                    }
+                )
+                
+                if response.status_code != 200:
+                    return {"status": "error", "message": f"搜索请求失败（HTTP {response.status_code}）"}
+                
+                data = response.json()
+                
+                # 解析搜索结果
+                results = []
+                source_key = "news" if search_type == "news" else "organic"
+                
+                for item in data.get(source_key, [])[:num_results]:
+                    result_item = {
+                        "title": item.get("title", ""),
+                        "snippet": item.get("snippet", "") or item.get("description", ""),
+                        "url": item.get("link", "") or item.get("url", ""),
+                    }
+                    if search_type == "news":
+                        result_item["source"] = item.get("source", "")
+                        result_item["date"] = item.get("date", "")
+                    results.append(result_item)
+                
+                # 额外信息
+                answer_box = data.get("answerBox", {})
+                knowledge_graph = data.get("knowledgeGraph", {})
+                
+                summary_parts = []
+                if answer_box:
+                    summary_parts.append(f"快速答案: {answer_box.get('answer', '') or answer_box.get('snippet', '')}")
+                if knowledge_graph:
+                    kg_desc = knowledge_graph.get("description", "")
+                    if kg_desc:
+                        summary_parts.append(f"知识摘要: {kg_desc}")
+                
+                return {
+                    "status": "success",
+                    "query": query,
+                    "result_count": len(results),
+                    "results": results,
+                    "quick_answer": "\n".join(summary_parts) if summary_parts else None,
+                    "message": f"搜索到 {len(results)} 条结果"
+                }
+                
+        except httpx.TimeoutException:
+            return {"status": "error", "message": "搜索超时，请稍后再试"}
+        except Exception as e:
+            logger.error(f"[Maria] 搜索失败: {e}")
+            return {"status": "error", "message": f"搜索出错: {str(e)}"}
+
+    async def _handle_fetch_webpage(self, url: str) -> Dict[str, Any]:
+        """
+        抓取网页内容并提取正文
+        
+        Args:
+            url: 目标网页URL
+        """
+        import httpx
+        
+        if not url or not url.startswith(("http://", "https://")):
+            return {"status": "error", "message": "无效的网址"}
+        
+        try:
+            async with httpx.AsyncClient(
+                timeout=15.0,
+                follow_redirects=True,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                }
+            ) as client:
+                response = await client.get(url)
+                
+                if response.status_code != 200:
+                    return {"status": "error", "message": f"无法访问该网页（HTTP {response.status_code}）"}
+                
+                html = response.text
+                
+                # 用 BeautifulSoup 提取正文
+                try:
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(html, "html.parser")
+                    
+                    # 移除不需要的标签
+                    for tag in soup(["script", "style", "nav", "header", "footer", "aside", "iframe", "noscript"]):
+                        tag.decompose()
+                    
+                    # 获取标题
+                    title = soup.title.string.strip() if soup.title and soup.title.string else ""
+                    
+                    # 获取正文
+                    text = soup.get_text(separator="\n", strip=True)
+                    
+                    # 清理多余空行
+                    lines = [line.strip() for line in text.splitlines() if line.strip()]
+                    clean_text = "\n".join(lines)
+                    
+                    # 限制字符数，防止token爆炸
+                    max_chars = 3000
+                    if len(clean_text) > max_chars:
+                        clean_text = clean_text[:max_chars] + "\n...(内容已截断)"
+                    
+                    return {
+                        "status": "success",
+                        "url": url,
+                        "title": title,
+                        "content": clean_text,
+                        "content_length": len(clean_text),
+                        "message": f"已抓取网页内容（{len(clean_text)}字）"
+                    }
+                    
+                except ImportError:
+                    # 没有 beautifulsoup4，用简单正则提取
+                    import re
+                    text = re.sub(r'<[^>]+>', ' ', html)
+                    text = re.sub(r'\s+', ' ', text).strip()
+                    if len(text) > 3000:
+                        text = text[:3000] + "...(已截断)"
+                    return {
+                        "status": "success",
+                        "url": url,
+                        "title": "",
+                        "content": text,
+                        "content_length": len(text),
+                        "message": f"已抓取网页内容（{len(text)}字）"
+                    }
+                
+        except httpx.TimeoutException:
+            return {"status": "error", "message": "网页加载超时"}
+        except Exception as e:
+            logger.error(f"[Maria] 抓取网页失败: {e}")
+            return {"status": "error", "message": f"抓取失败: {str(e)}"}
+
     async def _handle_unknown(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
         """处理无法识别的意图 - 带对话上下文的AI智能回复"""
         # 构建对话上下文

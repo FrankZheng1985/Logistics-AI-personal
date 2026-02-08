@@ -442,7 +442,52 @@ MARIA_TOOLS: List[Dict[str, Any]] = [
         }
     },
 
-    # ── 8. 身份管理 ──
+    # ── 8. 联网搜索 ──
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "在Google上搜索实时信息。可以搜索新闻、公司背景、行业动态、政策法规、物流价格、任何问题",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "搜索关键词，用自然语言描述"
+                    },
+                    "search_type": {
+                        "type": "string",
+                        "enum": ["search", "news"],
+                        "description": "搜索类型：search=网页搜索（默认），news=新闻搜索"
+                    },
+                    "num_results": {
+                        "type": "integer",
+                        "description": "返回结果数量，默认5，最多10"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_webpage",
+            "description": "抓取指定网址的内容，可以用来深入阅读某篇文章、查看公司官网、读取网页详情",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "要抓取的网页URL"
+                    }
+                },
+                "required": ["url"]
+            }
+        }
+    },
+
+    # ── 9. 身份管理 ──
     {
         "type": "function",
         "function": {
@@ -535,6 +580,8 @@ class MariaToolExecutor:
             "query_daily_report": self._tool_query_daily_report,
             "change_my_name": self._tool_change_name,
             "generate_ical": self._tool_generate_ical,
+            "web_search": self._tool_web_search,
+            "fetch_webpage": self._tool_fetch_webpage,
         }
         return handler_map.get(tool_name)
 
@@ -709,3 +756,17 @@ class MariaToolExecutor:
             "filepath": filepath,
             "event_count": len(events),
         }
+
+    async def _tool_web_search(self, message, intent, user_id, args):
+        """Google搜索"""
+        query = args.get("query", "")
+        search_type = args.get("search_type", "search")
+        num_results = min(args.get("num_results", 5), 10)
+        return await self.agent._handle_web_search(
+            query=query, search_type=search_type, num_results=num_results
+        )
+
+    async def _tool_fetch_webpage(self, message, intent, user_id, args):
+        """抓取网页内容"""
+        url = args.get("url", "")
+        return await self.agent._handle_fetch_webpage(url=url)
