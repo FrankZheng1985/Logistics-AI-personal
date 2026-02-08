@@ -261,7 +261,6 @@ class ClauwdbotAgent(BaseAgent):
             
             try:
                 from app.services.memory_service import memory_service
-                import asyncio
                 asyncio.create_task(memory_service.auto_learn(user_id, message, final_text))
             except Exception:
                 pass
@@ -269,7 +268,6 @@ class ClauwdbotAgent(BaseAgent):
             # RAG: 异步摄取对话到向量库
             try:
                 from app.services.vector_store import vector_store
-                import asyncio
                 asyncio.create_task(vector_store.ingest_conversation(user_id, message, final_text))
             except Exception:
                 pass
