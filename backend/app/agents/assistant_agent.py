@@ -79,17 +79,28 @@ class ClauwdbotAgent(BaseAgent):
         "eu_customs_monitor": {"name": "小欧间谍", "type": AgentType.EU_CUSTOMS_MONITOR, "prompt_file": None},
     }
     
-    # 意图分类（扩展版，增加管理类意图）
+    # 意图分类（全能版）
     INTENT_TYPES = {
-        # === 管理类意图（新增）===
-        "agent_status": ["团队状态", "员工状态", "AI状态", "谁在工作", "工作情况"],
+        # === 管理类意图 ===
+        "agent_status": ["团队状态", "员工状态", "AI状态", "谁在工作", "工作情况", "检查一下", "做事情有没有偷懒"],
         "agent_dispatch": ["让小", "安排小", "派小", "叫小", "通知小"],
         "agent_upgrade": ["优化", "升级", "改进", "修改prompt", "修改提示词", "调整风格"],
         "agent_code_read": ["看一下代码", "查看代码", "读取代码", "代码逻辑"],
         "system_status": ["系统状态", "健康检查", "系统健康"],
-        "daily_report_ai": ["日报", "报告", "工作汇报", "今日汇报"],
         "task_status": ["任务状态", "进度", "完成了吗", "怎么样了"],
-        # === 个人助理意图（保留原有）===
+        # === 专业文档意图（新增）===
+        "generate_ppt": ["做ppt", "做PPT", "做个ppt", "PPT", "ppt", "演示文稿", "幻灯片"],
+        "generate_word": ["计划书", "方案书", "写报告", "写文档", "做计划", "写个方案", "写一份"],
+        "generate_code": ["写代码", "写脚本", "写程序", "爬虫", "帮我写个", "编程", "代码"],
+        # === 邮件深度阅读（升级）===
+        "email_deep_read": ["帮我看邮件", "读邮件", "邮件内容", "分析邮件", "邮件详情"],
+        "email_query": ["邮件", "收件箱", "新邮件", "查看邮件", "未读邮件"],
+        "email_reply": ["回复邮件", "发邮件", "帮我回"],
+        # === 工作总结（新增）===
+        "daily_summary": ["日报", "今日总结", "今天总结", "今天干了啥", "工作汇报", "总结一下"],
+        "weekly_summary": ["周报", "这周总结", "周总结", "这周干的怎么样", "一周总结"],
+        "daily_report_ai": ["AI报告", "AI日报", "团队日报"],
+        # === 个人助理意图 ===
         "schedule_query": ["有什么安排", "有什么会", "查看日程", "查询日程", "今天安排", "明天安排", "今天有", "明天有", "日程", "行程"],
         "schedule_update": ["修改", "改成", "改为", "调整时间", "更改", "变更日程"],
         "schedule_cancel": ["取消", "删除日程", "不开了"],
@@ -98,10 +109,8 @@ class ClauwdbotAgent(BaseAgent):
         "todo_complete": ["完成了", "做完了", "搞定了"],
         "todo_add": ["待办", "要做", "记得做", "别忘了"],
         "meeting_record": ["会议纪要", "整理会议", "会议结束"],
-        "email_query": ["邮件", "收件箱", "新邮件", "查看邮件"],
-        "email_reply": ["回复邮件", "发邮件"],
         "erp_query": ["订单", "今天多少单", "财务", "营收"],
-        "report": ["简报", "今日总结"],
+        "report": ["简报"],
         "help": ["帮助", "你能做什么", "功能"],
     }
     
@@ -158,6 +167,17 @@ class ClauwdbotAgent(BaseAgent):
                 "system_status": self._handle_system_status,
                 "daily_report_ai": self._handle_ai_daily_report,
                 "task_status": self._handle_task_status,
+                # === 专业文档处理器（新增）===
+                "generate_ppt": self._handle_generate_ppt,
+                "generate_word": self._handle_generate_word,
+                "generate_code": self._handle_generate_code,
+                # === 邮件处理器（升级）===
+                "email_deep_read": self._handle_email_deep_read,
+                "email_query": self._handle_email_query,
+                "email_reply": self._handle_email_reply,
+                # === 工作总结处理器（新增）===
+                "daily_summary": self._handle_daily_summary,
+                "weekly_summary": self._handle_weekly_summary,
                 # === 个人助理处理器 ===
                 "schedule_add": self._handle_schedule_add,
                 "schedule_update": self._handle_schedule_update,
@@ -167,10 +187,8 @@ class ClauwdbotAgent(BaseAgent):
                 "todo_query": self._handle_todo_query,
                 "todo_complete": self._handle_todo_complete,
                 "meeting_record": self._handle_meeting_record,
-                "email_query": self._handle_email_query,
-                "email_reply": self._handle_email_reply,
                 "erp_query": self._handle_erp_query,
-                "report": self._handle_daily_report,
+                "report": self._handle_daily_summary,
                 "help": self._handle_help,
             }
             
@@ -218,15 +236,29 @@ class ClauwdbotAgent(BaseAgent):
 可能的意图类型：
 【管理类】
 - agent_status: 查看AI团队/员工状态
-- agent_dispatch: 让某个AI员工执行任务（如"让小猎搜索XXX"）
-- agent_upgrade: 优化/升级某个AI员工的能力或Prompt
-- agent_code_read: 查看AI员工的代码逻辑
+- agent_dispatch: 让某个AI员工执行任务
+- agent_upgrade: 优化/升级AI员工
+- agent_code_read: 查看AI员工代码
 - system_status: 系统状态检查
-- daily_report_ai: AI团队日报/工作报告
 - task_status: 查询任务进度
 
+【专业文档类】
+- generate_ppt: 制作PPT演示文稿
+- generate_word: 写计划书/方案/报告（Word文档）
+- generate_code: 写代码/脚本/程序
+
+【邮件类】
+- email_deep_read: 深度阅读分析邮件内容
+- email_query: 查看未读邮件摘要
+- email_reply: 回复/发送邮件
+
+【工作总结类】
+- daily_summary: 今日工作总结/日报
+- weekly_summary: 一周工作总结/周报
+- daily_report_ai: AI团队专项报告
+
 【个人助理类】
-- schedule_add: 添加新日程/安排
+- schedule_add: 添加新日程
 - schedule_update: 修改现有日程
 - schedule_query: 查询日程
 - schedule_cancel: 取消日程
@@ -234,10 +266,7 @@ class ClauwdbotAgent(BaseAgent):
 - todo_query: 查询待办
 - todo_complete: 完成待办
 - meeting_record: 会议纪要相关
-- email_query: 查询邮件
-- email_reply: 回复/发送邮件
 - erp_query: 查询订单/财务数据
-- report: 每日简报
 - help: 帮助
 - unknown: 无法识别
 
@@ -1338,6 +1367,160 @@ class ClauwdbotAgent(BaseAgent):
             "你是Clauwdbot，一个温柔利索的AI女助理。用户在问你能做什么，用聊天的口吻简单介绍一下就好，不要用markdown、标签或bullet point列表。像朋友介绍自己一样自然地说，比如'我能帮您管团队、记日程、看邮件...'这种感觉。"
         )
         return {"success": True, "response": smart_response}
+    
+    # ==================== 专业文档能力（新增）====================
+    
+    async def _handle_generate_ppt(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """生成PPT演示文稿"""
+        await self.log_live_step("think", "准备生成PPT", "分析主题和要求")
+        
+        from app.services.document_service import document_service
+        
+        # 先问清楚需求，再生成
+        if len(message) < 15:  # 消息太短，需要更多信息
+            context = f"用户说：{message}\n用户想做PPT但信息不够详细。"
+            smart_response = await self.chat(
+                context,
+                "你是Clauwdbot，温柔利索的AI女助理。用户想做PPT，但说得不够具体。请像微信聊天一样温柔地询问：1.PPT主题/用途 2.大概几页 3.重点内容。不要用标签或markdown。"
+            )
+            return {"success": True, "response": smart_response}
+        
+        # 信息足够，直接生成
+        await self.log_live_step("think", "正在生成PPT", "大约需要30秒")
+        
+        result = await document_service.generate_ppt(topic=message, requirements="", slides_count=10)
+        
+        if result.get("success"):
+            context = f"PPT生成成功。标题：{result.get('title')}，共{result.get('slides_count')}页，文件路径：{result.get('filepath')}"
+            smart_response = await self.chat(
+                context,
+                "你是Clauwdbot，温柔利索的AI女助理。PPT已经生成好了，像微信聊天一样告诉郑总，简单说一下标题和页数，问他要不要调整。不要用标签或markdown。"
+            )
+            return {"success": True, "response": smart_response, "file": result.get("filepath")}
+        else:
+            return {"success": False, "response": f"郑总，PPT生成遇到了点问题：{result.get('error')}。要不我换个方式帮您试试？"}
+    
+    async def _handle_generate_word(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """生成Word文档（计划书/方案/报告）"""
+        await self.log_live_step("think", "准备生成文档", "分析主题和要求")
+        
+        from app.services.document_service import document_service
+        
+        if len(message) < 10:
+            context = f"用户说：{message}\n用户想写文档但信息不够。"
+            smart_response = await self.chat(
+                context,
+                "你是Clauwdbot，温柔利索的AI女助理。用户想写计划书/方案/报告，但信息不够。温柔地询问：1.文档类型和主题 2.大概内容方向 3.有没有特殊要求。不要用标签或markdown。"
+            )
+            return {"success": True, "response": smart_response}
+        
+        await self.log_live_step("think", "正在撰写文档", "大约需要1分钟")
+        
+        result = await document_service.generate_word(topic=message)
+        
+        if result.get("success"):
+            context = f"Word文档生成成功。标题：{result.get('title')}，共{result.get('sections_count')}个章节，文件路径：{result.get('filepath')}"
+            smart_response = await self.chat(
+                context,
+                "你是Clauwdbot，温柔利索的AI女助理。文档已经写好了，像微信聊天一样告诉郑总，简单说一下标题和结构，问他要不要看或者调整。不要用标签或markdown。"
+            )
+            return {"success": True, "response": smart_response, "file": result.get("filepath")}
+        else:
+            return {"success": False, "response": f"郑总，文档生成遇到了点问题：{result.get('error')}。我再帮您试试~"}
+    
+    async def _handle_generate_code(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """帮老板写代码"""
+        await self.log_live_step("think", "分析代码需求", "准备编写代码")
+        
+        from app.services.document_service import document_service
+        
+        if len(message) < 10:
+            context = f"用户说：{message}\n用户想写代码但需求不清楚。"
+            smart_response = await self.chat(
+                context,
+                "你是Clauwdbot，温柔利索的AI女助理。用户想写代码但需求不够具体。温柔地询问：1.想实现什么功能 2.用什么语言 3.有没有特殊要求。不要用标签或markdown。"
+            )
+            return {"success": True, "response": smart_response}
+        
+        # 判断语言
+        language = "python"
+        if any(kw in message.lower() for kw in ["javascript", "js", "前端", "react", "vue"]):
+            language = "javascript"
+        elif any(kw in message.lower() for kw in ["sql", "数据库", "查询"]):
+            language = "sql"
+        
+        result = await document_service.generate_code(requirement=message, language=language)
+        
+        if result.get("success"):
+            return {"success": True, "response": result["code"]}
+        else:
+            return {"success": False, "response": f"郑总，代码写的时候遇到了点问题，我再试一下~"}
+    
+    # ==================== 邮件深度阅读（新增）====================
+    
+    async def _handle_email_deep_read(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """深度阅读邮件 - 分类、摘要、建议"""
+        await self.log_live_step("search", "深度分析邮件", "正在阅读所有未读邮件")
+        
+        try:
+            from app.services.multi_email_service import multi_email_service
+            from app.services.email_ai_service import email_ai_service
+            
+            # 获取未读邮件
+            summary = await multi_email_service.get_unread_summary()
+            
+            if summary.get("total_unread", 0) == 0:
+                return {"success": True, "response": "郑总，邮箱里没有新邮件呢，挺清净的~"}
+            
+            # 收集所有未读邮件
+            all_emails = []
+            for account in summary.get("accounts", []):
+                for email in account.get("recent_emails", []):
+                    all_emails.append({
+                        "from": email.get("from_name") or email.get("from_address", ""),
+                        "subject": email.get("subject", ""),
+                        "body": email.get("body_preview", ""),
+                        "date": email.get("date", "")
+                    })
+            
+            # AI 深度分析
+            brief = await email_ai_service.generate_daily_email_brief(all_emails)
+            
+            return {"success": True, "response": brief}
+            
+        except Exception as e:
+            logger.error(f"[Clauwdbot] 邮件深度阅读失败: {e}")
+            return {"success": True, "response": "郑总，邮件服务暂时连不上，我稍后帮您重试一下~"}
+    
+    # ==================== 工作总结（新增）====================
+    
+    async def _handle_daily_summary(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """生成日报/今日总结"""
+        await self.log_live_step("think", "汇总今日数据", "正在生成工作总结")
+        
+        try:
+            from app.services.summary_service import summary_service
+            
+            summary = await summary_service.generate_daily_summary()
+            return {"success": True, "response": summary}
+            
+        except Exception as e:
+            logger.error(f"[Clauwdbot] 日报生成失败: {e}")
+            return {"success": True, "response": "郑总，今日数据还在汇总中，我整理好了发给您~"}
+    
+    async def _handle_weekly_summary(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """生成周报"""
+        await self.log_live_step("think", "汇总一周数据", "正在生成周报")
+        
+        try:
+            from app.services.summary_service import summary_service
+            
+            summary = await summary_service.generate_weekly_summary()
+            return {"success": True, "response": summary}
+            
+        except Exception as e:
+            logger.error(f"[Clauwdbot] 周报生成失败: {e}")
+            return {"success": True, "response": "郑总，这周的数据还在汇总中，我整理好了发给您~"}
     
     async def _handle_unknown(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
         """处理无法识别的意图 - 使用AI智能回复"""

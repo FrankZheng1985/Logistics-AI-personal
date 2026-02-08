@@ -403,6 +403,7 @@ class LLMFactory:
     _claude_instance: Optional[ClaudeLLM] = None
     _openai_instance: Optional[OpenAILLM] = None
     _qwen_instance: Optional[OpenAILLM] = None
+    _deepseek_instance: Optional[OpenAILLM] = None
     
     @classmethod
     def get_primary(cls) -> BaseLLM:
@@ -427,6 +428,30 @@ class LLMFactory:
         return cls.get_fallback()
     
     @classmethod
+    def get_advanced(cls) -> BaseLLM:
+        """获取高级LLM（用于代码编写、计划书、深度分析等复杂任务）
+        优先级：DeepSeek > Claude > 通义千问
+        """
+        # DeepSeek-V3 在代码和长文本逻辑上最强
+        if settings.DEEPSEEK_API_KEY:
+            if cls._deepseek_instance is None:
+                cls._deepseek_instance = OpenAILLM(
+                    api_key=settings.DEEPSEEK_API_KEY,
+                    base_url=settings.DEEPSEEK_API_BASE,
+                    model="deepseek-chat"
+                )
+            return cls._deepseek_instance
+        
+        # Claude 也擅长复杂任务
+        if settings.ANTHROPIC_API_KEY:
+            if cls._claude_instance is None:
+                cls._claude_instance = ClaudeLLM(settings.ANTHROPIC_API_KEY)
+            return cls._claude_instance
+        
+        # 回退到通义千问
+        return cls.get_primary()
+    
+    @classmethod
     def get_fallback(cls) -> BaseLLM:
         """获取备用LLM（GPT-4）"""
         if settings.OPENAI_API_KEY:
@@ -442,6 +467,7 @@ async def chat_completion(
     temperature: float = None,
     max_tokens: int = None,
     use_fallback: bool = False,
+    use_advanced: bool = False,
     auto_fallback: bool = True,
     agent_name: str = None,
     task_type: str = None,
@@ -456,6 +482,7 @@ async def chat_completion(
         temperature: 温度参数
         max_tokens: 最大token数
         use_fallback: 是否使用备用模型
+        use_advanced: 是否使用高级模型（代码/计划书/深度分析）
         auto_fallback: 主模型失败时是否自动切换到备用模型
         agent_name: AI员工名称（用于用量统计）
         task_type: 任务类型（用于用量统计）
@@ -478,6 +505,10 @@ async def chat_completion(
     try:
         if use_fallback:
             llm = LLMFactory.get_fallback()
+            return await llm.chat(**kwargs)
+        
+        if use_advanced:
+            llm = LLMFactory.get_advanced()
             return await llm.chat(**kwargs)
         
         # 先尝试主模型
