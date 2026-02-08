@@ -1,7 +1,8 @@
 """
-小助企业微信回调API
+Clauwdbot 企业微信回调API（由小助升级）
 处理老板通过企业微信发送的消息
 支持：文本消息、语音消息、文件消息（会议录音）
+AI中心超级助理 - 最高权限执行官
 """
 import os
 import xml.etree.ElementTree as ET
@@ -20,7 +21,7 @@ import httpx
 
 from app.core.config import settings
 
-router = APIRouter(prefix="/wechat_assistant", tags=["小助企业微信"])
+router = APIRouter(prefix="/wechat_assistant", tags=["Clauwdbot企业微信"])
 
 
 # ==================== 配置 ====================
@@ -180,12 +181,12 @@ async def send_text_message(user_id: str, content: str):
             result = response.json()
         
         if result.get("errcode") != 0:
-            logger.error(f"[小助] 发送消息失败: {result}")
+            logger.error(f"[Clauwdbot] 发送消息失败: {result}")
         else:
-            logger.info(f"[小助] 消息已发送给 {user_id}")
+            logger.info(f"[Clauwdbot] 消息已发送给 {user_id}")
                 
     except Exception as e:
-        logger.error(f"[小助] 发送消息异常: {e}")
+        logger.error(f"[Clauwdbot] 发送消息异常: {e}")
 
 
 async def download_media(media_id: str) -> Optional[bytes]:
@@ -199,13 +200,13 @@ async def download_media(media_id: str) -> Optional[bytes]:
             
             if response.headers.get("content-type", "").startswith("application/json"):
                 # 返回的是错误信息
-                logger.error(f"[小助] 下载媒体失败: {response.text}")
+                logger.error(f"[Clauwdbot] 下载媒体失败: {response.text}")
                 return None
             
             return response.content
             
     except Exception as e:
-        logger.error(f"[小助] 下载媒体异常: {e}")
+        logger.error(f"[Clauwdbot] 下载媒体异常: {e}")
         return None
 
 
@@ -213,13 +214,13 @@ async def download_media(media_id: str) -> Optional[bytes]:
 
 async def process_text_message(user_id: str, content: str):
     """处理文本消息"""
-    from app.agents.assistant_agent import assistant_agent
+    from app.agents.assistant_agent import clauwdbot_agent
     
-    logger.info(f"[小助] 处理文本消息: user={user_id}, content={content[:50]}...")
+    logger.info(f"[Clauwdbot] 处理文本消息: user={user_id}, content={content[:50]}...")
     
     try:
-        # 调用小助处理消息
-        result = await assistant_agent.process({
+        # 调用Clauwdbot处理消息
+        result = await clauwdbot_agent.process({
             "message": content,
             "user_id": user_id,
             "message_type": "text"
@@ -229,14 +230,89 @@ async def process_text_message(user_id: str, content: str):
         response = result.get("response", "抱歉，我没能理解你的意思。")
         await send_text_message(user_id, response)
         
+        # 如果有异步执行的任务（如任务分配），后台执行
+        if result.get("async_execute") and result.get("task_id"):
+            import asyncio
+            asyncio.create_task(
+                _execute_dispatched_task(user_id, result)
+            )
+        
     except Exception as e:
-        logger.error(f"[小助] 处理消息失败: {e}")
+        logger.error(f"[Clauwdbot] 处理消息失败: {e}")
         await send_text_message(user_id, "处理消息时出现了问题，请稍后再试。")
+
+
+async def _execute_dispatched_task(user_id: str, dispatch_result: dict):
+    """后台执行Clauwdbot分配的任务"""
+    from app.agents.base import AgentRegistry
+    from app.models.conversation import AgentType
+    
+    try:
+        target_agent_key = dispatch_result.get("target_agent")
+        task_id = dispatch_result.get("task_id")
+        
+        if not target_agent_key:
+            return
+        
+        # 获取Agent实例
+        from app.agents.assistant_agent import clauwdbot_agent
+        agent_info = clauwdbot_agent.AGENT_INFO.get(target_agent_key)
+        if not agent_info:
+            return
+        
+        agent = AgentRegistry.get(agent_info["type"])
+        if not agent:
+            await send_text_message(user_id, f"❌ {agent_info['name']}未上线，无法执行任务。")
+            return
+        
+        # 使用agent的chat方法执行任务
+        # 从dispatch_result中提取原始任务描述
+        task_desc = dispatch_result.get("response", "").split("📋 任务: ")[-1].split("\n")[0] if "📋 任务:" in dispatch_result.get("response", "") else ""
+        
+        if not task_desc:
+            return
+        
+        logger.info(f"[Clauwdbot] 后台执行任务: {agent_info['name']} -> {task_desc[:50]}")
+        
+        response = await agent.chat(task_desc)
+        
+        # 更新任务状态
+        if task_id:
+            from app.models.database import AsyncSessionLocal
+            from sqlalchemy import text
+            import json
+            
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    text("""
+                        UPDATE ai_tasks SET status = 'completed', 
+                        output_data = :output, completed_at = NOW()
+                        WHERE id = :id
+                    """),
+                    {"id": task_id, "output": json.dumps({"response": response[:2000]}, ensure_ascii=False)}
+                )
+                await db.commit()
+        
+        # 发送结果
+        task_id_short = task_id[:8] if task_id else ""
+        result_msg = f"""✅ 任务执行完成
+
+🔖 任务ID: {task_id_short}
+👤 执行者: {agent_info['name']}
+
+📋 结果：
+{response[:1800]}"""
+        
+        await send_text_message(user_id, result_msg)
+        
+    except Exception as e:
+        logger.error(f"[Clauwdbot] 后台任务执行失败: {e}")
+        await send_text_message(user_id, f"❌ 任务执行失败: {str(e)}")
 
 
 async def process_voice_message(user_id: str, media_id: str):
     """处理语音消息"""
-    logger.info(f"[小助] 收到语音消息: user={user_id}, media_id={media_id}")
+    logger.info(f"[Clauwdbot] 收到语音消息: user={user_id}, media_id={media_id}")
     
     # 下载语音文件
     voice_data = await download_media(media_id)
@@ -251,11 +327,11 @@ async def process_voice_message(user_id: str, media_id: str):
 
 async def process_file_message(user_id: str, media_id: str, file_name: str):
     """处理文件消息（可能是会议录音）"""
-    from app.agents.assistant_agent import assistant_agent
+    from app.agents.assistant_agent import clauwdbot_agent
     from app.services.speech_recognition_service import speech_recognition_service
     from app.services.cos_storage_service import cos_storage_service
     
-    logger.info(f"[小助] 收到文件: user={user_id}, file={file_name}")
+    logger.info(f"[Clauwdbot] 收到文件: user={user_id}, file={file_name}")
     
     # 检查是否是音频文件
     audio_extensions = [".mp3", ".m4a", ".wav", ".amr", ".ogg", ".aac"]
@@ -279,16 +355,16 @@ async def process_file_message(user_id: str, media_id: str, file_name: str):
     
     try:
         # 1. 下载音频文件
-        logger.info(f"[小助] 下载音频文件: {media_id}")
+        logger.info(f"[Clauwdbot] 下载音频文件: {media_id}")
         audio_data = await download_media(media_id)
         if not audio_data:
             await send_text_message(user_id, "音频文件下载失败，请重新发送。")
             return
         
-        logger.info(f"[小助] 音频文件下载成功: {len(audio_data)} bytes")
+        logger.info(f"[Clauwdbot] 音频文件下载成功: {len(audio_data)} bytes")
         
         # 2. 上传到腾讯云COS
-        logger.info(f"[小助] 上传到COS...")
+        logger.info(f"[Clauwdbot] 上传到COS...")
         success, result = await cos_storage_service.upload_bytes(
             data=audio_data,
             filename=file_name,
@@ -296,12 +372,12 @@ async def process_file_message(user_id: str, media_id: str, file_name: str):
         )
         
         if not success:
-            logger.error(f"[小助] COS上传失败: {result}")
+            logger.error(f"[Clauwdbot] COS上传失败: {result}")
             await send_text_message(user_id, f"音频上传失败: {result}")
             return
         
         audio_url = result
-        logger.info(f"[小助] COS上传成功: {audio_url}")
+        logger.info(f"[Clauwdbot] COS上传成功: {audio_url}")
         
         # 3. 创建会议记录
         from app.models.database import AsyncSessionLocal
@@ -319,7 +395,7 @@ async def process_file_message(user_id: str, media_id: str, file_name: str):
             meeting_id = str(result.fetchone()[0])
             await db.commit()
         
-        logger.info(f"[小助] 创建会议记录: {meeting_id}")
+        logger.info(f"[Clauwdbot] 创建会议记录: {meeting_id}")
         
         # 4. 调用语音识别服务
         ext = os.path.splitext(file_name)[1].lower().lstrip('.')
@@ -333,11 +409,11 @@ async def process_file_message(user_id: str, media_id: str, file_name: str):
         
         if not transcribe_result.get("success"):
             error_msg = transcribe_result.get("error", "未知错误")
-            logger.error(f"[小助] 语音识别任务提交失败: {error_msg}")
+            logger.error(f"[Clauwdbot] 语音识别任务提交失败: {error_msg}")
             await send_text_message(user_id, f"语音识别启动失败: {error_msg}")
             return
         
-        logger.info(f"[小助] 语音识别任务已提交: {transcribe_result.get('tencent_task_id')}")
+        logger.info(f"[Clauwdbot] 语音识别任务已提交: {transcribe_result.get('tencent_task_id')}")
         
         # 5. 启动后台任务等待结果并发送给用户
         import asyncio
@@ -346,7 +422,7 @@ async def process_file_message(user_id: str, media_id: str, file_name: str):
         )
         
     except Exception as e:
-        logger.error(f"[小助] 处理音频文件失败: {e}")
+        logger.error(f"[Clauwdbot] 处理音频文件失败: {e}")
         await send_text_message(user_id, f"处理音频文件时出现问题：{str(e)}")
 
 
@@ -377,7 +453,7 @@ async def _wait_and_send_meeting_summary(user_id: str, meeting_id: str, task_id:
                 row = result.fetchone()
                 
                 if not row:
-                    logger.warning(f"[小助] 会议记录不存在: {meeting_id}")
+                    logger.warning(f"[Clauwdbot] 会议记录不存在: {meeting_id}")
                     return
                 
                 status = row[0]
@@ -413,7 +489,7 @@ async def _wait_and_send_meeting_summary(user_id: str, meeting_id: str, task_id:
                     lines.append("完整内容可在系统中查看")
                     
                     await send_text_message(user_id, "\n".join(lines))
-                    logger.info(f"[小助] 会议纪要已发送: {meeting_id}")
+                    logger.info(f"[Clauwdbot] 会议纪要已发送: {meeting_id}")
                     return
                 
                 elif status == 'failed':
@@ -421,7 +497,7 @@ async def _wait_and_send_meeting_summary(user_id: str, meeting_id: str, task_id:
                     return
                     
         except Exception as e:
-            logger.error(f"[小助] 检查转写状态失败: {e}")
+            logger.error(f"[Clauwdbot] 检查转写状态失败: {e}")
     
     # 超时
     await send_text_message(user_id, "⏰ 会议录音转写超时，请稍后在系统中查看结果。")
@@ -443,15 +519,15 @@ async def verify_callback(
     try:
         crypto = get_crypto()
         if not crypto:
-            logger.error("[小助] 企业微信配置不完整")
+            logger.error("[Clauwdbot] 企业微信配置不完整")
             raise ValueError("企业微信配置不完整")
         
         decrypted = crypto.verify_url(msg_signature, timestamp, nonce, echostr)
-        logger.info(f"[小助] URL验证成功")
+        logger.info(f"[Clauwdbot] URL验证成功")
         return PlainTextResponse(content=decrypted)
         
     except Exception as e:
-        logger.error(f"[小助] URL验证失败: {e}")
+        logger.error(f"[Clauwdbot] URL验证失败: {e}")
         return PlainTextResponse(content="error", status_code=403)
 
 
@@ -470,7 +546,7 @@ async def receive_message(
     try:
         crypto = get_crypto()
         if not crypto:
-            logger.error("[小助] 企业微信配置不完整")
+            logger.error("[Clauwdbot] 企业微信配置不完整")
             return PlainTextResponse(content="success")
         
         # 获取并解析消息
@@ -497,12 +573,12 @@ async def receive_message(
             "FileName": msg_root.find("FileName").text if msg_root.find("FileName") is not None else None,
         }
         
-        logger.info(f"[小助] 收到消息: {message}")
+        logger.info(f"[Clauwdbot] 收到消息: {message}")
         
         # 消息去重
         msg_id = message.get("MsgId")
         if msg_id and is_message_processed(msg_id):
-            logger.info(f"[小助] 跳过重复消息: {msg_id}")
+            logger.info(f"[Clauwdbot] 跳过重复消息: {msg_id}")
             return PlainTextResponse(content="success")
         
         if msg_id:
@@ -531,7 +607,7 @@ async def receive_message(
         return PlainTextResponse(content="success")
         
     except Exception as e:
-        logger.error(f"[小助] 处理消息异常: {e}")
+        logger.error(f"[Clauwdbot] 处理消息异常: {e}")
         return PlainTextResponse(content="success")
 
 

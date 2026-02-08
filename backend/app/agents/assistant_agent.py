@@ -1,57 +1,99 @@
 """
-小助 - 个人助理AI员工
-负责：日程管理、会议纪要、待办事项、多邮箱管理、ERP数据跟踪
-主要通过企业微信与老板沟通
+Clauwdbot - AI中心超级助理（由小助升级而来）
+最高权限执行官，仅次于老板
+
+核心能力：
+1. 个人助理 - 日程管理、会议纪要、待办事项、邮件管理、ERP数据
+2. AI团队管理 - 查看状态、分配任务、协调工作流
+3. AI员工升级 - 读取/修改AI员工Prompt和业务代码
+4. 系统监控 - 系统健康、API可用性、AI用量
 """
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 from loguru import logger
 import json
 import re
+import os
 import pytz
 
 from app.agents.base import BaseAgent, AgentRegistry
 from app.models.conversation import AgentType
 from app.models.database import AsyncSessionLocal
 from sqlalchemy import text
+from app.core.prompts.clauwdbot import CLAUWDBOT_SYSTEM_PROMPT, AGENT_MANAGEMENT_PROMPT, AGENT_UPGRADE_PROMPT
 
 
-class AssistantAgent(BaseAgent):
-    """小助 - 个人助理AI员工
+class ClauwdbotAgent(BaseAgent):
+    """Clauwdbot - AI中心超级助理
+    
+    最高权限执行官，仅次于老板。
     
     核心能力：
-    1. 日程管理 - 自然语言录入、提醒、查询
-    2. 会议纪要 - 录音转写、AI总结、提取待办
-    3. 待办事项 - 添加、查询、完成
-    4. 多邮箱管理 - 统一收件箱、邮件提醒、草拟回复
-    5. ERP数据跟踪 - 订单汇报、财务摘要
-    6. 每日简报 - 日程+订单+邮件汇总
+    1. 个人助理 - 日程管理、会议纪要、待办事项、邮件管理、ERP数据
+    2. AI团队管理 - 查看状态、分配任务、协调工作流
+    3. AI员工升级 - 读取/修改AI员工Prompt和业务代码
+    4. 系统监控 - 系统健康、API可用性、AI用量
     """
     
-    name = "小助"
+    name = "Clauwdbot"
     agent_type = AgentType.ASSISTANT
-    description = "个人助理 - 日程管理、会议纪要、邮件管理、ERP数据跟踪"
+    description = "AI中心超级助理 - 最高权限执行官，管理AI团队、个人助理、代码编写"
     
     # 中国时区
     CHINA_TZ = pytz.timezone('Asia/Shanghai')
     
-    @staticmethod
-    def to_china_time(dt):
-        """转换为中国时区时间"""
-        if dt is None:
-            return None
-        # 如果没有时区信息，假设是UTC
-        if dt.tzinfo is None:
-            dt = pytz.UTC.localize(dt)
-        # 转换到中国时区
-        return dt.astimezone(AssistantAgent.CHINA_TZ)
+    # ==================== 权限控制 ====================
     
-    # 意图分类（按优先级排序：更具体的意图在前）
+    # 允许读取的文件路径（绿区）
+    ALLOWED_READ_PATHS = [
+        "backend/app/agents/",
+        "backend/app/core/prompts/",
+        "backend/app/services/",
+        "backend/app/scheduler/",
+    ]
+    
+    # 允许写入的文件路径（绿区）
+    ALLOWED_WRITE_PATHS = [
+        "backend/app/core/prompts/",  # 可修改AI员工Prompt
+        "backend/app/agents/",         # 可修改AI员工代码
+    ]
+    
+    # 禁止修改的文件（红区）
+    FORBIDDEN_FILES = [
+        "backend/app/agents/base.py",
+        "backend/app/models/database.py",
+        "backend/app/core/config.py",
+        "backend/app/core/llm.py",
+    ]
+    
+    # AI员工信息映射
+    AGENT_INFO = {
+        "coordinator": {"name": "小调", "type": AgentType.COORDINATOR, "prompt_file": "coordinator.py"},
+        "video_creator": {"name": "小影", "type": AgentType.VIDEO_CREATOR, "prompt_file": None},
+        "copywriter": {"name": "小文", "type": AgentType.COPYWRITER, "prompt_file": None},
+        "sales": {"name": "小销", "type": AgentType.SALES, "prompt_file": None},
+        "follow": {"name": "小跟", "type": AgentType.FOLLOW, "prompt_file": None},
+        "analyst": {"name": "小析", "type": AgentType.ANALYST, "prompt_file": None},
+        "lead_hunter": {"name": "小猎", "type": AgentType.LEAD_HUNTER, "prompt_file": None},
+        "analyst2": {"name": "小析2", "type": AgentType.ANALYST2, "prompt_file": None},
+        "eu_customs_monitor": {"name": "小欧间谍", "type": AgentType.EU_CUSTOMS_MONITOR, "prompt_file": None},
+    }
+    
+    # 意图分类（扩展版，增加管理类意图）
     INTENT_TYPES = {
+        # === 管理类意图（新增）===
+        "agent_status": ["团队状态", "员工状态", "AI状态", "谁在工作", "工作情况"],
+        "agent_dispatch": ["让小", "安排小", "派小", "叫小", "通知小"],
+        "agent_upgrade": ["优化", "升级", "改进", "修改prompt", "修改提示词", "调整风格"],
+        "agent_code_read": ["看一下代码", "查看代码", "读取代码", "代码逻辑"],
+        "system_status": ["系统状态", "健康检查", "系统健康"],
+        "daily_report_ai": ["日报", "报告", "工作汇报", "今日汇报"],
+        "task_status": ["任务状态", "进度", "完成了吗", "怎么样了"],
+        # === 个人助理意图（保留原有）===
         "schedule_query": ["有什么安排", "有什么会", "查看日程", "查询日程", "今天安排", "明天安排", "今天有", "明天有", "日程", "行程"],
-        "schedule_update": ["修改", "改成", "改为", "调整时间", "更改", "变更日程"],  # 修改日程
+        "schedule_update": ["修改", "改成", "改为", "调整时间", "更改", "变更日程"],
         "schedule_cancel": ["取消", "删除日程", "不开了"],
-        "schedule_add": ["记住", "记录", "添加日程", "提醒我", "帮我记"],  # 移除了歧义词"安排"
+        "schedule_add": ["记住", "记录", "添加日程", "提醒我", "帮我记"],
         "todo_query": ["待办列表", "还有什么没做", "待办事项"],
         "todo_complete": ["完成了", "做完了", "搞定了"],
         "todo_add": ["待办", "要做", "记得做", "别忘了"],
@@ -59,43 +101,25 @@ class AssistantAgent(BaseAgent):
         "email_query": ["邮件", "收件箱", "新邮件", "查看邮件"],
         "email_reply": ["回复邮件", "发邮件"],
         "erp_query": ["订单", "今天多少单", "财务", "营收"],
-        "report": ["日报", "汇报", "简报", "今日总结"],
-        "help": ["帮助", "你能做什么", "功能"]
+        "report": ["简报", "今日总结"],
+        "help": ["帮助", "你能做什么", "功能"],
     }
     
+    @staticmethod
+    def to_china_time(dt):
+        """转换为中国时区时间"""
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = pytz.UTC.localize(dt)
+        return dt.astimezone(ClauwdbotAgent.CHINA_TZ)
+    
     def _build_system_prompt(self) -> str:
-        return """你是小助，一位专业、高效的个人助理AI。你的职责是帮助老板管理日程、会议、待办事项、邮件和了解业务数据。
-
-## 你的性格特点
-- 专业、细心、有条理
-- 主动提醒重要事项
-- 简洁明了，不啰嗦
-- 像一位经验丰富的私人秘书
-
-## 你的核心能力
-1. **日程管理**：记录日程、提醒安排、查询行程
-2. **会议纪要**：整理会议内容、提取待办任务
-3. **待办管理**：记录待办、提醒截止日期
-4. **邮件管理**：汇总重要邮件、草拟回复
-5. **ERP数据**：汇报订单情况、财务摘要
-
-## 回复风格
-- 使用简洁的格式，善用列表和符号
-- 重要信息用 📅📋📧📊 等符号标注
-- 时间格式统一为"X月X日 周X HH:MM"
-- 回复控制在300字以内（企业微信限制）
-
-## 理解用户意图
-用户可能用自然语言表达，你需要理解并执行：
-- "明天下午3点和张总开会" → 添加日程
-- "今天有什么安排" → 查询日程
-- "帮我记住：下周五交报告" → 添加待办
-- "今天订单情况" → 查询ERP数据
-"""
+        return CLAUWDBOT_SYSTEM_PROMPT
     
     async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        处理用户消息
+        处理用户消息 - Clauwdbot超级助理
         
         Args:
             input_data: {
@@ -110,11 +134,10 @@ class AssistantAgent(BaseAgent):
         message_type = input_data.get("message_type", "text")
         file_url = input_data.get("file_url")
         
-        # 开始任务会话
-        await self.start_task_session("process_message", f"处理用户消息: {message[:50]}...")
+        await self.start_task_session("process_message", f"Clauwdbot处理消息: {message[:50]}...")
         
         try:
-            # 1. 如果是语音/文件消息，可能是会议录音
+            # 1. 如果是语音/文件消息，处理录音
             if message_type in ["voice", "file"] and file_url:
                 await self.log_live_step("think", "收到音频文件", "准备进行会议录音转写")
                 result = await self._handle_audio_file(file_url, user_id)
@@ -122,13 +145,22 @@ class AssistantAgent(BaseAgent):
                 return result
             
             # 2. 解析用户意图
-            await self.log_live_step("think", "分析用户意图", message[:100])
+            await self.log_live_step("think", "Clauwdbot分析指令", message[:100])
             intent = await self._parse_intent(message)
             
             # 3. 根据意图处理
             handler_map = {
+                # === 管理类处理器 ===
+                "agent_status": self._handle_agent_status,
+                "agent_dispatch": self._handle_agent_dispatch,
+                "agent_upgrade": self._handle_agent_upgrade,
+                "agent_code_read": self._handle_agent_code_read,
+                "system_status": self._handle_system_status,
+                "daily_report_ai": self._handle_ai_daily_report,
+                "task_status": self._handle_task_status,
+                # === 个人助理处理器 ===
                 "schedule_add": self._handle_schedule_add,
-                "schedule_update": self._handle_schedule_update,  # 修改日程
+                "schedule_update": self._handle_schedule_update,
                 "schedule_query": self._handle_schedule_query,
                 "schedule_cancel": self._handle_schedule_cancel,
                 "todo_add": self._handle_todo_add,
@@ -152,20 +184,20 @@ class AssistantAgent(BaseAgent):
             return result
             
         except Exception as e:
-            logger.error(f"[小助] 处理消息失败: {e}")
+            logger.error(f"[Clauwdbot] 处理消息失败: {e}")
             await self.log_error(str(e))
             await self.end_task_session(error_message=str(e))
             return {
                 "success": False,
-                "response": "抱歉，处理您的请求时出现了问题，请稍后再试。",
+                "response": "老板，处理您的请求时出现了问题，请稍后再试。",
                 "error": str(e)
             }
     
     async def _parse_intent(self, message: str) -> Dict[str, Any]:
-        """解析用户意图"""
+        """解析用户意图（增强版：支持管理类指令）"""
         message_lower = message.lower()
         
-        # 先用关键词匹配（优先匹配更长的短语，避免歧义）
+        # 先用关键词匹配
         best_match = None
         best_length = 0
         
@@ -184,8 +216,18 @@ class AssistantAgent(BaseAgent):
 用户消息：{message}
 
 可能的意图类型：
-- schedule_add: 添加新日程/安排（没有明确要修改现有的）
-- schedule_update: 修改现有日程（明确提到"修改"、"改成"、"调整"等词）
+【管理类】
+- agent_status: 查看AI团队/员工状态
+- agent_dispatch: 让某个AI员工执行任务（如"让小猎搜索XXX"）
+- agent_upgrade: 优化/升级某个AI员工的能力或Prompt
+- agent_code_read: 查看AI员工的代码逻辑
+- system_status: 系统状态检查
+- daily_report_ai: AI团队日报/工作报告
+- task_status: 查询任务进度
+
+【个人助理类】
+- schedule_add: 添加新日程/安排
+- schedule_update: 修改现有日程
 - schedule_query: 查询日程
 - schedule_cancel: 取消日程
 - todo_add: 添加待办事项
@@ -195,55 +237,503 @@ class AssistantAgent(BaseAgent):
 - email_query: 查询邮件
 - email_reply: 回复/发送邮件
 - erp_query: 查询订单/财务数据
-- report: 要日报/汇报
-- help: 询问功能/帮助
+- report: 每日简报
+- help: 帮助
 - unknown: 无法识别
 
-【重要】如果用户说"修改"、"改成"、"改为"、"调整"等词，应识别为schedule_update而不是schedule_add！
-
-返回格式：{{"type": "xxx", "confidence": 0.9, "extracted": {{"time": "...", "content": "..."}}}}
+返回格式：{{"type": "xxx", "confidence": 0.9, "extracted": {{"target": "...", "content": "..."}}}}
 只返回JSON，不要其他内容。
 """
         
         try:
             response = await self.think([{"role": "user", "content": analysis_prompt}], temperature=0.3)
-            # 提取JSON
             json_match = re.search(r'\{.*\}', response, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
         except Exception as e:
-            logger.warning(f"[小助] AI意图分析失败: {e}")
+            logger.warning(f"[Clauwdbot] AI意图分析失败: {e}")
         
         return {"type": "unknown", "confidence": 0.5}
     
-    # ==================== 日程管理 ====================
+    # ==================== AI团队管理能力 ====================
+    
+    async def _handle_agent_status(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """查看AI团队工作状态"""
+        await self.log_live_step("search", "查询AI团队状态", "获取所有AI员工今日工作数据")
+        
+        try:
+            async with AsyncSessionLocal() as db:
+                # 查询各AI员工今日任务统计
+                result = await db.execute(
+                    text("""
+                        SELECT 
+                            agent_type,
+                            COUNT(*) as total_tasks,
+                            COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
+                            COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed,
+                            COUNT(CASE WHEN status IN ('pending', 'processing') THEN 1 END) as in_progress,
+                            MAX(created_at) as last_active
+                        FROM ai_tasks
+                        WHERE created_at >= CURRENT_DATE
+                        GROUP BY agent_type
+                        ORDER BY total_tasks DESC
+                    """)
+                )
+                stats = result.fetchall()
+                
+                # 查询AI员工的注册状态
+                agent_result = await db.execute(
+                    text("""
+                        SELECT agent_type, agent_name, status, tasks_completed_today, 
+                               total_tasks_completed, last_active_at
+                        FROM ai_agents
+                        ORDER BY agent_type
+                    """)
+                )
+                agents = agent_result.fetchall()
+            
+            lines = ["🤖 AI团队状态报告", "━" * 18]
+            
+            # 显示已注册的AI员工
+            if agents:
+                for agent in agents:
+                    status_icon = "🟢" if agent[2] == "active" else "🔴"
+                    lines.append(f"{status_icon} {agent[1]} | 今日: {agent[3]}任务 | 总计: {agent[4]}")
+            
+            # 显示今日任务统计
+            if stats:
+                lines.append("")
+                lines.append("📊 今日任务统计")
+                lines.append("━" * 18)
+                
+                agent_names = {v["type"].value: v["name"] for v in self.AGENT_INFO.values()}
+                
+                for row in stats:
+                    agent_type = row[0]
+                    total = row[1]
+                    completed = row[2]
+                    failed = row[3]
+                    in_progress = row[4]
+                    
+                    name = agent_names.get(agent_type, agent_type)
+                    success_rate = (completed / total * 100) if total > 0 else 0
+                    status_emoji = "✅" if success_rate >= 80 else "⚠️" if success_rate >= 50 else "🔴"
+                    
+                    lines.append(f"{status_emoji} {name}: {completed}/{total}完成 ({success_rate:.0f}%)")
+                    if in_progress > 0:
+                        lines.append(f"   🔄 进行中: {in_progress}")
+            else:
+                lines.append("")
+                lines.append("今日暂无任务记录")
+            
+            lines.append("")
+            lines.append(f"📅 {datetime.now(self.CHINA_TZ).strftime('%Y-%m-%d %H:%M')}")
+            
+            return {"success": True, "response": "\n".join(lines)}
+            
+        except Exception as e:
+            logger.error(f"[Clauwdbot] 查询团队状态失败: {e}")
+            return {"success": False, "response": f"查询团队状态时出错：{str(e)}"}
+    
+    async def _handle_agent_dispatch(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """向指定AI员工分配任务"""
+        await self.log_live_step("think", "分析任务分配", "识别目标AI员工和任务内容")
+        
+        # 使用AI分析指令
+        dispatch_prompt = f"""分析以下指令，提取任务分配信息：
+
+用户指令：{message}
+
+可用的AI员工（使用agent_type）：
+- coordinator (小调) - 调度/报告
+- video_creator (小影) - 视频创作
+- copywriter (小文) - 文案策划
+- sales (小销) - 销售客服
+- follow (小跟) - 客户跟进
+- analyst (小析) - 数据分析
+- lead_hunter (小猎) - 线索搜索
+- eu_customs_monitor (小欧间谍) - 海关监控
+
+返回JSON：
+{{"target_agent": "agent_type", "task_description": "具体任务内容", "priority": "medium"}}
+只返回JSON。
+"""
+        
+        try:
+            response = await self.think([{"role": "user", "content": dispatch_prompt}], temperature=0.3)
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            
+            if not json_match:
+                return {"success": False, "response": "请明确告诉我要让哪个AI员工做什么任务。"}
+            
+            dispatch_data = json.loads(json_match.group())
+            target_agent_key = dispatch_data.get("target_agent", "")
+            task_desc = dispatch_data.get("task_description", message)
+            priority = dispatch_data.get("priority", "medium")
+            
+            # 获取目标Agent信息
+            agent_info = self.AGENT_INFO.get(target_agent_key)
+            if not agent_info:
+                return {"success": False, "response": f"未找到AI员工: {target_agent_key}，请确认员工名称。"}
+            
+            agent_name = agent_info["name"]
+            agent_type = agent_info["type"]
+            
+            # 获取Agent实例
+            target_agent = AgentRegistry.get(agent_type)
+            if not target_agent:
+                return {"success": False, "response": f"{agent_name}当前未上线，无法分配任务。"}
+            
+            await self.log_live_step("think", f"分配任务给{agent_name}", task_desc[:100])
+            
+            # 记录任务到数据库
+            import uuid
+            task_id = str(uuid.uuid4())
+            
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    text("""
+                        INSERT INTO ai_tasks (id, task_type, agent_type, status, priority, input_data, created_at)
+                        VALUES (:id, :task_type, :agent_type, 'pending', :priority, :input_data, NOW())
+                    """),
+                    {
+                        "id": task_id,
+                        "task_type": "clauwdbot_dispatch",
+                        "agent_type": target_agent_key,
+                        "priority": 5,
+                        "input_data": json.dumps({
+                            "description": task_desc,
+                            "from_user": user_id,
+                            "source": "clauwdbot",
+                            "priority": priority
+                        })
+                    }
+                )
+                await db.commit()
+            
+            task_id_short = task_id[:8]
+            
+            return {
+                "success": True,
+                "response": f"✅ 任务已分配\n\n👤 执行者: {agent_name}\n📋 任务: {task_desc[:80]}\n🔖 任务ID: {task_id_short}\n\n⏳ {agent_name}正在执行中...",
+                "task_id": task_id,
+                "target_agent": target_agent_key,
+                "async_execute": True  # 标记需要异步执行
+            }
+            
+        except Exception as e:
+            logger.error(f"[Clauwdbot] 任务分配失败: {e}")
+            return {"success": False, "response": f"任务分配时出错：{str(e)}"}
+    
+    async def _handle_agent_upgrade(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """升级AI员工能力（修改Prompt）"""
+        await self.log_live_step("think", "分析升级需求", "识别目标AI员工和优化方向")
+        
+        # 识别目标AI员工
+        target_agent_key = None
+        target_agent_name = None
+        
+        for key, info in self.AGENT_INFO.items():
+            if info["name"] in message:
+                target_agent_key = key
+                target_agent_name = info["name"]
+                break
+        
+        if not target_agent_key:
+            # 用AI来识别
+            identify_prompt = f"""从以下消息中识别要升级的AI员工名称：
+消息：{message}
+
+可选AI员工：小调、小影、小文、小销、小跟、小析、小猎、小欧间谍
+返回JSON：{{"agent_name": "名称", "agent_key": "英文key"}}
+只返回JSON。"""
+            
+            try:
+                resp = await self.think([{"role": "user", "content": identify_prompt}], temperature=0.3)
+                match = re.search(r'\{.*\}', resp, re.DOTALL)
+                if match:
+                    data = json.loads(match.group())
+                    target_agent_key = data.get("agent_key")
+                    target_agent_name = data.get("agent_name")
+            except Exception:
+                pass
+        
+        if not target_agent_key or target_agent_key not in self.AGENT_INFO:
+            return {
+                "success": False,
+                "response": "请告诉我要升级哪个AI员工？\n\n可选：小调、小影、小文、小销、小跟、小析、小猎、小欧间谍"
+            }
+        
+        # 读取目标Agent的当前Prompt
+        agent = AgentRegistry.get(self.AGENT_INFO[target_agent_key]["type"])
+        if not agent:
+            return {"success": False, "response": f"{target_agent_name}当前未上线。"}
+        
+        current_prompt = agent.system_prompt
+        
+        # 使用AI生成优化建议
+        upgrade_prompt = AGENT_UPGRADE_PROMPT.format(
+            agent_name=target_agent_name,
+            agent_type=target_agent_key,
+            current_prompt=current_prompt[:1000],  # 截取前1000字避免太长
+            requirement=message
+        )
+        
+        await self.log_live_step("think", f"正在分析{target_agent_name}的优化方案", "生成Prompt优化建议")
+        
+        try:
+            suggestion = await self.think([{"role": "user", "content": upgrade_prompt}], temperature=0.7)
+            
+            # 截取适合企业微信的长度
+            if len(suggestion) > 1500:
+                suggestion = suggestion[:1500] + "\n...(方案较长已截取)"
+            
+            response_text = f"""🔧 {target_agent_name}升级方案
+
+📋 优化建议：
+{suggestion}
+
+⚠️ 确认后我会修改{target_agent_name}的Prompt。
+请回复「确认升级」执行，或「取消」放弃。"""
+            
+            return {
+                "success": True,
+                "response": response_text,
+                "upgrade_data": {
+                    "target_agent": target_agent_key,
+                    "suggestion": suggestion
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"[Clauwdbot] 生成升级方案失败: {e}")
+            return {"success": False, "response": f"生成升级方案时出错：{str(e)}"}
+    
+    async def _handle_agent_code_read(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """查看AI员工代码逻辑"""
+        await self.log_live_step("search", "查找AI员工代码", "准备读取代码文件")
+        
+        # 识别目标AI员工
+        target_agent_key = None
+        target_agent_name = None
+        
+        for key, info in self.AGENT_INFO.items():
+            if info["name"] in message:
+                target_agent_key = key
+                target_agent_name = info["name"]
+                break
+        
+        if not target_agent_key:
+            return {
+                "success": False,
+                "response": "请告诉我要查看哪个AI员工的代码？\n\n可选：小调、小影、小文、小销、小跟、小析、小猎、小欧间谍"
+            }
+        
+        # 获取Agent的Prompt信息
+        agent = AgentRegistry.get(self.AGENT_INFO[target_agent_key]["type"])
+        if not agent:
+            return {"success": False, "response": f"{target_agent_name}当前未上线。"}
+        
+        # 读取Prompt（不暴露完整代码，只展示关键信息）
+        prompt_preview = agent.system_prompt[:800] if agent.system_prompt else "无Prompt"
+        
+        response_text = f"""🤖 {target_agent_name}代码概览
+
+📝 系统提示词预览：
+{prompt_preview}
+
+{'...(Prompt较长已截取)' if len(agent.system_prompt or '') > 800 else ''}
+
+📊 基本信息：
+• 类型: {target_agent_key}
+• 物流专家模式: {'✅开启' if agent.enable_logistics_expertise else '❌关闭'}
+• 实时直播: {'✅开启' if agent.enable_live_broadcast else '❌关闭'}"""
+        
+        return {"success": True, "response": response_text}
+    
+    async def _handle_system_status(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """检查系统健康状态"""
+        await self.log_live_step("search", "检查系统状态", "全面健康检查中")
+        
+        try:
+            # 调用小调的系统监控能力
+            coordinator_agent = AgentRegistry.get(AgentType.COORDINATOR)
+            if coordinator_agent:
+                result = await coordinator_agent.process({
+                    "action": "monitor",
+                    "check_type": "all"
+                })
+                
+                health = result.get("result", {})
+                overall_status = health.get("overall_status", "unknown")
+                
+                status_emoji = {
+                    "healthy": "✅", "warning": "⚠️",
+                    "critical": "🔴", "unknown": "❓"
+                }.get(overall_status, "❓")
+                
+                lines = [
+                    "🖥️ 系统健康状态",
+                    f"整体: {status_emoji} {overall_status.upper()}",
+                    f"检查时间: {datetime.now(self.CHINA_TZ).strftime('%H:%M')}",
+                ]
+                
+                issues = health.get("issues", [])
+                if issues:
+                    lines.append("\n⚠️ 问题:")
+                    for issue in issues[:5]:
+                        lines.append(f"  • {issue}")
+                else:
+                    lines.append("\n✅ 所有系统运行正常")
+                
+                return {"success": True, "response": "\n".join(lines)}
+            
+            return {"success": True, "response": "系统监控服务暂不可用"}
+            
+        except Exception as e:
+            logger.error(f"[Clauwdbot] 系统检查失败: {e}")
+            return {"success": False, "response": f"系统检查时出错：{str(e)}"}
+    
+    async def _handle_ai_daily_report(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """生成AI团队日报"""
+        await self.log_live_step("think", "生成AI团队日报", "汇总所有AI员工工作数据")
+        
+        try:
+            coordinator_agent = AgentRegistry.get(AgentType.COORDINATOR)
+            if coordinator_agent:
+                result = await coordinator_agent.process({
+                    "action": "report",
+                    "report_type": "daily"
+                })
+                
+                readable_report = result.get("readable_report", "报告生成失败")
+                
+                if len(readable_report) > 2000:
+                    readable_report = readable_report[:1950] + "\n...(内容已精简)"
+                
+                return {"success": True, "response": readable_report}
+            
+            return {"success": True, "response": "报告服务暂不可用"}
+            
+        except Exception as e:
+            logger.error(f"[Clauwdbot] 生成日报失败: {e}")
+            return {"success": False, "response": f"生成日报时出错：{str(e)}"}
+    
+    async def _handle_task_status(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
+        """查询任务状态"""
+        await self.log_live_step("search", "查询任务状态", "获取最近任务记录")
+        
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    text("""
+                        SELECT id, task_type, agent_type, status, 
+                               input_data, created_at, completed_at
+                        FROM ai_tasks
+                        ORDER BY created_at DESC
+                        LIMIT 5
+                    """)
+                )
+                tasks = result.fetchall()
+            
+            if not tasks:
+                return {"success": True, "response": "📋 暂无任务记录"}
+            
+            agent_names = {v["type"].value: v["name"] for v in self.AGENT_INFO.values()}
+            
+            status_emoji = {
+                "pending": "⏳", "processing": "🔄",
+                "completed": "✅", "failed": "❌"
+            }
+            
+            lines = ["📋 最近任务状态", "━" * 18]
+            
+            for task in tasks:
+                task_id = str(task[0])[:8]
+                agent_type = task[2]
+                status = task[3]
+                input_data = task[4] if isinstance(task[4], dict) else json.loads(task[4] or '{}')
+                created_at = task[5]
+                
+                name = agent_names.get(agent_type, agent_type)
+                emoji = status_emoji.get(status, "❓")
+                desc = input_data.get("description", "")[:30]
+                time_str = self.to_china_time(created_at).strftime('%m-%d %H:%M') if created_at else ""
+                
+                lines.append(f"{emoji} [{task_id}] {desc}")
+                lines.append(f"   {name} | {status} | {time_str}")
+            
+            return {"success": True, "response": "\n".join(lines)}
+            
+        except Exception as e:
+            logger.error(f"[Clauwdbot] 查询任务状态失败: {e}")
+            return {"success": False, "response": f"查询任务状态时出错：{str(e)}"}
+    
+    # ==================== 文件操作能力（受限） ====================
+    
+    def _is_path_allowed(self, filepath: str, for_write: bool = False) -> bool:
+        """检查文件路径是否在允许范围内"""
+        # 检查红区禁令
+        for forbidden in self.FORBIDDEN_FILES:
+            if forbidden in filepath:
+                return False
+        
+        # 检查绿区许可
+        allowed_paths = self.ALLOWED_WRITE_PATHS if for_write else self.ALLOWED_READ_PATHS
+        for allowed in allowed_paths:
+            if allowed in filepath:
+                return True
+        
+        return False
+    
+    async def read_agent_file(self, filepath: str) -> Dict[str, Any]:
+        """读取AI员工相关文件（受限）"""
+        if not self._is_path_allowed(filepath, for_write=False):
+            return {
+                "success": False,
+                "error": f"权限不足：无法读取 {filepath}。此文件属于系统底层架构。"
+            }
+        
+        try:
+            # 构建完整路径
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            full_path = os.path.join(base_dir, filepath.replace("backend/", ""))
+            
+            if not os.path.exists(full_path):
+                return {"success": False, "error": f"文件不存在: {filepath}"}
+            
+            with open(full_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            return {"success": True, "content": content, "filepath": filepath}
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    # ==================== 个人助理能力（保留原有） ====================
     
     async def _handle_schedule_add(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
         """处理添加日程"""
         await self.log_live_step("think", "解析日程信息", "提取时间、事项、地点")
         
-        # 计算各星期几的具体日期
         now = datetime.now()
         weekday_dates = {}
         for i in range(7):
             future_date = now + timedelta(days=i)
             weekday_name = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][future_date.weekday()]
-            if weekday_name not in weekday_dates:  # 只取最近的
+            if weekday_name not in weekday_dates:
                 weekday_dates[weekday_name] = future_date.strftime('%Y-%m-%d')
         
         weekday_info = "\n".join([f"- {k}: {v}" for k, v in weekday_dates.items()])
         today_weekday = ["周一","周二","周三","周四","周五","周六","周日"][now.weekday()]
         
-        # 使用AI提取日程信息
         extract_prompt = f"""从用户消息中提取日程信息，返回JSON格式：
 
 用户消息：{message}
 当前时间：{now.strftime('%Y-%m-%d %H:%M')}，今天是{today_weekday}
 
-【重要】接下来7天的日期对照表（必须使用）：
+接下来7天的日期对照表：
 {weekday_info}
-
-用户说"周一"或"每周一"时，请查上表找到下一个周一的具体日期！
 
 返回格式：
 {{
@@ -253,10 +743,9 @@ class AssistantAgent(BaseAgent):
     "location": "地点"（如果没有则为null）,
     "description": "备注"（如果没有则为null）,
     "priority": "normal"（low/normal/high/urgent）,
-    "is_recurring": false（如果用户说"每周"、"每天"等重复日程，设为true）,
-    "recurring_pattern": null（如果is_recurring为true，填写 "daily"/"weekly"/"monthly"）
+    "is_recurring": false,
+    "recurring_pattern": null
 }}
-
 只返回JSON，不要其他内容。
 """
         
@@ -264,40 +753,36 @@ class AssistantAgent(BaseAgent):
             response = await self.think([{"role": "user", "content": extract_prompt}], temperature=0.3)
             json_match = re.search(r'\{.*\}', response, re.DOTALL)
             if not json_match:
-                return {"success": False, "response": "抱歉，我没能理解日程信息，请用更清晰的方式告诉我，比如：'明天下午3点和张总开会'"}
+                return {"success": False, "response": "抱歉，我没能理解日程信息，请用更清晰的方式告诉我。"}
             
             schedule_data = json.loads(json_match.group())
             
-            # 解析时间字符串为datetime对象
             start_time_str = schedule_data.get("start_time")
-            end_time_str = schedule_data.get("end_time")
-            
             start_time_dt = None
             end_time_dt = None
             
             if start_time_str:
                 try:
                     start_time_dt = datetime.fromisoformat(start_time_str)
-                except:
-                    # 尝试其他格式
+                except Exception:
                     try:
                         start_time_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M")
-                    except:
+                    except Exception:
                         pass
             
+            end_time_str = schedule_data.get("end_time")
             if end_time_str:
                 try:
                     end_time_dt = datetime.fromisoformat(end_time_str)
-                except:
+                except Exception:
                     try:
                         end_time_dt = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M")
-                    except:
+                    except Exception:
                         pass
             
             if not start_time_dt:
-                return {"success": False, "response": "抱歉，我没能理解日程的时间，请用更清晰的方式告诉我，比如：'明天下午3点开会'"}
+                return {"success": False, "response": "抱歉，我没能理解日程的时间，请用更清晰的方式告诉我。"}
             
-            # 保存到数据库
             async with AsyncSessionLocal() as db:
                 result = await db.execute(
                     text("""
@@ -318,40 +803,28 @@ class AssistantAgent(BaseAgent):
                 row = result.fetchone()
                 await db.commit()
             
-            # 格式化时间显示
             weekday = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][start_time_dt.weekday()]
             time_str = f"{start_time_dt.month}月{start_time_dt.day}日 {weekday} {start_time_dt.strftime('%H:%M')}"
-            
             location_str = f" 📍{schedule_data['location']}" if schedule_data.get('location') else ""
-            
-            # 检查是否为重复日程
-            is_recurring = schedule_data.get('is_recurring', False)
-            recurring_note = ""
-            if is_recurring:
-                pattern = schedule_data.get('recurring_pattern', 'weekly')
-                pattern_text = {"daily": "每天", "weekly": "每周", "monthly": "每月"}.get(pattern, "定期")
-                recurring_note = f"\n\n📝 注：您说的是{pattern_text}重复日程，目前已记录最近一次。后续版本将支持自动重复提醒。"
             
             response_text = f"""✅ 日程已记录！
 
 📅 {schedule_data['title']}
-⏰ {time_str}{location_str}{recurring_note}
+⏰ {time_str}{location_str}
 
 我会提前提醒你的。"""
             
             await self.log_result("日程添加成功", schedule_data['title'])
-            
             return {"success": True, "response": response_text, "schedule_id": str(row[0])}
             
         except Exception as e:
-            logger.error(f"[小助] 添加日程失败: {e}")
+            logger.error(f"[Clauwdbot] 添加日程失败: {e}")
             return {"success": False, "response": f"添加日程时出错了：{str(e)}"}
     
     async def _handle_schedule_query(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
         """处理查询日程"""
         await self.log_live_step("search", "查询日程", "获取相关日程安排")
         
-        # 使用中国时区获取当前日期
         china_now = datetime.now(self.CHINA_TZ)
         today = china_now.date()
         query_date = today
@@ -364,12 +837,10 @@ class AssistantAgent(BaseAgent):
             query_date = today + timedelta(days=2)
             date_label = "后天"
         elif "本周" in message or "这周" in message:
-            # 查询本周
             start_of_week = today - timedelta(days=today.weekday())
             end_of_week = start_of_week + timedelta(days=6)
             return await self._query_schedule_range(start_of_week, end_of_week, "本周")
         
-        # 查询指定日期（转换为中国时区比较）
         async with AsyncSessionLocal() as db:
             result = await db.execute(
                 text("""
@@ -390,7 +861,6 @@ class AssistantAgent(BaseAgent):
                 "response": f"📅 {date_label}（{query_date.month}月{query_date.day}日 {weekday}）\n\n暂无安排，可以好好休息~"
             }
         
-        # 格式化输出
         weekday = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][query_date.weekday()]
         lines = [f"📅 {date_label}安排（{query_date.month}月{query_date.day}日 {weekday}）", "━" * 18]
         
@@ -445,14 +915,12 @@ class AssistantAgent(BaseAgent):
     
     async def _handle_schedule_cancel(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
         """处理取消日程"""
-        # TODO: 实现取消日程逻辑
         return {"success": True, "response": "请告诉我要取消哪个日程？比如说'取消明天下午的会议'"}
     
     async def _handle_schedule_update(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
         """处理修改日程"""
         await self.log_live_step("think", "解析修改请求", "识别要修改的日程和新信息")
         
-        # 计算各星期几的具体日期
         now = datetime.now()
         weekday_dates = {}
         for i in range(7):
@@ -464,7 +932,6 @@ class AssistantAgent(BaseAgent):
         weekday_info = "\n".join([f"- {k}: {v}" for k, v in weekday_dates.items()])
         today_weekday = ["周一","周二","周三","周四","周五","周六","周日"][now.weekday()]
         
-        # 使用AI分析修改请求
         extract_prompt = f"""用户想要修改日程，请分析：
 
 用户消息：{message}
@@ -475,12 +942,11 @@ class AssistantAgent(BaseAgent):
 
 请返回JSON格式：
 {{
-    "search_keyword": "用于搜索现有日程的关键词（如'先锋团队例会'）",
-    "new_time": "YYYY-MM-DD HH:MM"（新的时间，如果要修改时间）或 null,
-    "new_title": "新标题"（如果要修改标题）或 null,
-    "new_location": "新地点"（如果要修改地点）或 null
+    "search_keyword": "用于搜索现有日程的关键词",
+    "new_time": "YYYY-MM-DD HH:MM"（新的时间）或 null,
+    "new_title": "新标题" 或 null,
+    "new_location": "新地点" 或 null
 }}
-
 只返回JSON，不要其他内容。
 """
         
@@ -494,94 +960,28 @@ class AssistantAgent(BaseAgent):
             search_keyword = update_data.get("search_keyword", "")
             
             if not search_keyword:
-                return {"success": False, "response": "请告诉我您要修改哪个日程？比如'修改先锋团队例会的时间为上午10点'"}
+                return {"success": False, "response": "请告诉我您要修改哪个日程？"}
             
-            # 繁简体转换映射（常用字）
-            simplified_to_traditional = {
-                '锋': '鋒', '团': '團', '队': '隊', '会': '會', '时': '時',
-                '间': '間', '与': '與', '开': '開', '议': '議', '报': '報',
-                '记': '記', '务': '務', '项': '項', '经': '經', '营': '營',
-                '销': '銷', '财': '財', '总': '總', '结': '結', '进': '進',
-            }
-            traditional_to_simplified = {v: k for k, v in simplified_to_traditional.items()}
-            
-            def to_simplified(text):
-                for t, s in traditional_to_simplified.items():
-                    text = text.replace(t, s)
-                return text
-            
-            def to_traditional(text):
-                for s, t in simplified_to_traditional.items():
-                    text = text.replace(s, t)
-                return text
-            
-            # 生成搜索关键词的多个变体
-            search_variants = [
-                search_keyword,
-                to_simplified(search_keyword),
-                to_traditional(search_keyword),
-            ]
-            # 提取核心词（去掉"例会"、"会议"等后缀）
-            core_keyword = search_keyword.replace('例会', '').replace('会议', '').replace('會議', '').strip()
-            if core_keyword and core_keyword != search_keyword:
-                search_variants.extend([core_keyword, to_simplified(core_keyword), to_traditional(core_keyword)])
-            
-            # 搜索匹配的日程（尝试多个变体）
-            schedules = []
+            # 搜索匹配的日程
             async with AsyncSessionLocal() as db:
-                for variant in search_variants:
-                    if schedules:
-                        break
-                    result = await db.execute(
-                        text("""
-                            SELECT id, title, start_time, location
-                            FROM assistant_schedules
-                            WHERE title ILIKE :keyword
-                            AND is_completed = FALSE
-                            ORDER BY start_time ASC
-                            LIMIT 5
-                        """),
-                        {"keyword": f"%{variant}%"}
-                    )
-                    schedules = result.fetchall()
-                
-                # 如果还是没找到，获取所有日程供用户选择
-                if not schedules:
-                    result = await db.execute(
-                        text("""
-                            SELECT id, title, start_time, location
-                            FROM assistant_schedules
-                            WHERE is_completed = FALSE
-                            ORDER BY start_time ASC
-                            LIMIT 10
-                        """)
-                    )
-                    all_schedules = result.fetchall()
-                    
-                    if all_schedules:
-                        # 转换为中国时区并格式化
-                        schedule_items = []
-                        for s in all_schedules:
-                            china_time = self.to_china_time(s[2])
-                            schedule_items.append(f"• {s[1]} ({china_time.strftime('%m月%d日 %H:%M')})")
-                        schedule_list = "\n".join(schedule_items)
-                        return {
-                            "success": False, 
-                            "response": f"没有找到'{search_keyword}'相关的日程。\n\n📅 当前日程列表：\n{schedule_list}\n\n请告诉我要修改哪个？"
-                        }
-                    else:
-                        return {
-                            "success": False, 
-                            "response": "当前没有任何日程记录。请先添加日程，比如说'帮我记住明天下午3点开会'"
-                        }
+                result = await db.execute(
+                    text("""
+                        SELECT id, title, start_time, location
+                        FROM assistant_schedules
+                        WHERE title ILIKE :keyword AND is_completed = FALSE
+                        ORDER BY start_time ASC LIMIT 5
+                    """),
+                    {"keyword": f"%{search_keyword}%"}
+                )
+                schedules = result.fetchall()
             
-            # 取最近的一条日程进行修改
+            if not schedules:
+                return {"success": False, "response": f"没有找到'{search_keyword}'相关的日程。"}
+            
             schedule = schedules[0]
             schedule_id = schedule[0]
             old_title = schedule[1]
-            old_time = schedule[2]
             
-            # 构建更新内容
             updates = []
             params = {"id": schedule_id}
             
@@ -590,7 +990,7 @@ class AssistantAgent(BaseAgent):
                     new_time = datetime.strptime(update_data["new_time"], "%Y-%m-%d %H:%M")
                     updates.append("start_time = :new_time")
                     params["new_time"] = new_time
-                except:
+                except Exception:
                     pass
             
             if update_data.get("new_title"):
@@ -602,11 +1002,10 @@ class AssistantAgent(BaseAgent):
                 params["new_location"] = update_data["new_location"]
             
             if not updates:
-                return {"success": False, "response": "没有检测到需要修改的内容，请说明要修改什么（时间、标题或地点）。"}
+                return {"success": False, "response": "没有检测到需要修改的内容。"}
             
             updates.append("updated_at = NOW()")
             
-            # 执行更新
             async with AsyncSessionLocal() as db:
                 await db.execute(
                     text(f"UPDATE assistant_schedules SET {', '.join(updates)} WHERE id = :id"),
@@ -614,7 +1013,6 @@ class AssistantAgent(BaseAgent):
                 )
                 await db.commit()
             
-            # 格式化响应
             changes = []
             if update_data.get("new_time"):
                 new_dt = datetime.strptime(update_data["new_time"], "%Y-%m-%d %H:%M")
@@ -636,7 +1034,7 @@ class AssistantAgent(BaseAgent):
             return {"success": True, "response": response_text}
             
         except Exception as e:
-            logger.error(f"[小助] 修改日程失败: {e}")
+            logger.error(f"[Clauwdbot] 修改日程失败: {e}")
             return {"success": False, "response": f"修改日程时出错了：{str(e)}"}
     
     # ==================== 待办管理 ====================
@@ -645,7 +1043,6 @@ class AssistantAgent(BaseAgent):
         """处理添加待办"""
         await self.log_live_step("think", "解析待办信息", "提取内容和截止日期")
         
-        # 使用AI提取待办信息
         extract_prompt = f"""从用户消息中提取待办事项信息，返回JSON格式：
 
 用户消息：{message}
@@ -657,7 +1054,6 @@ class AssistantAgent(BaseAgent):
     "due_date": "YYYY-MM-DD"（如果有截止日期）或 null,
     "priority": "normal"（low/normal/high/urgent）
 }}
-
 只返回JSON，不要其他内容。
 """
         
@@ -669,7 +1065,6 @@ class AssistantAgent(BaseAgent):
             
             todo_data = json.loads(json_match.group())
             
-            # 保存到数据库
             async with AsyncSessionLocal() as db:
                 result = await db.execute(
                     text("""
@@ -691,16 +1086,14 @@ class AssistantAgent(BaseAgent):
                 due_date = datetime.strptime(todo_data["due_date"], "%Y-%m-%d")
                 due_str = f"\n📆 截止：{due_date.month}月{due_date.day}日"
             
-            response_text = f"""✅ 待办已记录！
-
-📋 {todo_data['content']}{due_str}
-
-需要我提醒你吗？"""
-            
-            return {"success": True, "response": response_text, "todo_id": str(row[0])}
+            return {
+                "success": True,
+                "response": f"✅ 待办已记录！\n\n📋 {todo_data['content']}{due_str}\n\n需要我提醒你吗？",
+                "todo_id": str(row[0])
+            }
             
         except Exception as e:
-            logger.error(f"[小助] 添加待办失败: {e}")
+            logger.error(f"[Clauwdbot] 添加待办失败: {e}")
             return {"success": False, "response": f"添加待办时出错了：{str(e)}"}
     
     async def _handle_todo_query(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
@@ -712,14 +1105,8 @@ class AssistantAgent(BaseAgent):
                     FROM assistant_todos
                     WHERE is_completed = FALSE
                     ORDER BY 
-                        CASE priority 
-                            WHEN 'urgent' THEN 1 
-                            WHEN 'high' THEN 2 
-                            WHEN 'normal' THEN 3 
-                            ELSE 4 
-                        END,
-                        due_date ASC NULLS LAST,
-                        created_at ASC
+                        CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 ELSE 4 END,
+                        due_date ASC NULLS LAST, created_at ASC
                     LIMIT 10
                 """)
             )
@@ -729,12 +1116,9 @@ class AssistantAgent(BaseAgent):
             return {"success": True, "response": "📋 待办列表\n\n暂无待办事项，真棒！🎉"}
         
         lines = ["📋 待办列表", "━" * 18]
-        
         for i, t in enumerate(todos, 1):
             priority_icon = {"urgent": "🔴", "high": "🟡"}.get(t[1], "")
-            due_str = ""
-            if t[2]:
-                due_str = f" (截止{t[2].month}/{t[2].day})"
+            due_str = f" (截止{t[2].month}/{t[2].day})" if t[2] else ""
             lines.append(f"{i}. {priority_icon}{t[0]}{due_str}")
         
         lines.append("━" * 18)
@@ -744,18 +1128,14 @@ class AssistantAgent(BaseAgent):
     
     async def _handle_todo_complete(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
         """处理完成待办"""
-        # TODO: 实现完成待办逻辑
         return {"success": True, "response": "请告诉我完成了哪个待办？可以说待办的编号或内容。"}
     
     # ==================== 会议纪要 ====================
     
     async def _handle_audio_file(self, file_url: str, user_id: str) -> Dict[str, Any]:
         """处理音频文件（会议录音）"""
-        from app.services.speech_recognition_service import speech_recognition_service
-        
         await self.log_live_step("fetch", "下载音频文件", file_url[:50])
         
-        # 创建会议记录
         async with AsyncSessionLocal() as db:
             result = await db.execute(
                 text("""
@@ -768,10 +1148,8 @@ class AssistantAgent(BaseAgent):
             meeting_id = result.fetchone()[0]
             await db.commit()
         
-        # 启动异步转写任务
         await self.log_live_step("think", "开始语音转写", "这可能需要几分钟时间")
         
-        # 返回确认消息，转写在后台进行
         return {
             "success": True,
             "response": "📼 已收到会议录音！\n\n正在处理中，转写完成后会自动发送会议纪要给你。\n\n⏱ 预计需要2-5分钟",
@@ -804,7 +1182,6 @@ class AssistantAgent(BaseAgent):
         await self.log_live_step("search", "查询邮件", "获取未读邮件")
         
         try:
-            # 获取未读邮件摘要
             summary = await multi_email_service.get_unread_summary()
             
             if summary["total_unread"] == 0:
@@ -826,7 +1203,7 @@ class AssistantAgent(BaseAgent):
             return {"success": True, "response": "\n".join(lines)}
             
         except Exception as e:
-            logger.error(f"[小助] 查询邮件失败: {e}")
+            logger.error(f"[Clauwdbot] 查询邮件失败: {e}")
             return {"success": True, "response": "📧 邮件查询暂时不可用，请稍后再试。"}
     
     async def _handle_email_reply(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
@@ -845,20 +1222,13 @@ class AssistantAgent(BaseAgent):
         await self.log_live_step("search", "查询ERP数据", "获取订单和财务信息")
         
         try:
-            # 获取今日订单统计
             today = datetime.now().strftime("%Y-%m-%d")
-            orders_data = await erp_connector.get_orders(
-                start_date=today,
-                end_date=today,
-                page_size=100
-            )
-            
+            orders_data = await erp_connector.get_orders(start_date=today, end_date=today, page_size=100)
             total_orders = orders_data.get("total", 0)
             
-            # 尝试获取订单统计
             try:
                 stats = await erp_connector.get_orders_stats()
-            except:
+            except Exception:
                 stats = {}
             
             lines = ["📊 今日业务数据", "━" * 18]
@@ -874,16 +1244,16 @@ class AssistantAgent(BaseAgent):
             return {"success": True, "response": "\n".join(lines)}
             
         except Exception as e:
-            logger.error(f"[小助] 查询ERP数据失败: {e}")
+            logger.error(f"[Clauwdbot] 查询ERP数据失败: {e}")
             return {"success": True, "response": "📊 ERP数据查询暂时不可用，请检查ERP连接配置。"}
     
     # ==================== 日报汇总 ====================
     
     async def _handle_daily_report(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
         """处理每日简报请求"""
-        await self.log_live_step("think", "生成每日简报", "汇总日程、订单、邮件")
+        await self.log_live_step("think", "生成每日简报", "汇总日程、订单、邮件、AI团队")
         
-        lines = ["📋 今日简报", "━" * 18]
+        lines = ["📋 今日简报 (by Clauwdbot)", "━" * 18]
         
         # 1. 今日日程
         schedule_result = await self._handle_schedule_query("今天", {}, user_id)
@@ -891,22 +1261,38 @@ class AssistantAgent(BaseAgent):
         # 2. 待办事项
         todo_result = await self._handle_todo_query("", {}, user_id)
         
-        # 3. 订单数据（简化）
+        # 3. 订单数据
         try:
             from app.services.erp_connector import erp_connector
             today = datetime.now().strftime("%Y-%m-%d")
             orders_data = await erp_connector.get_orders(start_date=today, end_date=today, page_size=1)
             order_count = orders_data.get("total", 0)
             lines.append(f"\n📦 今日订单: {order_count}单")
-        except:
+        except Exception:
             pass
         
-        # 4. 邮件统计（简化）
+        # 4. 邮件统计
         try:
             from app.services.multi_email_service import multi_email_service
             summary = await multi_email_service.get_unread_summary()
             lines.append(f"📧 未读邮件: {summary['total_unread']}封")
-        except:
+        except Exception:
+            pass
+        
+        # 5. AI团队状态（新增）
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    text("""
+                        SELECT COUNT(*) as total, 
+                               COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed
+                        FROM ai_tasks WHERE created_at >= CURRENT_DATE
+                    """)
+                )
+                task_stats = result.fetchone()
+                if task_stats:
+                    lines.append(f"🤖 AI团队今日: {task_stats[1]}/{task_stats[0]} 任务完成")
+        except Exception:
             pass
         
         return {"success": True, "response": "\n".join(lines)}
@@ -917,12 +1303,18 @@ class AssistantAgent(BaseAgent):
         """处理帮助请求"""
         return {
             "success": True,
-            "response": """🤖 我是小助，你的个人助理
+            "response": """🤖 我是Clauwdbot，AI中心超级助理
+
+🔧 **AI团队管理**
+• "团队状态" - 查看AI员工工作情况
+• "让小猎搜索XXX" - 分配任务
+• "优化小文的写作风格" - 升级AI员工
+• "系统状态" - 健康检查
+• "日报" - AI团队工作报告
 
 📅 **日程管理**
 • "明天下午3点和张总开会"
 • "今天有什么安排"
-• "取消明天的会议"
 
 📋 **待办事项**
 • "记得下周五交报告"
@@ -931,25 +1323,20 @@ class AssistantAgent(BaseAgent):
 📼 **会议纪要**
 • 发送会议录音给我
 
-📧 **邮件管理**
-• "查看新邮件"
-
-📊 **业务数据**
-• "今天订单情况"
-• "日报"
+📧 **邮件** / 📊 **ERP数据**
+• "查看新邮件" / "今天订单情况"
 
 有什么需要帮忙的？"""
         }
     
     async def _handle_unknown(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
-        """处理无法识别的意图"""
-        # 使用AI生成回复
-        response = await self.chat(message, "用户向你咨询，请简洁回答或引导他使用你的功能")
+        """处理无法识别的意图 - 使用AI智能回复"""
+        response = await self.chat(message, "用户向你咨询，请以Clauwdbot的身份简洁回答或引导他使用你的功能")
         return {"success": True, "response": response}
     
     # ==================== 工具方法 ====================
     
-    async def _save_interaction(self, user_id: str, message: str, message_type: str, 
+    async def _save_interaction(self, user_id: str, message: str, message_type: str,
                                 intent: Dict, response: str):
         """保存交互记录"""
         try:
@@ -971,12 +1358,12 @@ class AssistantAgent(BaseAgent):
                 )
                 await db.commit()
         except Exception as e:
-            logger.error(f"[小助] 保存交互记录失败: {e}")
+            logger.error(f"[Clauwdbot] 保存交互记录失败: {e}")
     
     # ==================== 主动推送方法 ====================
     
     async def send_tomorrow_preview(self, user_id: str) -> Optional[str]:
-        """发送明日安排预览（每天晚上8点调用）"""
+        """发送明日安排预览"""
         tomorrow = (datetime.now() + timedelta(days=1)).date()
         
         async with AsyncSessionLocal() as db:
@@ -996,11 +1383,9 @@ class AssistantAgent(BaseAgent):
             if not schedules:
                 return None
             
-            # 标记已发送
             await db.execute(
                 text("""
-                    UPDATE assistant_schedules
-                    SET reminder_sent_day_before = TRUE
+                    UPDATE assistant_schedules SET reminder_sent_day_before = TRUE
                     WHERE DATE(start_time) = :tomorrow
                 """),
                 {"tomorrow": tomorrow}
@@ -1023,12 +1408,11 @@ class AssistantAgent(BaseAgent):
         return "\n".join(lines)
     
     async def get_due_reminders(self) -> List[Dict[str, Any]]:
-        """获取需要发送的提醒（定时任务调用）"""
+        """获取需要发送的提醒"""
         now = datetime.now()
         reminders = []
         
         async with AsyncSessionLocal() as db:
-            # 查找需要提醒的日程（提前reminder_minutes分钟）
             result = await db.execute(
                 text("""
                     SELECT id, title, start_time, location, reminder_minutes
@@ -1049,7 +1433,6 @@ class AssistantAgent(BaseAgent):
                     "minutes_before": row[4]
                 })
                 
-                # 标记已发送
                 await db.execute(
                     text("UPDATE assistant_schedules SET reminder_sent = TRUE WHERE id = :id"),
                     {"id": row[0]}
@@ -1060,6 +1443,7 @@ class AssistantAgent(BaseAgent):
         return reminders
 
 
-# 创建单例并注册
-assistant_agent = AssistantAgent()
-AgentRegistry.register(assistant_agent)
+# 创建单例并注册（保持向后兼容）
+clauwdbot_agent = ClauwdbotAgent()
+assistant_agent = clauwdbot_agent  # 向后兼容别名
+AgentRegistry.register(clauwdbot_agent)
