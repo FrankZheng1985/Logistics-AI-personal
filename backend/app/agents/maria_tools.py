@@ -626,6 +626,85 @@ MARIA_TOOLS: List[Dict[str, Any]] = [
             }
         }
     },
+
+    # ── 12. Notion 集成 ──
+    {
+        "type": "function",
+        "function": {
+            "name": "create_notion_page",
+            "description": "在 Notion 中创建一个新页面。用于写方案、项目计划、文档、报告、会议纪要等。Maria 会自动生成排版精美的 Notion 页面",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "页面标题"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "页面内容（Markdown 格式）。如果不传，Maria 会根据标题自动生成内容"
+                    },
+                    "page_type": {
+                        "type": "string",
+                        "enum": ["document", "plan", "report", "meeting", "proposal"],
+                        "description": "页面类型：document=文档, plan=项目计划, report=报告, meeting=会议纪要, proposal=提案/方案"
+                    },
+                    "parent_page_id": {
+                        "type": "string",
+                        "description": "可选，指定父页面 ID。不传则放在 Maria 工作台根目录下"
+                    }
+                },
+                "required": ["title"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "append_to_notion_page",
+            "description": "往已有的 Notion 页面追加内容。比如追加日报、补充方案细节、添加会议记录等",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "page_id": {
+                        "type": "string",
+                        "description": "目标页面 ID（如果知道的话）"
+                    },
+                    "title_keyword": {
+                        "type": "string",
+                        "description": "页面标题关键词（如果不知道 page_id，通过标题搜索定位）"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "要追加的内容（Markdown 格式）"
+                    }
+                },
+                "required": ["content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_notion",
+            "description": "搜索 Notion 工作空间中的内容。可以找方案、文档、笔记、项目等",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "搜索关键词"
+                    },
+                    "search_type": {
+                        "type": "string",
+                        "enum": ["page", "database"],
+                        "description": "搜索类型：page=搜索页面, database=搜索数据库"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
 ]
 
 
@@ -674,6 +753,7 @@ class MariaToolExecutor:
             import app.skills.search
             import app.skills.document
             import app.skills.self_config
+            import app.skills.notion
         except ImportError as e:
             logger.warning(f"[MariaToolExecutor] 部分Skill模块加载失败: {e}")
 
@@ -759,6 +839,15 @@ class MariaToolExecutor:
             return f"以后叫你{arguments.get('new_name', '')}"
         elif tool_name == "generate_work_summary":
             return f"生成{arguments.get('period', 'daily')}总结"
+        elif tool_name == "create_notion_page":
+            title = arguments.get("title", "")
+            page_type = arguments.get("page_type", "document")
+            return f"在Notion创建{page_type}：{title}"
+        elif tool_name == "append_to_notion_page":
+            keyword = arguments.get("title_keyword", "")
+            return f"往Notion页面{keyword}追加内容"
+        elif tool_name == "search_notion":
+            return f"搜索Notion：{arguments.get('query', '')}"
         else:
             # 通用回退：从常见参数字段中取值
             return (
