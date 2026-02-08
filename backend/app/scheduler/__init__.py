@@ -155,6 +155,15 @@ async def init_scheduler():
         logger.warning(f"TaskWorker导入失败: {e}")
         process_pending_tasks = None
     
+    # Notion 知识库同步任务
+    async def sync_notion_knowledge_task():
+        """定时同步 Notion 知识库到向量数据库"""
+        try:
+            from app.services.vector_store import vector_store
+            await vector_store.sync_notion_knowledge()
+        except Exception as e:
+            logger.warning(f"Notion知识库同步失败: {e}")
+    
     # ==================== 辅助函数 ====================
     
     def _safe_add_job(func, trigger, job_id, name, **kwargs):
@@ -295,6 +304,11 @@ async def init_scheduler():
     
     _safe_add_job(maria_morning_brief, CronTrigger(hour=9, minute=0),
                   "maria_morning_brief", "[Maria] 早间智能简报 - 09:00")
+    
+    # ==================== Notion 知识库同步 ====================
+    
+    _safe_add_job(sync_notion_knowledge_task, CronTrigger(hour=23, minute=30),
+                  "notion_knowledge_sync", "[Maria] Notion知识库同步 - 23:30")
     
     # ==================== TaskWorker 任务调度引擎 ====================
     

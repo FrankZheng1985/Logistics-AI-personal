@@ -23,8 +23,23 @@ class MemoryService:
         "communication": "沟通偏好",
         "business": "业务关注点",
         "contacts": "常用联系人",
-        "custom": "自定义信息"
+        "custom": "自定义信息",
+        "correction": "纠错教训",
+        "action_rule": "行动准则（强制执行）",
     }
+    
+    # 对话分类：判断是否值得学习的关键词
+    SKIP_KEYWORDS = [
+        "你好", "在吗", "嗯", "好的", "谢谢", "ok", "收到",
+        "哈哈", "呵呵", "哦", "嗯嗯", "好", "行",
+    ]
+    
+    # 隐式负面反馈模式（用户重发、追问、不耐烦）
+    IMPLICIT_NEGATIVE_PATTERNS = [
+        "我刚才说的是", "你没听懂", "再说一遍", "不是这个意思",
+        "怎么还没", "搞什么", "到底", "能不能", "为什么不",
+        "我要的是", "你理解错了", "答非所问",
+    ]
     
     async def remember(self, user_id: str, key: str, value: str, category: str = "custom") -> bool:
         """
@@ -141,70 +156,113 @@ class MemoryService:
     
     async def get_context_for_llm(self, user_id: str) -> str:
         """
-        生成 LLM 上下文中的偏好信息（用于增强回复质量）
-        
-        Args:
-            user_id: 用户ID
+        生成 LLM 上下文中的偏好和行动准则（分层注入）
         
         Returns:
-            格式化的偏好描述文本
+            格式化的上下文文本（偏好 + 行动准则分开展示）
         """
         prefs = await self.recall_all(user_id)
         
         if not prefs:
             return ""
         
-        lines = ["关于这位老板的已知信息："]
+        # 分层：行动准则 vs 普通偏好
+        rules = {}
+        preferences = {}
         for key, value in prefs.items():
-            readable_key = key.replace("_", " ")
-            lines.append(f"- {readable_key}: {value}")
+            if key.startswith("rule_") or key.startswith("correction_"):
+                rules[key] = value
+            else:
+                preferences[key] = value
+        
+        lines = []
+        
+        # 行动准则优先展示（权重更高）
+        if rules:
+            lines.append("你必须遵守的行动准则（从过往教训中学到的，务必执行）：")
+            for key, value in list(rules.items())[:10]:  # 最多10条
+                lines.append(f"- {value}")
+        
+        # 普通偏好
+        if preferences:
+            lines.append("\n关于老板的已知偏好：")
+            for key, value in list(preferences.items())[:15]:  # 最多15条
+                readable_key = key.replace("_", " ")
+                lines.append(f"- {readable_key}: {value}")
         
         return "\n".join(lines)
     
-    # ==================== 自我学习能力 ====================
+    async def get_action_rules(self, user_id: str) -> List[str]:
+        """获取所有行动准则（用于特定场景的强制注入）"""
+        rules = await self.recall_all(user_id, category="action_rule")
+        corrections = await self.recall_all(user_id, category="correction")
+        
+        all_rules = []
+        for value in list(rules.values())[:10]:
+            all_rules.append(value)
+        for value in list(corrections.values())[:10]:
+            all_rules.append(value)
+        
+        return all_rules
     
-    async def auto_learn(self, user_id: str, message: str, response: str, intent_type: str) -> None:
+    # ==================== 自我学习能力（增强版） ====================
+    
+    def _is_worth_learning(self, message: str) -> bool:
+        """判断对话是否值得学习（降噪）"""
+        msg = message.strip()
+        
+        # 太短的消息
+        if len(msg) < 5:
+            return False
+        
+        # 纯闲聊跳过
+        if msg in self.SKIP_KEYWORDS:
+            return False
+        
+        return True
+    
+    async def auto_learn(self, user_id: str, message: str, response: str, intent_type: str = "") -> None:
         """
-        对话后自动学习：从对话中提取可记忆的偏好/习惯/信息
-        
-        这个方法在每次对话结束后异步调用，不影响主流程速度。
-        
-        Args:
-            user_id: 用户ID
-            message: 用户消息
-            response: Clauwdbot的回复
-            intent_type: 意图类型
+        对话后自动学习（增强版）：
+        1. 提取偏好/习惯/业务信息
+        2. 生成行动准则（从纠错中提炼具体规则）
+        3. 记录到 Notion 成长日志
         """
         try:
-            # 太短的对话不值得分析
-            if len(message) < 5:
+            if not self._is_worth_learning(message):
                 return
             
-            learn_prompt = f"""你是一个学习引擎。请分析以下老板和AI助理的对话，提取值得长期记住的信息。
+            # 检测是否有隐式负面反馈
+            has_implicit_negative = any(p in message for p in self.IMPLICIT_NEGATIVE_PATTERNS)
+            
+            learn_prompt = f"""你是一个AI助理的学习引擎。请分析以下老板和AI助理的对话，提取值得长期记住的信息。
 
 老板说：{message}
-助理回复：{response}
-对话类型：{intent_type}
+助理回复：{response[:300]}
 
-请判断这段对话中是否包含以下任何值得记住的信息：
-1. 老板的偏好（如"喜欢简洁"、"喜欢详细数据"、"PPT要XX风格"）
-2. 老板的习惯（如"下午通常开会"、"周一喜欢看周报"）
-3. 业务信息（如"重点关注德国线"、"张总是大客户"）
-4. 纠正/不满（如老板说"不对"、"不是这样"、"太长了"、"太机器"，说明需要调整行为）
-5. 联系人信息（如提到的人名、公司名、关系）
+请从以下维度分析：
 
-如果有值得记住的，返回JSON：
-{{"learn": true, "items": [{{"key": "偏好键名_用英文", "value": "偏好内容_用中文", "category": "style/schedule/communication/business/contacts/correction"}}]}}
+1. **偏好/习惯**：老板的风格偏好、时间习惯、沟通方式
+2. **业务知识**：项目信息、客户信息、业务规则、行业知识
+3. **行动准则**（最重要）：如果老板表达了不满、纠正、要求改变，必须生成一条具体的行动准则
+   - 行动准则格式："在做[场景]时，必须[具体行为]，禁止[错误行为]"
+   - 例："在汇报任务时，必须说清楚做了什么和结果是什么，禁止只说'处理好了'"
+4. **联系人**：新提到的人名、公司名、关系
 
-如果没什么值得记住的，返回：
+{"'⚠️ 注意：老板的消息中疑似包含不满或纠正，请特别关注并生成行动准则。'" if has_implicit_negative else ''}
+
+返回JSON：
+{{"learn": true, "items": [{{"key": "英文键名", "value": "中文内容", "category": "style/schedule/communication/business/contacts/action_rule/correction"}}]}}
+
+或者没有值得记忆的：
 {{"learn": false}}
 
-只返回JSON，不要其他内容。注意：日常的查询（如"今天有什么安排"）通常不需要记忆。只记真正有价值的信息。"""
+只返回JSON。日常查询（如"看邮件"、"今天日程"）不需要记忆。"""
 
             result = await chat_completion(
                 messages=[{"role": "user", "content": learn_prompt}],
                 temperature=0.2,
-                max_tokens=500
+                max_tokens=600
             )
             
             json_match = re.search(r'\{.*\}', result, re.DOTALL)
@@ -218,78 +276,242 @@ class MemoryService:
             
             # 保存学到的信息
             items = learn_data.get("items", [])
-            for item in items[:5]:  # 每次最多学5条，防止过度
+            growth_entries = []
+            
+            for item in items[:5]:
                 key = item.get("key", "").strip()
                 value = item.get("value", "").strip()
                 category = item.get("category", "custom")
                 
-                if key and value:
-                    await self.remember(user_id, key, value, category)
-                    logger.info(f"[Memory] 自动学习: {key} = {value}")
+                if not key or not value:
+                    continue
+                
+                # 行动准则加前缀，方便识别
+                if category == "action_rule" and not key.startswith("rule_"):
+                    key = f"rule_{key}"
+                
+                await self.remember(user_id, key, value, category)
+                logger.info(f"[Memory] 自动学习: [{category}] {key} = {value}")
+                
+                # 收集成长日志条目
+                type_label = {
+                    "action_rule": "行动准则",
+                    "correction": "纠错教训",
+                    "business": "业务知识",
+                    "style": "偏好学习",
+                    "contacts": "人脉信息",
+                }.get(category, "学习")
+                growth_entries.append(f"[{type_label}] {value}")
+            
+            # 写入 Notion 成长日志
+            if growth_entries:
+                await self._write_growth_log(growth_entries, message[:50])
             
         except Exception as e:
-            # 学习失败不影响主流程
             logger.warning(f"[Memory] 自动学习失败（不影响主流程）: {e}")
     
     async def detect_correction(self, message: str) -> bool:
         """
-        检测用户消息是否是在纠正/表达不满
-        
-        Args:
-            message: 用户消息
-        
-        Returns:
-            是否是纠正
+        检测用户消息是否是在纠正/表达不满（增强版，含隐式反馈）
         """
         correction_keywords = [
             "不对", "不是", "错了", "不要", "别", "太长", "太短",
             "太机器", "不够", "不好", "换一个", "重新", "重来",
-            "不是这样", "我说的是", "不是我要的", "差评", "不行"
+            "不是这样", "我说的是", "不是我要的", "差评", "不行",
         ]
         
         message_lower = message.lower()
-        return any(kw in message_lower for kw in correction_keywords)
+        
+        # 显式纠错
+        if any(kw in message_lower for kw in correction_keywords):
+            return True
+        
+        # 隐式负面反馈
+        if any(p in message_lower for p in self.IMPLICIT_NEGATIVE_PATTERNS):
+            return True
+        
+        return False
     
     async def learn_from_correction(self, user_id: str, original_message: str, correction_message: str) -> None:
         """
-        从纠正中学习：当老板说"不对/不好"时，分析并记住
-        
-        Args:
-            user_id: 用户ID
-            original_message: 触发纠正的原始上下文
-            correction_message: 老板的纠正消息
+        从纠正中学习（增强版）：生成行动准则 + 记录成长日志
         """
         try:
-            learn_prompt = f"""老板对AI助理的回复不满意，发了纠正消息。请分析老板想要什么，提取需要记住的教训。
+            learn_prompt = f"""老板对AI助理不满意，发了纠正消息。请分析并生成一条具体的行动准则。
 
 老板的纠正：{correction_message}
+之前的上下文：{original_message[:200]}
 
-请返回JSON格式：
-{{"key": "correction_英文描述", "value": "老板希望的行为/风格_用中文描述", "category": "correction"}}
+请返回JSON，包含两个字段：
+1. 一条行动准则（具体、可执行的规则）
+2. 一条纠错记录
+
+格式：
+{{"rule_key": "rule_英文描述", "rule_value": "在做[场景]时，必须[行为]，禁止[错误行为]", "correction_key": "correction_英文描述", "correction_value": "老板不满意的原因和期望"}}
 
 例如：
-老板说"太长了" -> {{"key": "correction_response_length", "value": "老板喜欢简短的回复，不要太啰嗦", "category": "correction"}}
-老板说"太机器了" -> {{"key": "correction_tone", "value": "老板希望回复更自然、口语化，不要像机器人", "category": "correction"}}
+老板说"你没有告诉我具体做了什么":
+{{"rule_key": "rule_report_detail", "rule_value": "在汇报任务结果时，必须说清楚具体做了什么操作、结果是什么、下一步是什么，禁止只说处理好了", "correction_key": "correction_vague_report", "correction_value": "老板不满意模糊的汇报，要求每次汇报都有具体内容"}}
 
 只返回JSON。"""
 
             result = await chat_completion(
                 messages=[{"role": "user", "content": learn_prompt}],
                 temperature=0.2,
-                max_tokens=300
+                max_tokens=400
             )
             
             json_match = re.search(r'\{.*\}', result, re.DOTALL)
-            if json_match:
-                data = json.loads(json_match.group())
-                key = data.get("key", "")
-                value = data.get("value", "")
-                if key and value:
-                    await self.remember(user_id, key, value, "correction")
-                    logger.info(f"[Memory] 纠错学习: {key} = {value}")
+            if not json_match:
+                return
+            
+            data = json.loads(json_match.group())
+            
+            growth_entries = []
+            
+            # 保存行动准则
+            rule_key = data.get("rule_key", "")
+            rule_value = data.get("rule_value", "")
+            if rule_key and rule_value:
+                await self.remember(user_id, rule_key, rule_value, "action_rule")
+                logger.info(f"[Memory] 行动准则: {rule_key} = {rule_value}")
+                growth_entries.append(f"[行动准则] {rule_value}")
+            
+            # 保存纠错记录
+            corr_key = data.get("correction_key", "")
+            corr_value = data.get("correction_value", "")
+            if corr_key and corr_value:
+                await self.remember(user_id, corr_key, corr_value, "correction")
+                logger.info(f"[Memory] 纠错学习: {corr_key} = {corr_value}")
+                growth_entries.append(f"[纠错教训] {corr_value}")
+            
+            # 写入成长日志
+            if growth_entries:
+                await self._write_growth_log(
+                    growth_entries,
+                    f"老板纠正: {correction_message[:30]}"
+                )
         
         except Exception as e:
             logger.warning(f"[Memory] 纠错学习失败: {e}")
+    
+    # ==================== Notion 成长日志 ====================
+    
+    async def _write_growth_log(self, entries: List[str], trigger: str = ""):
+        """
+        将学习成果写入 Notion 成长日志
+        
+        格式：在"成长日志"页面追加当天的学习记录
+        """
+        try:
+            from app.skills.notion import get_notion_skill
+            
+            skill = await get_notion_skill()
+            now = datetime.now()
+            time_str = now.strftime("%H:%M")
+            date_str = now.strftime("%Y-%m-%d")
+            
+            # 构建 Markdown 内容
+            lines = [f"### {time_str} - {trigger}"]
+            for entry in entries:
+                lines.append(f"- {entry}")
+            lines.append("")
+            
+            content = "\n".join(lines)
+            
+            # 尝试找到今天的成长日志页面
+            today_title = f"[{date_str}] Maria 成长日志"
+            
+            client = skill._get_client()
+            search_result = client.search(
+                query=today_title,
+                filter={"property": "object", "value": "page"},
+                page_size=3,
+            )
+            
+            existing_page_id = None
+            for item in search_result.get("results", []):
+                title = skill._extract_title(item)
+                if title == today_title:
+                    existing_page_id = item["id"]
+                    break
+            
+            if existing_page_id:
+                # 追加到已有页面
+                blocks = skill._markdown_to_blocks(content)
+                client.blocks.children.append(
+                    block_id=existing_page_id,
+                    children=blocks[:50],
+                )
+                logger.info(f"[Memory] 成长日志已追加: {len(entries)} 条")
+            else:
+                # 创建今天的成长日志
+                # 获取或创建"成长日志"分区
+                growth_section_id = await self._get_growth_section(skill)
+                
+                header = f"# Maria 成长日志 - {date_str}\n\n"
+                header += "记录 Maria 每天学到的新知识、犯的错误、改正的行为。\n\n---\n\n"
+                full_content = header + content
+                
+                blocks = skill._markdown_to_blocks(full_content)
+                blocks.append(skill._make_divider())
+                blocks.append(skill._make_paragraph(
+                    f"由 Maria 学习引擎自动记录",
+                    color="gray"
+                ))
+                
+                client.pages.create(
+                    parent={"page_id": growth_section_id},
+                    properties={
+                        "title": [{"text": {"content": today_title}}]
+                    },
+                    icon={"type": "emoji", "emoji": "🌱"},
+                    children=blocks[:100],
+                )
+                logger.info(f"[Memory] 创建今日成长日志: {today_title}")
+        
+        except Exception as e:
+            logger.warning(f"[Memory] 成长日志写入失败（不影响学习）: {e}")
+    
+    async def _get_growth_section(self, skill) -> str:
+        """获取或创建 Notion 中的"成长日志"分区"""
+        section_title = "🌱 成长日志"
+        
+        try:
+            client = skill._get_client()
+            root_id = skill._get_root_page_id()
+            
+            # 搜索是否已有
+            search_result = client.search(
+                query=section_title,
+                filter={"property": "object", "value": "page"},
+                page_size=5,
+            )
+            
+            for item in search_result.get("results", []):
+                title = skill._extract_title(item)
+                if title == section_title:
+                    return item["id"]
+            
+            # 创建
+            new_page = client.pages.create(
+                parent={"page_id": root_id},
+                properties={
+                    "title": [{"text": {"content": section_title}}]
+                },
+                icon={"type": "emoji", "emoji": "🌱"},
+                children=[
+                    skill._make_paragraph(
+                        "Maria 的自我成长日志。每天自动记录学到的新知识、犯的错误和改正的行为。",
+                        color="gray"
+                    )
+                ],
+            )
+            return new_page["id"]
+            
+        except Exception as e:
+            logger.warning(f"[Memory] 创建成长日志分区失败: {e}")
+            return skill._get_root_page_id()
 
 
 # 单例

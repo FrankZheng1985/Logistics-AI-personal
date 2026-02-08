@@ -326,5 +326,108 @@ class VectorStoreService:
             return {"initialized": False, "total": 0}
 
 
+    async def sync_notion_knowledge(self, user_id: str = "system"):
+        """
+        从 Notion 关键文档同步知识到向量库
+        
+        定时任务（每晚23:00）自动执行：
+        1. 读取 Notion 中"项目方案"和"知识库"分区的页面
+        2. 提取每个页面的文本内容
+        3. 向量化后存入向量库
+        
+        这样当老板在 Notion 更新了文档后，Maria 第二天就能在对话中引用
+        """
+        try:
+            from app.skills.notion import get_notion_skill
+            skill = await get_notion_skill()
+            client = skill._get_client()
+            
+            # 搜索 Notion 中的关键分区
+            target_sections = ["📋 项目方案", "📚 知识库"]
+            synced_count = 0
+            
+            for section_title in target_sections:
+                try:
+                    search_result = client.search(
+                        query=section_title,
+                        filter={"property": "object", "value": "page"},
+                        page_size=5,
+                    )
+                    
+                    for item in search_result.get("results", []):
+                        title = skill._extract_title(item)
+                        if title != section_title:
+                            continue
+                        
+                        section_id = item["id"]
+                        
+                        # 获取分区下的子页面
+                        children = client.blocks.children.list(block_id=section_id, page_size=20)
+                        
+                        for block in children.get("results", []):
+                            if block.get("type") != "child_page":
+                                continue
+                            
+                            page_id = block["id"]
+                            page_title = block.get("child_page", {}).get("title", "")
+                            
+                            if not page_title:
+                                continue
+                            
+                            # 读取页面内容
+                            page_blocks = client.blocks.children.list(block_id=page_id, page_size=50)
+                            text_parts = []
+                            
+                            for pb in page_blocks.get("results", []):
+                                rich_texts = []
+                                block_type = pb.get("type", "")
+                                block_data = pb.get(block_type, {})
+                                
+                                if isinstance(block_data, dict):
+                                    for rt in block_data.get("rich_text", []):
+                                        plain = rt.get("plain_text", "")
+                                        if plain:
+                                            rich_texts.append(plain)
+                                
+                                if rich_texts:
+                                    text_parts.append(" ".join(rich_texts))
+                            
+                            if not text_parts:
+                                continue
+                            
+                            # 拼接为摘要
+                            full_text = f"Notion文档「{page_title}」内容摘要：\n" + "\n".join(text_parts[:30])
+                            
+                            if len(full_text) > 2000:
+                                full_text = full_text[:2000]
+                            
+                            # 存入向量库
+                            stored = await self.store(
+                                user_id=user_id,
+                                content=full_text,
+                                content_type="notion_knowledge",
+                                metadata={
+                                    "source": "notion",
+                                    "page_title": page_title,
+                                    "section": section_title,
+                                    "synced_at": datetime.now().isoformat(),
+                                }
+                            )
+                            
+                            if stored:
+                                synced_count += 1
+                            
+                except Exception as e:
+                    logger.warning(f"[VectorStore] 同步分区 {section_title} 失败: {e}")
+                    continue
+            
+            logger.info(f"[VectorStore] Notion知识库同步完成: {synced_count} 个文档")
+            return synced_count
+            
+        except Exception as e:
+            logger.warning(f"[VectorStore] Notion知识库同步失败: {e}")
+            return 0
+
+
 # 单例
 vector_store = VectorStoreService()

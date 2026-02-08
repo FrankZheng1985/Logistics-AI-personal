@@ -88,10 +88,10 @@ class ClauwdbotAgent(BaseAgent):
         bot_name = getattr(self, '_bot_display_name', None) or "Clauwdbot"
         base_prompt = CLAUWDBOT_SYSTEM_PROMPT.format(bot_name=bot_name)
         
-        # 注入用户偏好记忆
+        # 注入用户偏好记忆 + 行动准则（行动准则权重最高，必须遵守）
         memory_ctx = getattr(self, '_user_memory_context', '')
         if memory_ctx:
-            base_prompt += f"\n\n关于老板的偏好（请据此调整回复）：\n{memory_ctx}"
+            base_prompt += f"\n\n{memory_ctx}"
         
         # 注入RAG检索到的相关历史（Phase 2）
         rag_ctx = getattr(self, '_rag_context', '')
