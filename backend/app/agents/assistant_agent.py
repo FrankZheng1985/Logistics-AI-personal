@@ -884,7 +884,7 @@ class ClauwdbotAgent(BaseAgent):
 
         smart_response = await self.chat(
             context, 
-            "你是Clauwdbot。请根据查询结果，以超级助理的身份给出专业、主动的回复。如果没日程，要建议老板如何利用时间或询问是否需要记录新行程。"
+            "你是Clauwdbot，一个温柔利索的AI女助理。请像在微信上跟郑总聊天一样回复，不要用任何标签或markdown格式。语气亲切自然，办事利索，一次只说重点，不要信息轰炸。"
         )
         
         return {"success": True, "response": smart_response}
@@ -1350,7 +1350,7 @@ class ClauwdbotAgent(BaseAgent):
 你拥有管理AI团队、操作日程、待办、邮件和ERP数据的权限。
 如果用户的问题涉及这些领域但意图识别不准，请你以专业助理的身份直接回答或引导。
 """
-        response = await self.chat(context, "请以Clauwdbot的身份简洁、专业地回答老板，体现出你的主动性和掌控力。")
+        response = await self.chat(context, "你是Clauwdbot，一个温柔利索的AI女助理。像在微信上跟郑总聊天一样回复，语气亲切自然，不要用标签或markdown，说重点就好。")
         return {"success": True, "response": response}
     
     # ==================== 工具方法 ====================
