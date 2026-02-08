@@ -1936,6 +1936,69 @@ class ClauwdbotAgent(BaseAgent):
             logger.error(f"[Clauwdbot] 周报生成失败: {e}")
             return {"success": True, "response": "郑总，这周的数据还在汇总中，我整理好了发给您~"}
     
+    # ==================== 苹果日历直写 ====================
+
+    async def _handle_add_to_apple_calendar(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        直接往老板的苹果日历里写入事件（通过 CalDAV）
+        """
+        from app.services.caldav_service import apple_calendar
+        
+        events_raw = args.get("events", [])
+        if not events_raw:
+            return {"status": "error", "message": "没有提供日程事件"}
+        
+        # 解析事件
+        events = []
+        for ev in events_raw:
+            start_str = ev.get("start_date", "")
+            start_dt = None
+            end_dt = None
+            
+            # 解析开始时间
+            for fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d"]:
+                try:
+                    start_dt = datetime.strptime(start_str, fmt)
+                    break
+                except ValueError:
+                    continue
+            
+            if not start_dt:
+                logger.warning(f"[Maria] 日程时间解析失败: {start_str}")
+                continue
+            
+            # 解析结束时间
+            end_str = ev.get("end_date")
+            if end_str:
+                for fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M"]:
+                    try:
+                        end_dt = datetime.strptime(end_str, fmt)
+                        break
+                    except ValueError:
+                        continue
+            
+            events.append({
+                "title": ev.get("title", "日程"),
+                "start_time": start_dt,
+                "end_time": end_dt,
+                "location": ev.get("location"),
+                "description": ev.get("description"),
+                "alarm_minutes": ev.get("alarm_minutes", 15),
+                "is_recurring": ev.get("is_recurring", False),
+                "recurring_pattern": ev.get("recurring_pattern"),
+            })
+        
+        if not events:
+            return {"status": "error", "message": "日程时间解析失败，请检查日期格式"}
+        
+        try:
+            result = await apple_calendar.add_events(events)
+            logger.info(f"[Maria] 苹果日历写入结果: {result['message']}")
+            return result
+        except Exception as e:
+            logger.error(f"[Maria] 苹果日历写入失败: {e}")
+            return {"status": "error", "message": f"写入苹果日历失败: {str(e)}"}
+
     # ==================== 联网搜索 ====================
 
     async def _handle_web_search(self, query: str, search_type: str = "search", num_results: int = 5) -> Dict[str, Any]:

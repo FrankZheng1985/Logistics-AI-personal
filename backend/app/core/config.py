@@ -107,6 +107,12 @@ class Settings(BaseSettings):
     # Serper API配置（Google搜索）
     SERPER_API_KEY: Optional[str] = None
     
+    # Apple CalDAV 配置（Maria日历直写）
+    APPLE_CALDAV_USERNAME: Optional[str] = None  # Apple ID 邮箱
+    APPLE_CALDAV_PASSWORD: Optional[str] = None  # App专用密码
+    APPLE_CALDAV_URL: str = "https://caldav.icloud.com"  # CalDAV服务器
+    APPLE_CALDAV_CALENDAR_NAME: Optional[str] = None  # 指定操作的日历名称（为空则用默认日历）
+    
     # CORS配置
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
     

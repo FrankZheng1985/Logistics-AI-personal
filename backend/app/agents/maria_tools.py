@@ -487,7 +487,40 @@ MARIA_TOOLS: List[Dict[str, Any]] = [
         }
     },
 
-    # ── 9. 身份管理 ──
+    # ── 9. 苹果日历直写 ──
+    {
+        "type": "function",
+        "function": {
+            "name": "add_to_apple_calendar",
+            "description": "直接往老板的苹果手机日历里添加日程事件。支持单个或多个事件，支持重复日程。这是真的写入苹果日历，不是生成文件",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "events": {
+                        "type": "array",
+                        "description": "要添加的日程事件列表",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string", "description": "事件标题"},
+                                "start_date": {"type": "string", "description": "开始时间 YYYY-MM-DD HH:MM"},
+                                "end_date": {"type": "string", "description": "结束时间 YYYY-MM-DD HH:MM（可选，默认1小时后）"},
+                                "location": {"type": "string", "description": "地点（可选）"},
+                                "description": {"type": "string", "description": "备注（可选）"},
+                                "alarm_minutes": {"type": "integer", "description": "提前多少分钟提醒，默认15"},
+                                "is_recurring": {"type": "boolean", "description": "是否重复"},
+                                "recurring_pattern": {"type": "string", "description": "重复规则：每天/每周/每周一/每月 等"}
+                            },
+                            "required": ["title", "start_date"]
+                        }
+                    }
+                },
+                "required": ["events"]
+            }
+        }
+    },
+
+    # ── 10. 身份管理 ──
     {
         "type": "function",
         "function": {
@@ -582,6 +615,7 @@ class MariaToolExecutor:
             "generate_ical": self._tool_generate_ical,
             "web_search": self._tool_web_search,
             "fetch_webpage": self._tool_fetch_webpage,
+            "add_to_apple_calendar": self._tool_add_to_apple_calendar,
         }
         return handler_map.get(tool_name)
 
@@ -770,3 +804,7 @@ class MariaToolExecutor:
         """抓取网页内容"""
         url = args.get("url", "")
         return await self.agent._handle_fetch_webpage(url=url)
+
+    async def _tool_add_to_apple_calendar(self, message, intent, user_id, args):
+        """直接写入苹果日历"""
+        return await self.agent._handle_add_to_apple_calendar(args=args)
