@@ -276,7 +276,7 @@ class ClauwdbotAgent(BaseAgent):
         # 加载对话历史
         self._recent_history = []
         try:
-            self._recent_history = await self._load_recent_history(user_id, limit=6)
+            self._recent_history = await self._load_recent_history(user_id, limit=10)
         except Exception as e:
             logger.warning(f"[Maria] 加载对话历史失败: {e}")
     
@@ -284,14 +284,12 @@ class ClauwdbotAgent(BaseAgent):
         """构建发送给 LLM 的对话消息列表（含历史上下文）"""
         messages = []
         
-        # 加入最近对话历史
+        # 加入最近对话历史（格式：{"role": "user"/"assistant", "content": "..."}）
         for hist in getattr(self, '_recent_history', []):
-            user_msg = hist.get("user_msg", "")
-            bot_msg = hist.get("bot_msg", "")
-            if user_msg:
-                messages.append({"role": "user", "content": user_msg})
-            if bot_msg:
-                messages.append({"role": "assistant", "content": bot_msg})
+            role = hist.get("role", "")
+            content = hist.get("content", "")
+            if role and content:
+                messages.append({"role": role, "content": content})
         
         # 当前消息
         messages.append({"role": "user", "content": current_message})
