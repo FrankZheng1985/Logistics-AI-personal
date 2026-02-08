@@ -148,6 +148,13 @@ async def init_scheduler():
         logger.warning(f"Maria后台任务导入失败: {e}")
         auto_sync_emails = auto_sync_calendar = maria_morning_brief = None
     
+    # TaskWorker 任务调度引擎
+    try:
+        from app.scheduler.task_worker import process_pending_tasks
+    except ImportError as e:
+        logger.warning(f"TaskWorker导入失败: {e}")
+        process_pending_tasks = None
+    
     # ==================== 辅助函数 ====================
     
     def _safe_add_job(func, trigger, job_id, name, **kwargs):
@@ -288,6 +295,11 @@ async def init_scheduler():
     
     _safe_add_job(maria_morning_brief, CronTrigger(hour=9, minute=0),
                   "maria_morning_brief", "[Maria] 早间智能简报 - 09:00")
+    
+    # ==================== TaskWorker 任务调度引擎 ====================
+    
+    _safe_add_job(process_pending_tasks, IntervalTrigger(seconds=30),
+                  "task_worker", "[TaskWorker] AI员工任务调度 - 每30秒")
     
     # ==================== 启动调度器 ====================
     
