@@ -626,7 +626,7 @@ class ClauwdbotAgent(BaseAgent):
             
             return {
                 "success": True,
-                "response": f"我看了一下{target_agent_name}的现状，给你出个升级方案：\n\n{suggestion}\n\n你看行不行？说"通过"我就改。"
+                "response": f"我看了一下{target_agent_name}的现状，给你出个升级方案：\n\n{suggestion}\n\n你看行不行？说「通过」我就改。"
             }
             
         except Exception as e:
@@ -959,7 +959,7 @@ class ClauwdbotAgent(BaseAgent):
             
             return {
                 "success": True,
-                "response": f"好的，我看了一下{target_agent_name}现在的Prompt，给你出个方案：\n\n{changes_summary}\n\n你看行不行？说"通过"我就改。"
+                "response": f"好的，我看了一下{target_agent_name}现在的Prompt，给你出个方案：\n\n{changes_summary}\n\n你看行不行？说「通过」我就改。"
             }
             
         except Exception as e:
