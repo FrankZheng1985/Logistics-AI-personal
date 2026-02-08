@@ -1222,6 +1222,7 @@ URL：{url}
                             search_results = await self._search_with_serper(query, time_range="m")
                             
                             if search_results:
+                                self.log(f"✅ {platform_name} 返回 {len(search_results)} 条结果")
                                 results["platforms_searched"].append(platform_name)
                                 
                                 for item in search_results[:5]:  # 每个关键词每个平台取前5条
@@ -1242,6 +1243,7 @@ URL：{url}
                                         continue
                                     
                                     # 分析话题价值
+                                    self.log(f"🧠 AI分析话题价值: {title[:30]}...")
                                     topic_analysis = await self._analyze_topic_value({
                                         "title": title,
                                         "content": item.get("content", ""),
@@ -1251,6 +1253,36 @@ URL：{url}
                                     })
                                     
                                     if topic_analysis.get("is_valuable", False):
+                                        self.log(f"🎯 发现高价值话题: {title[:30]} (分数: {topic_analysis.get('value_score')})")
+                                        
+                                        # 立即保存话题到数据库，实现增量更新
+                                        await db.execute(
+                                            text("""
+                                                INSERT INTO hot_topics 
+                                                (title, url, url_hash, platform, category, keywords,
+                                                 value_score, ai_summary, ai_answer_strategy, 
+                                                 ai_recommended_points, priority, status)
+                                                VALUES 
+                                                (:title, :url, :url_hash, :platform, :category, :keywords,
+                                                 :value_score, :summary, :strategy, :points, :priority, 'new')
+                                                ON CONFLICT (url_hash) DO NOTHING
+                                            """),
+                                            {
+                                                "title": title,
+                                                "url": url,
+                                                "url_hash": url_hash,
+                                                "platform": platform_id,
+                                                "category": category,
+                                                "keywords": [keyword],
+                                                "value_score": topic_analysis.get("value_score", 50),
+                                                "summary": topic_analysis.get("summary", ""),
+                                                "strategy": topic_analysis.get("answer_strategy", ""),
+                                                "points": topic_analysis.get("recommended_points", []),
+                                                "priority": "high" if topic_analysis.get("value_score", 0) >= 70 else "medium"
+                                            }
+                                        )
+                                        await db.commit()  # 立即提交
+                                        
                                         topic_data = {
                                             "title": title,
                                             "url": url,
@@ -1258,13 +1290,16 @@ URL：{url}
                                             "platform": platform_id,
                                             "category": category,
                                             "keyword": keyword,
-                                            "value_score": topic_analysis.get("value_score", 50),
-                                            "ai_summary": topic_analysis.get("summary", ""),
-                                            "ai_answer_strategy": topic_analysis.get("answer_strategy", ""),
-                                            "ai_recommended_points": topic_analysis.get("recommended_points", []),
-                                            "priority": "high" if topic_analysis.get("value_score", 0) >= 70 else "medium"
+                                            "value_score": topic_analysis.get("value_score", 50)
                                         }
-                                        all_topics.append(topic_data)
+                                        results["topics_found"].append(topic_data)
+                                        results["total_topics"] += 1
+                                        if topic_analysis.get("value_score", 0) >= 70:
+                                            results["high_value_topics"] += 1
+                                    else:
+                                        self.log(f"⏭️ 话题价值不足，跳过: {title[:30]} (理由: {topic_analysis.get('reason')})")
+                            else:
+                                self.log(f"❌ {platform_name} 未返回结果")
                             
                             # 控制请求频率
                             await asyncio.sleep(0.5)
@@ -1272,46 +1307,7 @@ URL：{url}
                         except Exception as e:
                             self.log(f"搜索话题失败 ({platform_name}, {keyword}): {e}", "error")
                 
-                # 4. 保存话题到数据库
-                for topic in all_topics:
-                    try:
-                        await db.execute(
-                            text("""
-                                INSERT INTO hot_topics 
-                                (title, url, url_hash, platform, category, keywords,
-                                 value_score, ai_summary, ai_answer_strategy, 
-                                 ai_recommended_points, priority, status)
-                                VALUES 
-                                (:title, :url, :url_hash, :platform, :category, :keywords,
-                                 :value_score, :summary, :strategy, :points, :priority, 'new')
-                                ON CONFLICT (url_hash) DO NOTHING
-                            """),
-                            {
-                                "title": topic["title"],
-                                "url": topic["url"],
-                                "url_hash": topic["url_hash"],
-                                "platform": topic["platform"],
-                                "category": topic["category"],
-                                "keywords": [topic["keyword"]],
-                                "value_score": topic["value_score"],
-                                "summary": topic["ai_summary"],
-                                "strategy": topic["ai_answer_strategy"],
-                                "points": topic["ai_recommended_points"],
-                                "priority": topic["priority"]
-                            }
-                        )
-                        
-                        results["topics_found"].append(topic)
-                        results["total_topics"] += 1
-                        if topic["value_score"] >= 70:
-                            results["high_value_topics"] += 1
-                            
-                    except Exception as e:
-                        self.log(f"保存话题失败: {e}", "error")
-                
-                await db.commit()
-                
-                # 5. 更新小猎的任务统计
+                # 4. 更新小猎的任务统计
                 await db.execute(
                     text("""
                         UPDATE ai_agents

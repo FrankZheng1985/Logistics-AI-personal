@@ -14,8 +14,8 @@ async def lead_hunt_task():
     
     try:
         from app.agents.lead_hunter import lead_hunter_agent
-        result = await lead_hunter_agent.smart_hunt(limit=5)
-        logger.info(f"🎯 [小猎] 常规搜索完成: {result}")
+        result = await lead_hunter_agent.process({"action": "smart_hunt", "max_keywords": 3, "max_results": 5})
+        logger.info(f"🎯 [小猎] 常规搜索完成: {result.get('total_topics', 0)} 条话题")
     except Exception as e:
         logger.error(f"❌ [小猎] 常规搜索失败: {e}")
 
@@ -26,8 +26,8 @@ async def lead_hunt_intensive_task():
     
     try:
         from app.agents.lead_hunter import lead_hunter_agent
-        result = await lead_hunter_agent.smart_hunt(limit=10)
-        logger.info(f"🎯 [小猎] 加强搜索完成: {result}")
+        result = await lead_hunter_agent.process({"action": "smart_hunt", "max_keywords": 5, "max_results": 10})
+        logger.info(f"🎯 [小猎] 加强搜索完成: {result.get('total_topics', 0)} 条话题")
     except Exception as e:
         logger.error(f"❌ [小猎] 加强搜索失败: {e}")
 
@@ -38,8 +38,8 @@ async def lead_hunt_night_task():
     
     try:
         from app.agents.lead_hunter import lead_hunter_agent
-        result = await lead_hunter_agent.smart_hunt(limit=3)
-        logger.info(f"🎯 [小猎] 夜间搜索完成: {result}")
+        result = await lead_hunter_agent.process({"action": "smart_hunt", "max_keywords": 2, "max_results": 3})
+        logger.info(f"🎯 [小猎] 夜间搜索完成: {result.get('total_topics', 0)} 条话题")
     except Exception as e:
         logger.error(f"❌ [小猎] 夜间搜索失败: {e}")
 
