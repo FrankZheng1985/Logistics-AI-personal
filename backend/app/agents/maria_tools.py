@@ -635,279 +635,127 @@ MARIA_TOOLS: List[Dict[str, Any]] = [
 
 class MariaToolExecutor:
     """
-    工具执行器：接收 tool_call，解析参数，调用 agent 上对应的 handler。
-    与 ClauwdbotAgent（assistant_agent.py）的实例绑定。
+    工具执行器 - 将 LLM 的 tool_calls 路由到 Skill 模块
+    
+    新架构（Phase 1 重构）：
+    1. LLM 返回 tool_calls (含 function name + arguments)
+    2. MariaToolExecutor 通过 SkillRegistry 查找对应 Skill
+    3. 委托给 Skill.handle() 执行
+    4. 返回结果放回对话上下文，让 LLM 决定下一步
     """
 
     def __init__(self, agent):
         """
         Args:
-            agent: ClauwdbotAgent 实例，拥有所有 _handle_* 方法
+            agent: ClauwdbotAgent 实例
         """
         self.agent = agent
+        self._skill_map = None  # 懒加载
+
+    def _get_skill_map(self) -> Dict[str, Any]:
+        """获取 tool_name -> skill 的映射（懒加载 + 绑定agent）"""
+        if self._skill_map is None:
+            from app.skills.base import SkillRegistry
+            self._ensure_skills_loaded()
+            self._skill_map = SkillRegistry.get_tool_mapping()
+            # 绑定 agent 引用到所有 skill
+            for skill in SkillRegistry.get_all().values():
+                if skill.agent is None:
+                    skill.agent = self.agent
+        return self._skill_map
+
+    @staticmethod
+    def _ensure_skills_loaded():
+        """确保所有skill模块已被导入（触发注册）"""
+        try:
+            import app.skills.team_management
+            import app.skills.schedule
+            import app.skills.email
+            import app.skills.search
+            import app.skills.document
+            import app.skills.self_config
+        except ImportError as e:
+            logger.warning(f"[MariaToolExecutor] 部分Skill模块加载失败: {e}")
 
     async def execute(self, tool_name: str, arguments: Dict[str, Any], user_id: str) -> Dict[str, Any]:
         """
-        执行一个工具调用
-        
-        Args:
-            tool_name: 工具名称
-            arguments: 工具参数 dict
-            user_id: 用户ID
-        
-        Returns:
-            工具执行结果 dict
+        执行一个工具调用 - 路由到对应的Skill模块
         """
         logger.info(f"[Maria Tool] 执行工具: {tool_name}, 参数: {arguments}")
 
-        # 构造兼容旧 handler 的 intent dict
-        intent = {"type": tool_name, "params": arguments}
-        
-        # 把参数合并到 message 字符串中（某些 handler 需要原始消息）
-        message = arguments.get("task_description") or arguments.get("topic") or arguments.get("task") or arguments.get("content") or arguments.get("modification") or arguments.get("upgrade_direction") or ""
+        # 构造自然语言 message（用于Skill内部LLM解析）
+        message = self._build_message(tool_name, arguments)
 
         try:
-            handler = self._get_handler(tool_name)
-            if handler:
-                result = await handler(message=message, intent=intent, user_id=user_id, args=arguments)
+            skill_map = self._get_skill_map()
+            skill = skill_map.get(tool_name)
+            
+            if skill:
+                result = await skill.handle(
+                    tool_name=tool_name,
+                    args=arguments,
+                    message=message,
+                    user_id=user_id,
+                )
                 return result
             else:
+                logger.warning(f"[Maria Tool] 未找到工具 {tool_name} 对应的Skill")
                 return {"status": "error", "message": f"未知工具: {tool_name}"}
         except Exception as e:
             logger.error(f"[Maria Tool] 工具 {tool_name} 执行失败: {e}")
             return {"status": "error", "message": f"执行失败: {str(e)}"}
 
-    def _get_handler(self, tool_name: str):
-        """根据工具名获取对应的处理函数"""
-        handler_map = {
-            "check_agent_status": self._tool_check_agent_status,
-            "dispatch_agent_task": self._tool_dispatch_agent_task,
-            "upgrade_agent": self._tool_upgrade_agent,
-            "read_agent_code": self._tool_read_agent_code,
-            "modify_agent_code": self._tool_modify_agent_code,
-            "check_system_status": self._tool_check_system_status,
-            "generate_ai_report": self._tool_generate_ai_report,
-            "check_task_status": self._tool_check_task_status,
-            "add_schedule": self._tool_add_schedule,
-            "query_schedule": self._tool_query_schedule,
-            "update_schedule": self._tool_update_schedule,
-            "add_todo": self._tool_add_todo,
-            "query_todo": self._tool_query_todo,
-            "generate_ppt": self._tool_generate_ppt,
-            "generate_word": self._tool_generate_word,
-            "generate_code": self._tool_generate_code,
-            "read_emails": self._tool_read_emails,
-            "generate_work_summary": self._tool_generate_work_summary,
-            "query_daily_report": self._tool_query_daily_report,
-            "change_my_name": self._tool_change_name,
-            "generate_ical": self._tool_generate_ical,
-            "web_search": self._tool_web_search,
-            "fetch_webpage": self._tool_fetch_webpage,
-            "add_to_apple_calendar": self._tool_add_to_apple_calendar,
-            "send_email": self._tool_send_email,
-            "sync_emails": self._tool_sync_emails,
-            "manage_email_account": self._tool_manage_email_account,
-        }
-        return handler_map.get(tool_name)
-
-    # ────── 工具适配层：把新参数格式适配到旧 handler ──────
-
-    async def _tool_check_agent_status(self, message, intent, user_id, args):
-        return await self.agent._handle_agent_status(message, intent, user_id)
-
-    async def _tool_dispatch_agent_task(self, message, intent, user_id, args):
-        # 将 agent_name 放入 intent 让旧 handler 能找到目标
-        intent["target_agent"] = args.get("agent_name", "")
-        intent["task"] = args.get("task_description", "")
-        return await self.agent._handle_agent_dispatch(
-            f"让{args.get('agent_name', '')} {args.get('task_description', '')}", 
-            intent, user_id
-        )
-
-    async def _tool_upgrade_agent(self, message, intent, user_id, args):
-        intent["target_agent"] = args.get("agent_name", "")
-        return await self.agent._handle_agent_upgrade(
-            f"升级{args.get('agent_name', '')}的{args.get('upgrade_direction', '')}", 
-            intent, user_id
-        )
-
-    async def _tool_read_agent_code(self, message, intent, user_id, args):
-        intent["target_agent"] = args.get("agent_name", "")
-        return await self.agent._handle_agent_code_read(
-            f"查看{args.get('agent_name', '')}的代码", intent, user_id
-        )
-
-    async def _tool_modify_agent_code(self, message, intent, user_id, args):
-        intent["target_agent"] = args.get("agent_name", "")
-        return await self.agent._handle_agent_code_modify(
-            f"修改{args.get('agent_name', '')} {args.get('modification', '')}", 
-            intent, user_id
-        )
-
-    async def _tool_check_system_status(self, message, intent, user_id, args):
-        return await self.agent._handle_system_status(message, intent, user_id)
-
-    async def _tool_generate_ai_report(self, message, intent, user_id, args):
-        return await self.agent._handle_ai_daily_report(message, intent, user_id)
-
-    async def _tool_check_task_status(self, message, intent, user_id, args):
-        if args.get("agent_name"):
-            intent["target_agent"] = args["agent_name"]
-        return await self.agent._handle_task_status(message, intent, user_id)
-
-    async def _tool_add_schedule(self, message, intent, user_id, args):
-        # 构造一个自然语言消息，让旧 handler 用 LLM 解析
-        parts = [args.get("title", "")]
-        if args.get("date"):
-            parts.append(args["date"])
-        if args.get("time"):
-            parts.append(args["time"])
-        msg = " ".join(parts)
-        return await self.agent._handle_schedule_add(msg, intent, user_id)
-
-    async def _tool_query_schedule(self, message, intent, user_id, args):
-        date_range = args.get("date_range", "today")
-        return await self.agent._handle_schedule_query(f"查看{date_range}的日程", intent, user_id)
-
-    async def _tool_update_schedule(self, message, intent, user_id, args):
-        return await self.agent._handle_schedule_update(
-            json.dumps(args, ensure_ascii=False), intent, user_id
-        )
-
-    async def _tool_add_todo(self, message, intent, user_id, args):
-        return await self.agent._handle_todo_add(
-            args.get("content", ""), intent, user_id
-        )
-
-    async def _tool_query_todo(self, message, intent, user_id, args):
-        return await self.agent._handle_todo_query(message, intent, user_id)
-
-    async def _tool_generate_ppt(self, message, intent, user_id, args):
-        topic = args.get("topic", "")
-        req = args.get("requirements", "")
-        return await self.agent._handle_generate_ppt(
-            f"{topic} {req}".strip(), intent, user_id
-        )
-
-    async def _tool_generate_word(self, message, intent, user_id, args):
-        topic = args.get("topic", "")
-        doc_type = args.get("doc_type", "报告")
-        req = args.get("requirements", "")
-        return await self.agent._handle_generate_word(
-            f"帮我写一个{doc_type}，主题：{topic} {req}".strip(), intent, user_id
-        )
-
-    async def _tool_generate_code(self, message, intent, user_id, args):
-        lang = args.get("language", "Python")
-        task = args.get("task", "")
-        return await self.agent._handle_generate_code(
-            f"用{lang}写 {task}", intent, user_id
-        )
-
-    async def _tool_read_emails(self, message, intent, user_id, args):
-        return await self.agent._handle_email_deep_read(message, intent, user_id)
-
-    async def _tool_generate_work_summary(self, message, intent, user_id, args):
-        period = args.get("period", "daily")
-        if period == "weekly":
-            return await self.agent._handle_weekly_summary(message, intent, user_id)
+    @staticmethod
+    def _build_message(tool_name: str, arguments: Dict[str, Any]) -> str:
+        """根据工具名和参数构造自然语言消息（供Skill内部LLM解析用）"""
+        if tool_name == "dispatch_agent_task":
+            return f"让{arguments.get('agent_name', '')} {arguments.get('task_description', '')}"
+        elif tool_name == "upgrade_agent":
+            return f"升级{arguments.get('agent_name', '')}的{arguments.get('upgrade_direction', '')}"
+        elif tool_name == "read_agent_code":
+            return f"查看{arguments.get('agent_name', '')}的代码"
+        elif tool_name == "modify_agent_code":
+            return f"修改{arguments.get('agent_name', '')} {arguments.get('modification', '')}"
+        elif tool_name == "add_schedule":
+            parts = [arguments.get("title", "")]
+            if arguments.get("date"):
+                parts.append(arguments["date"])
+            if arguments.get("time"):
+                parts.append(arguments["time"])
+            return " ".join(parts)
+        elif tool_name == "query_schedule":
+            return f"查看{arguments.get('date_range', 'today')}的日程"
+        elif tool_name == "update_schedule":
+            return json.dumps(arguments, ensure_ascii=False)
+        elif tool_name == "add_todo":
+            return arguments.get("content", "")
+        elif tool_name == "generate_ppt":
+            topic = arguments.get("topic", "")
+            req = arguments.get("requirements", "")
+            return f"{topic} {req}".strip()
+        elif tool_name == "generate_word":
+            topic = arguments.get("topic", "")
+            doc_type = arguments.get("doc_type", "报告")
+            req = arguments.get("requirements", "")
+            return f"帮我写一个{doc_type}，主题：{topic} {req}".strip()
+        elif tool_name == "generate_code":
+            lang = arguments.get("language", "Python")
+            task_desc = arguments.get("task", "")
+            return f"用{lang}写 {task_desc}"
+        elif tool_name == "change_my_name":
+            return f"以后叫你{arguments.get('new_name', '')}"
+        elif tool_name == "generate_work_summary":
+            return f"生成{arguments.get('period', 'daily')}总结"
         else:
-            return await self.agent._handle_daily_summary(message, intent, user_id)
+            # 通用回退：从常见参数字段中取值
+            return (
+                arguments.get("task_description")
+                or arguments.get("topic")
+                or arguments.get("task")
+                or arguments.get("content")
+                or arguments.get("query")
+                or ""
+            )
 
-    async def _tool_query_daily_report(self, message, intent, user_id, args):
-        return await self.agent._handle_daily_report(message, intent, user_id)
-
-    async def _tool_change_name(self, message, intent, user_id, args):
-        new_name = args.get("new_name", "")
-        return await self.agent._handle_change_name(
-            f"以后叫你{new_name}", intent, user_id
-        )
-
-    async def _tool_generate_ical(self, message, intent, user_id, args):
-        """生成iCal日历文件"""
-        from datetime import datetime
-        
-        events_raw = args.get("events", [])
-        if not events_raw:
-            return {"status": "error", "message": "没有提供日程事件"}
-        
-        events = []
-        for ev in events_raw:
-            start_str = ev.get("start_date", "")
-            start_dt = None
-            end_dt = None
-            try:
-                start_dt = datetime.strptime(start_str, "%Y-%m-%d %H:%M")
-            except Exception:
-                try:
-                    start_dt = datetime.fromisoformat(start_str)
-                except Exception:
-                    continue
-            
-            end_str = ev.get("end_date")
-            if end_str:
-                try:
-                    end_dt = datetime.strptime(end_str, "%Y-%m-%d %H:%M")
-                except Exception:
-                    pass
-            
-            events.append({
-                "title": ev.get("title", "日程"),
-                "start_time": start_dt,
-                "end_time": end_dt,
-                "location": ev.get("location"),
-                "description": ev.get("description"),
-                "is_recurring": ev.get("is_recurring", False),
-                "recurring_pattern": ev.get("recurring_pattern"),
-            })
-        
-        if not events:
-            return {"status": "error", "message": "日程时间解析失败"}
-        
-        filepath = self.agent._generate_ical_file(
-            title=events[0]["title"],
-            start_time=events[0]["start_time"],
-            end_time=events[0].get("end_time"),
-            location=events[0].get("location"),
-            description=events[0].get("description"),
-            is_recurring=events[0].get("is_recurring", False),
-            recurring_pattern=events[0].get("recurring_pattern"),
-            events=events if len(events) > 1 else None,
-        )
-        
-        return {
-            "status": "success",
-            "message": f"已生成包含{len(events)}个事件的iCal文件",
-            "filepath": filepath,
-            "event_count": len(events),
-        }
-
-    async def _tool_web_search(self, message, intent, user_id, args):
-        """Google搜索"""
-        query = args.get("query", "")
-        search_type = args.get("search_type", "search")
-        num_results = min(args.get("num_results", 5), 10)
-        return await self.agent._handle_web_search(
-            query=query, search_type=search_type, num_results=num_results
-        )
-
-    async def _tool_fetch_webpage(self, message, intent, user_id, args):
-        """抓取网页内容"""
-        url = args.get("url", "")
-        return await self.agent._handle_fetch_webpage(url=url)
-
-    async def _tool_add_to_apple_calendar(self, message, intent, user_id, args):
-        """直接写入苹果日历"""
-        return await self.agent._handle_add_to_apple_calendar(args=args)
-
-    async def _tool_send_email(self, message, intent, user_id, args):
-        """发送邮件"""
-        return await self.agent._handle_send_email(args=args)
-
-    async def _tool_sync_emails(self, message, intent, user_id, args):
-        """同步邮件"""
-        return await self.agent._handle_sync_emails(args=args)
-
-    async def _tool_manage_email_account(self, message, intent, user_id, args):
-        """管理邮箱账户"""
-        return await self.agent._handle_manage_email_account(args=args)
+    # 旧的 _get_handler 和适配层已移除
+    # 所有工具逻辑现在由 app.skills.* 模块处理

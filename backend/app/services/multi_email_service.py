@@ -88,6 +88,30 @@ class MultiEmailService:
         }
     }
     
+    # ==================== 凭证加密 ====================
+    
+    @staticmethod
+    def _encrypt_credential(value: str) -> str:
+        """加密凭证（如果加密服务可用）"""
+        if not value:
+            return value
+        try:
+            from app.services.credential_service import credential_service
+            return credential_service.encrypt(value)
+        except Exception:
+            return value  # 降级：原样返回
+    
+    @staticmethod
+    def _decrypt_credential(value: str) -> str:
+        """解密凭证（如果是加密值）"""
+        if not value:
+            return value
+        try:
+            from app.services.credential_service import credential_service
+            return credential_service.decrypt(value)
+        except Exception:
+            return value  # 降级：原样返回
+    
     # ==================== 邮箱账户管理 ====================
     
     async def add_email_account(
@@ -142,12 +166,12 @@ class MultiEmailService:
                         "imap_host": imap_host,
                         "imap_port": imap_port,
                         "imap_user": imap_user,
-                        "imap_password": imap_password,  # TODO: 加密存储
+                        "imap_password": self._encrypt_credential(imap_password),
                         "imap_ssl": imap_ssl,
                         "smtp_host": smtp_host,
                         "smtp_port": smtp_port,
                         "smtp_user": smtp_user,
-                        "smtp_password": smtp_password,  # TODO: 加密存储
+                        "smtp_password": self._encrypt_credential(smtp_password),
                         "smtp_ssl": smtp_ssl
                     }
                 )
@@ -245,6 +269,12 @@ class MultiEmailService:
         updates = {k: v for k, v in kwargs.items() if k in allowed_fields and v is not None}
         if not updates:
             return True
+        
+        # 加密密码字段
+        if "imap_password" in updates:
+            updates["imap_password"] = self._encrypt_credential(updates["imap_password"])
+        if "smtp_password" in updates:
+            updates["smtp_password"] = self._encrypt_credential(updates["smtp_password"])
         
         set_clause = ", ".join([f"{k} = :{k}" for k in updates.keys()])
         updates["id"] = account_id
@@ -902,12 +932,12 @@ class MultiEmailService:
             "imap_host": row[4],
             "imap_port": row[5],
             "imap_user": row[6],
-            "imap_password": row[7],
+            "imap_password": self._decrypt_credential(row[7]),
             "imap_ssl": row[8],
             "smtp_host": row[9],
             "smtp_port": row[10],
             "smtp_user": row[11],
-            "smtp_password": row[12],
+            "smtp_password": self._decrypt_credential(row[12]),
             "smtp_ssl": row[13]
         }
 

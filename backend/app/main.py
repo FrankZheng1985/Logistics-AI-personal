@@ -44,6 +44,13 @@ async def lifespan(app: FastAPI):
     from app.scheduler import init_scheduler, shutdown_scheduler
     await init_scheduler()
     
+    # 初始化向量存储服务（Phase 2: RAG）
+    try:
+        from app.services.vector_store import vector_store
+        await vector_store.initialize()
+    except Exception as e:
+        logger.warning(f"向量存储初始化跳过（RAG功能不可用）: {e}")
+    
     # 初始化微信群监控（可选，需要WeChatFerry）
     try:
         from app.services.wechat_monitor import setup_wechat_monitor
