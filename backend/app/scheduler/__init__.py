@@ -130,6 +130,13 @@ async def init_scheduler():
         logger.warning(f"素材采集任务导入失败: {e}")
         asset_collection_task = None
     
+    # Maria 巡检任务
+    try:
+        from app.services.inspection_service import run_maria_inspection
+    except ImportError as e:
+        logger.warning(f"Maria巡检任务导入失败: {e}")
+        run_maria_inspection = None
+    
     # ==================== 辅助函数 ====================
     
     def _safe_add_job(func, trigger, job_id, name, **kwargs):
@@ -251,6 +258,14 @@ async def init_scheduler():
     
     _safe_add_job(asset_collection_task, CronTrigger(hour=16, minute=0),
                   "asset_collection_afternoon", "[小采] 素材采集(下午) - 16:00")
+    
+    # ==================== Maria 巡检任务 ====================
+    
+    _safe_add_job(run_maria_inspection, CronTrigger(hour=9, minute=30),
+                  "maria_inspection_morning", "[Maria] 早间系统巡检 - 09:30")
+    
+    _safe_add_job(run_maria_inspection, CronTrigger(hour=18, minute=0),
+                  "maria_inspection_evening", "[Maria] 晚间系统巡检 - 18:00")
     
     # ==================== 启动调度器 ====================
     

@@ -183,6 +183,20 @@ class ClauwdbotAgent(BaseAgent):
             except Exception as e:
                 logger.warning(f"[Clauwdbot] 纠错检测失败: {e}")
             
+            # 0.8 【审批检测】检查是否有待审批的方案
+            try:
+                from app.services.memory_service import memory_service
+                pending_raw = await memory_service.recall(user_id, "pending_approval")
+                if pending_raw:
+                    approval_result = await self._check_approval(user_id, message, pending_raw)
+                    if approval_result:
+                        # 审批已处理（通过/拒绝），直接返回
+                        await self._save_interaction(user_id, message, message_type, {"type": "approval"}, approval_result.get("response", ""))
+                        await self.end_task_session("审批处理完成")
+                        return approval_result
+            except Exception as e:
+                logger.warning(f"[Clauwdbot] 审批检测失败: {e}")
+            
             # 1. 如果是语音/文件消息，处理录音
             if message_type in ["voice", "file"] and file_url:
                 await self.log_live_step("think", "收到音频文件", "准备进行会议录音转写")
@@ -569,32 +583,55 @@ class ClauwdbotAgent(BaseAgent):
         await self.log_live_step("think", f"正在分析{target_agent_name}的优化方案", "生成Prompt优化建议")
         
         try:
+            # 生成完整的新 Prompt
+            from app.core.llm import chat_completion
+            
+            full_prompt = f"""你是一个AI工程师助手。老板要求升级AI员工「{target_agent_name}」。
+
+老板的要求：{message}
+
+当前Prompt内容（截取前2000字）：
+{current_prompt[:2000]}
+
+请根据老板的要求，生成修改后的完整Prompt。保留核心职责，按要求优化。
+只返回修改后的完整Prompt内容。"""
+            
+            new_prompt = await chat_completion(
+                messages=[{"role": "user", "content": full_prompt}],
+                use_advanced=True,
+                max_tokens=4000,
+                temperature=0.5
+            )
+            
+            # 生成变更摘要
             suggestion = await self.think([{"role": "user", "content": upgrade_prompt}], temperature=0.7)
+            if len(suggestion) > 800:
+                suggestion = suggestion[:800] + "..."
             
-            # 截取适合企业微信的长度
-            if len(suggestion) > 1500:
-                suggestion = suggestion[:1500] + "\n...(方案较长已截取)"
-            
-            response_text = f"""🔧 {target_agent_name}升级方案
-
-📋 优化建议：
-{suggestion}
-
-⚠️ 确认后我会修改{target_agent_name}的Prompt。
-请回复「确认升级」执行，或「取消」放弃。"""
+            # 存入待审批
+            from app.services.memory_service import memory_service
+            approval_data = {
+                "type": "agent_upgrade",
+                "target_agent": target_agent_key,
+                "agent_name": target_agent_name,
+                "new_prompt": new_prompt,
+                "summary": suggestion,
+                "created_at": datetime.now().isoformat()
+            }
+            await memory_service.remember(
+                user_id, "pending_approval",
+                json.dumps(approval_data, ensure_ascii=False),
+                "workflow"
+            )
             
             return {
                 "success": True,
-                "response": response_text,
-                "upgrade_data": {
-                    "target_agent": target_agent_key,
-                    "suggestion": suggestion
-                }
+                "response": f"我看了一下{target_agent_name}的现状，给你出个升级方案：\n\n{suggestion}\n\n你看行不行？说"通过"我就改。"
             }
             
         except Exception as e:
             logger.error(f"[Clauwdbot] 生成升级方案失败: {e}")
-            return {"success": False, "response": f"生成升级方案时出错：{str(e)}"}
+            return {"success": False, "response": f"方案生成的时候出了点问题：{str(e)[:100]}"}
     
     async def _handle_agent_code_read(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
         """查看AI员工代码逻辑"""
@@ -838,7 +875,7 @@ class ClauwdbotAgent(BaseAgent):
             return {"success": False, "error": str(e)}
     
     async def _handle_agent_code_modify(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
-        """修改AI员工代码/Prompt - Maria真正动手改"""
+        """修改AI员工代码/Prompt - 先出方案，等老板审批后再执行"""
         # 识别目标员工
         target_agent_key = None
         target_agent_name = None
@@ -859,7 +896,7 @@ class ClauwdbotAgent(BaseAgent):
         
         current_prompt = agent.system_prompt or ""
         
-        # 用 LLM 根据老板指令生成修改后的 Prompt
+        # ===== 第一步：生成修改方案 =====
         modify_prompt = f"""你是一个AI工程师助手。老板要求修改AI员工「{target_agent_name}」的系统Prompt。
 
 老板的要求：{message}
@@ -884,28 +921,50 @@ class ClauwdbotAgent(BaseAgent):
                 temperature=0.5
             )
             
-            # 应用修改 - 直接更新 agent 的 system_prompt
-            agent.system_prompt = new_prompt
-            logger.info(f"[Clauwdbot] 已修改{target_agent_name}的Prompt（内存生效）")
+            # ===== 第二步：生成方案摘要给老板看 =====
+            summary_prompt = f"""对比以下两版Prompt的变化，用3-5个要点概括主要改动。
+不要贴代码，只说改了什么。简洁直接。
+
+原版核心内容（前500字）：{current_prompt[:500]}
+新版核心内容（前500字）：{new_prompt[:500]}
+
+用以下格式：
+- 改动1
+- 改动2
+- 改动3"""
             
-            # 尝试持久化到 Prompt 文件
-            prompt_file = self.AGENT_INFO[target_agent_key].get("prompt_file")
-            if prompt_file:
-                filepath = f"backend/app/core/prompts/{prompt_file}"
-                write_result = await self.write_agent_file(filepath, f'"""\n{target_agent_name} 的系统Prompt\n"""\n\nSYSTEM_PROMPT = """{new_prompt}"""\n')
-                if write_result["success"]:
-                    logger.info(f"[Clauwdbot] Prompt已持久化到文件: {filepath}")
+            changes_summary = await chat_completion(
+                messages=[{"role": "user", "content": summary_prompt}],
+                max_tokens=300,
+                temperature=0.3
+            )
             
-            # 返回简洁反馈
-            changes_preview = new_prompt[:200] + "..." if len(new_prompt) > 200 else new_prompt
+            # ===== 第三步：存储方案，等待审批 =====
+            from app.services.memory_service import memory_service
+            approval_data = {
+                "type": "agent_code_modify",
+                "target_agent": target_agent_key,
+                "agent_name": target_agent_name,
+                "new_prompt": new_prompt,
+                "summary": changes_summary,
+                "created_at": datetime.now().isoformat()
+            }
+            await memory_service.remember(
+                user_id, "pending_approval",
+                json.dumps(approval_data, ensure_ascii=False),
+                "workflow"
+            )
+            
+            logger.info(f"[Clauwdbot] 已生成{target_agent_name}修改方案，等待审批")
+            
             return {
                 "success": True,
-                "response": f"搞定了，{target_agent_name}的Prompt已经改好了。主要改了你说的那些点，已经生效了。"
+                "response": f"好的，我看了一下{target_agent_name}现在的Prompt，给你出个方案：\n\n{changes_summary}\n\n你看行不行？说"通过"我就改。"
             }
             
         except Exception as e:
-            logger.error(f"[Clauwdbot] 修改员工代码失败: {e}")
-            return {"success": True, "response": f"改的时候出了点问题：{str(e)[:100]}"}
+            logger.error(f"[Clauwdbot] 生成修改方案失败: {e}")
+            return {"success": True, "response": f"方案生成的时候出了点问题：{str(e)[:100]}"}
     
     # ==================== 个人助理能力（保留原有） ====================
     
@@ -1517,6 +1576,104 @@ class ClauwdbotAgent(BaseAgent):
             "你是郑总的私人助理。用户问你能做什么，用聊天的口吻简单说几句就行，不要列清单。比如'我能帮你管团队、记日程、看邮件、写文档、做PPT这些'。"
         )
         return {"success": True, "response": smart_response}
+    
+    # ==================== 审批流程 ====================
+    
+    # 通过关键词
+    APPROVAL_KEYWORDS = ["同意", "通过", "可以", "行", "好的", "执行", "改吧", "去做吧", "没问题", "ok", "OK", "确认"]
+    # 拒绝关键词
+    REJECT_KEYWORDS = ["不行", "取消", "算了", "不要", "不改", "先不", "等等", "暂时不"]
+    
+    async def _check_approval(self, user_id: str, message: str, pending_raw: str) -> Optional[Dict[str, Any]]:
+        """
+        检查用户消息是否是对待审批方案的回复
+        
+        Returns:
+            处理结果（如果是审批回复），None（如果不是审批相关消息）
+        """
+        message_stripped = message.strip()
+        
+        # 检查是否是通过
+        is_approve = any(kw in message_stripped for kw in self.APPROVAL_KEYWORDS)
+        # 检查是否是拒绝
+        is_reject = any(kw in message_stripped for kw in self.REJECT_KEYWORDS)
+        
+        # 如果既不是通过也不是拒绝，可能是新话题 -> 不处理审批，走正常流程
+        if not is_approve and not is_reject:
+            # 消息太长（>10字）且不含审批关键词，大概率是新指令
+            if len(message_stripped) > 10:
+                return None
+            # 短消息但不含关键词，也不处理
+            return None
+        
+        try:
+            pending_data = json.loads(pending_raw)
+        except (json.JSONDecodeError, TypeError):
+            # 数据损坏，清除
+            from app.services.memory_service import memory_service
+            await memory_service.forget(user_id, "pending_approval")
+            return None
+        
+        from app.services.memory_service import memory_service
+        
+        if is_reject:
+            # 拒绝方案
+            await memory_service.forget(user_id, "pending_approval")
+            return {"success": True, "response": "好的，那先不改了。"}
+        
+        if is_approve:
+            # 通过方案 -> 执行
+            result = await self._execute_approved_plan(user_id, pending_data)
+            # 清除待审批状态
+            await memory_service.forget(user_id, "pending_approval")
+            return result
+        
+        return None
+    
+    async def _execute_approved_plan(self, user_id: str, plan_data: Dict) -> Dict[str, Any]:
+        """执行已审批的方案"""
+        plan_type = plan_data.get("type", "")
+        
+        if plan_type == "agent_code_modify":
+            # 修改员工 Prompt
+            target_agent_key = plan_data.get("target_agent")
+            new_prompt = plan_data.get("new_prompt", "")
+            agent_name = plan_data.get("agent_name", target_agent_key)
+            
+            if not target_agent_key or not new_prompt:
+                return {"success": False, "response": "方案数据不完整，没法执行。你再说一遍要改什么？"}
+            
+            try:
+                agent_info = self.AGENT_INFO.get(target_agent_key)
+                if agent_info:
+                    agent = AgentRegistry.get(agent_info["type"])
+                    if agent:
+                        agent.system_prompt = new_prompt
+                        logger.info(f"[Clauwdbot] 审批通过，已修改{agent_name}的Prompt")
+                        
+                        # 持久化
+                        prompt_file = agent_info.get("prompt_file")
+                        if prompt_file:
+                            filepath = f"backend/app/core/prompts/{prompt_file}"
+                            await self.write_agent_file(
+                                filepath,
+                                f'"""\n{agent_name} 的系统Prompt\n"""\n\nSYSTEM_PROMPT = """{new_prompt}"""\n'
+                            )
+                        
+                        return {"success": True, "response": f"搞定了，{agent_name}的Prompt已经改好并生效了。"}
+                
+                return {"success": False, "response": f"找不到{agent_name}，改不了。"}
+                
+            except Exception as e:
+                logger.error(f"[Clauwdbot] 执行审批方案失败: {e}")
+                return {"success": False, "response": f"执行的时候出了点问题：{str(e)[:100]}"}
+        
+        elif plan_type == "agent_upgrade":
+            # 升级员工（和 code_modify 类似）
+            return await self._execute_approved_plan(user_id, {**plan_data, "type": "agent_code_modify"})
+        
+        else:
+            return {"success": False, "response": "这个方案我不知道怎么执行，你直接告诉我要做什么吧。"}
     
     # ==================== 自我配置能力 ====================
     
