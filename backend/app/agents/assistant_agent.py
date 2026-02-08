@@ -1012,19 +1012,135 @@ class ClauwdbotAgent(BaseAgent):
             time_str = f"{start_time_dt.month}月{start_time_dt.day}日 {weekday} {start_time_dt.strftime('%H:%M')}"
             location_str = f" 📍{schedule_data['location']}" if schedule_data.get('location') else ""
             
-            response_text = f"""✅ 日程已记录！
-
-📅 {schedule_data['title']}
-⏰ {time_str}{location_str}
-
-我会提前提醒你的。"""
+            # 生成 iCal 文件
+            ical_path = None
+            try:
+                ical_path = self._generate_ical_file(
+                    title=schedule_data.get("title", "日程"),
+                    start_time=start_time_dt,
+                    end_time=end_time_dt,
+                    location=schedule_data.get("location"),
+                    description=schedule_data.get("description"),
+                    is_recurring=schedule_data.get("is_recurring", False),
+                    recurring_pattern=schedule_data.get("recurring_pattern"),
+                )
+            except Exception as e:
+                logger.warning(f"[Maria] iCal文件生成失败（不影响日程保存）: {e}")
+            
+            response_text = f"日程已记录：{schedule_data['title']}，{time_str}{location_str}"
+            
+            result = {"success": True, "response": response_text, "schedule_id": str(row[0])}
+            if ical_path:
+                result["filepath"] = ical_path
             
             await self.log_result("日程添加成功", schedule_data['title'])
-            return {"success": True, "response": response_text, "schedule_id": str(row[0])}
+            return result
             
         except Exception as e:
             logger.error(f"[Clauwdbot] 添加日程失败: {e}")
             return {"success": False, "response": f"添加日程时出错了：{str(e)}"}
+    
+    def _generate_ical_file(
+        self,
+        title: str,
+        start_time: datetime,
+        end_time: datetime = None,
+        location: str = None,
+        description: str = None,
+        is_recurring: bool = False,
+        recurring_pattern: str = None,
+        events: list = None,
+    ) -> str:
+        """
+        生成 iCal (.ics) 文件，返回文件路径。
+        
+        支持单个事件或批量事件（events 参数）。
+        生成的 .ics 文件可以直接导入苹果日历 / Google Calendar / Outlook。
+        """
+        from icalendar import Calendar, Event, vRecur
+        import uuid
+        
+        cal = Calendar()
+        cal.add('prodid', '-//Maria AI Assistant//CN')
+        cal.add('version', '2.0')
+        cal.add('calscale', 'GREGORIAN')
+        cal.add('method', 'PUBLISH')
+        
+        china_tz = pytz.timezone('Asia/Shanghai')
+        
+        def _add_event(cal, title, start, end=None, location=None, description=None, recurring=False, pattern=None):
+            event = Event()
+            event.add('summary', title)
+            # 确保有时区信息
+            if start.tzinfo is None:
+                start = china_tz.localize(start)
+            event.add('dtstart', start)
+            if end:
+                if end.tzinfo is None:
+                    end = china_tz.localize(end)
+                event.add('dtend', end)
+            else:
+                event.add('dtend', start + timedelta(hours=1))
+            
+            if location:
+                event.add('location', location)
+            if description:
+                event.add('description', description)
+            
+            # 提前15分钟提醒
+            from icalendar import Alarm
+            alarm = Alarm()
+            alarm.add('action', 'DISPLAY')
+            alarm.add('description', f'提醒：{title}')
+            alarm.add('trigger', timedelta(minutes=-15))
+            event.add_component(alarm)
+            
+            # 重复规则
+            if recurring and pattern:
+                pattern_lower = pattern.lower() if pattern else ""
+                if "每周" in pattern_lower or "weekly" in pattern_lower or "每周一" in pattern_lower:
+                    # 提取星期几
+                    day_map = {"周一": "MO", "周二": "TU", "周三": "WE", "周四": "TH", "周五": "FR", "周六": "SA", "周日": "SU"}
+                    days = [v for k, v in day_map.items() if k in pattern]
+                    if not days:
+                        days = [list(day_map.values())[start.weekday()]]
+                    rrule = vRecur({'FREQ': 'WEEKLY', 'BYDAY': days})
+                    event.add('rrule', rrule)
+                elif "每天" in pattern_lower or "daily" in pattern_lower:
+                    event.add('rrule', vRecur({'FREQ': 'DAILY'}))
+                elif "每月" in pattern_lower or "monthly" in pattern_lower:
+                    event.add('rrule', vRecur({'FREQ': 'MONTHLY'}))
+            
+            event.add('uid', str(uuid.uuid4()))
+            event.add('dtstamp', datetime.now(china_tz))
+            cal.add_component(event)
+        
+        # 批量事件或单个事件
+        if events:
+            for ev in events:
+                _add_event(
+                    cal,
+                    title=ev.get("title", "日程"),
+                    start=ev.get("start_time", start_time),
+                    end=ev.get("end_time"),
+                    location=ev.get("location"),
+                    description=ev.get("description"),
+                    recurring=ev.get("is_recurring", False),
+                    pattern=ev.get("recurring_pattern"),
+                )
+        else:
+            _add_event(cal, title, start_time, end_time, location, description, is_recurring, recurring_pattern)
+        
+        # 写入文件
+        safe_title = re.sub(r'[^\w\u4e00-\u9fff]', '_', title)[:30]
+        filepath = f"/tmp/documents/{safe_title}_{datetime.now().strftime('%Y%m%d%H%M%S')}.ics"
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        
+        with open(filepath, 'wb') as f:
+            f.write(cal.to_ical())
+        
+        logger.info(f"[Maria] iCal文件已生成: {filepath}")
+        return filepath
     
     async def _handle_schedule_query(self, message: str, intent: Dict, user_id: str) -> Dict[str, Any]:
         """处理查询日程"""

@@ -410,7 +410,39 @@ MARIA_TOOLS: List[Dict[str, Any]] = [
         }
     },
 
-    # ── 7. 身份管理 ──
+    # ── 7. 日历文件 ──
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_ical",
+            "description": "生成iCal日历文件(.ics)，用户可以直接导入苹果日历/Google Calendar/Outlook。支持单个或多个日程事件，支持重复日程",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "events": {
+                        "type": "array",
+                        "description": "日程事件列表",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string", "description": "事件标题"},
+                                "start_date": {"type": "string", "description": "开始日期时间 YYYY-MM-DD HH:MM"},
+                                "end_date": {"type": "string", "description": "结束日期时间 YYYY-MM-DD HH:MM（可选）"},
+                                "location": {"type": "string", "description": "地点（可选）"},
+                                "description": {"type": "string", "description": "备注（可选）"},
+                                "is_recurring": {"type": "boolean", "description": "是否重复"},
+                                "recurring_pattern": {"type": "string", "description": "重复规则如'每周一'、'每天'、'每月'"}
+                            },
+                            "required": ["title", "start_date"]
+                        }
+                    }
+                },
+                "required": ["events"]
+            }
+        }
+    },
+
+    # ── 8. 身份管理 ──
     {
         "type": "function",
         "function": {
@@ -502,6 +534,7 @@ class MariaToolExecutor:
             "generate_work_summary": self._tool_generate_work_summary,
             "query_daily_report": self._tool_query_daily_report,
             "change_my_name": self._tool_change_name,
+            "generate_ical": self._tool_generate_ical,
         }
         return handler_map.get(tool_name)
 
@@ -617,3 +650,62 @@ class MariaToolExecutor:
         return await self.agent._handle_change_name(
             f"以后叫你{new_name}", intent, user_id
         )
+
+    async def _tool_generate_ical(self, message, intent, user_id, args):
+        """生成iCal日历文件"""
+        from datetime import datetime
+        
+        events_raw = args.get("events", [])
+        if not events_raw:
+            return {"status": "error", "message": "没有提供日程事件"}
+        
+        events = []
+        for ev in events_raw:
+            start_str = ev.get("start_date", "")
+            start_dt = None
+            end_dt = None
+            try:
+                start_dt = datetime.strptime(start_str, "%Y-%m-%d %H:%M")
+            except Exception:
+                try:
+                    start_dt = datetime.fromisoformat(start_str)
+                except Exception:
+                    continue
+            
+            end_str = ev.get("end_date")
+            if end_str:
+                try:
+                    end_dt = datetime.strptime(end_str, "%Y-%m-%d %H:%M")
+                except Exception:
+                    pass
+            
+            events.append({
+                "title": ev.get("title", "日程"),
+                "start_time": start_dt,
+                "end_time": end_dt,
+                "location": ev.get("location"),
+                "description": ev.get("description"),
+                "is_recurring": ev.get("is_recurring", False),
+                "recurring_pattern": ev.get("recurring_pattern"),
+            })
+        
+        if not events:
+            return {"status": "error", "message": "日程时间解析失败"}
+        
+        filepath = self.agent._generate_ical_file(
+            title=events[0]["title"],
+            start_time=events[0]["start_time"],
+            end_time=events[0].get("end_time"),
+            location=events[0].get("location"),
+            description=events[0].get("description"),
+            is_recurring=events[0].get("is_recurring", False),
+            recurring_pattern=events[0].get("recurring_pattern"),
+            events=events if len(events) > 1 else None,
+        )
+        
+        return {
+            "status": "success",
+            "message": f"已生成包含{len(events)}个事件的iCal文件",
+            "filepath": filepath,
+            "event_count": len(events),
+        }
