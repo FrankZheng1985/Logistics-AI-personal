@@ -181,7 +181,7 @@ class TeamManagementSkill(BaseSkill):
 - eu_customs_monitor (小欧间谍) - 海关监控
 
 返回JSON：
-{{"target_agent": "agent_type", "task_description": "具体任务内容", "priority": "medium"}}
+{{"target_agent": "agent_type", "task_description": "具体任务内容", "priority": "medium", "project": "所属项目名称（如有，如'独立站项目'、'欧洲物流方案'，没有则为空字符串）"}}
 只返回JSON。
 """
         try:
@@ -195,6 +195,7 @@ class TeamManagementSkill(BaseSkill):
             target_agent_key = dispatch_data.get("target_agent", "")
             task_desc = dispatch_data.get("task_description", message)
             priority = dispatch_data.get("priority", "medium")
+            project_name = dispatch_data.get("project", "")
 
             agent_info = AGENT_INFO.get(target_agent_key)
             if not agent_info:
@@ -237,13 +238,16 @@ class TeamManagementSkill(BaseSkill):
             try:
                 from app.skills.notion import get_notion_skill
                 notion_skill = await get_notion_skill()
-                notion_page_id = await notion_skill.upsert_task_row(task_id, {
+                notion_row_data = {
                     "title": task_desc[:100],
                     "agent_type": target_agent_key,
                     "status": "等待中",
                     "priority": priority,
                     "created_at": now_iso,
-                })
+                }
+                if project_name:
+                    notion_row_data["project"] = project_name
+                notion_page_id = await notion_skill.upsert_task_row(task_id, notion_row_data)
                 # 存回 notion_page_id
                 if notion_page_id:
                     async with AsyncSessionLocal() as db:

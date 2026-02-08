@@ -126,40 +126,181 @@ async def check_important_emails_and_notify():
 async def maria_morning_brief():
     """
     Maria 早间智能简报（每天9:00）
-    - 昨日工作总结
-    - 今日待办事项
-    - 重要提醒
+    
+    包含：
+    1. 今日日程概览 + 冲突检测
+    2. AI团队任务进度（进行中/待处理）
+    3. 未读邮件统计
+    4. 主动建议（基于日程和任务分析）
     """
     try:
         from app.api.wechat_assistant import send_text_message
-        from app.services.multi_email_service import multi_email_service
+        from app.models.database import AsyncSessionLocal
+        from sqlalchemy import text
+        import pytz
         
-        logger.info("[Maria后台] 生成早间简报...")
+        logger.info("[Maria后台] 生成早间智能简报...")
         
-        # 获取未读邮件统计
-        email_summary = await multi_email_service.get_unread_summary()
-        total_unread = email_summary.get("total_unread", 0)
+        CHINA_TZ = pytz.timezone('Asia/Shanghai')
+        now = datetime.now(CHINA_TZ)
+        today_str = now.strftime("%Y-%m-%d")
+        weekday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+        weekday = weekday_names[now.weekday()]
         
-        # 构建简报
-        brief = f"☀️ 郑总，早上好！\n\n"
-        brief += f"📬 未读邮件：{total_unread} 封\n"
+        brief_parts = [f"郑总，早上好！今天是{now.month}月{now.day}日 {weekday}。\n"]
+        suggestions = []  # 主动建议收集
         
-        if total_unread > 0:
-            brief += "\n最新邮件：\n"
-            for account in email_summary.get("accounts", [])[:2]:
-                if account.get("unread_count", 0) > 0:
-                    brief += f"• {account['name']}: {account['unread_count']}封\n"
+        # ===== 1. 今日日程 + 冲突检测 =====
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    text("""
+                        SELECT title, start_time, end_time, location, priority
+                        FROM assistant_schedules
+                        WHERE DATE(start_time) = :today
+                        AND is_completed = FALSE
+                        ORDER BY start_time ASC
+                    """),
+                    {"today": today_str}
+                )
+                schedules = result.fetchall()
+            
+            if schedules:
+                brief_parts.append(f"今日日程（{len(schedules)}项）：")
+                
+                prev_end = None
+                for s in schedules:
+                    title, start, end_time, location, priority = s[0], s[1], s[2], s[3], s[4]
+                    
+                    if start and start.tzinfo is None:
+                        start = pytz.UTC.localize(start)
+                    china_start = start.astimezone(CHINA_TZ) if start else None
+                    
+                    time_str = china_start.strftime("%H:%M") if china_start else "全天"
+                    loc_str = f" - {location}" if location else ""
+                    priority_icon = {"urgent": "!!", "high": "!"}.get(priority, "")
+                    
+                    brief_parts.append(f"  {time_str} {priority_icon}{title}{loc_str}")
+                    
+                    # 冲突检测：当前日程开始时间早于上一个日程结束时间
+                    if prev_end and china_start and china_start < prev_end:
+                        suggestions.append(f"日程冲突：「{title}」与前一个日程时间重叠，建议调整")
+                    
+                    if end_time:
+                        if end_time.tzinfo is None:
+                            end_time = pytz.UTC.localize(end_time)
+                        prev_end = end_time.astimezone(CHINA_TZ)
+                    elif china_start:
+                        # 默认假设1小时
+                        from datetime import timedelta
+                        prev_end = china_start + timedelta(hours=1)
+                
+                brief_parts.append("")
+            else:
+                brief_parts.append("今天没有日程安排，可以专注处理项目。\n")
+        except Exception as e:
+            logger.warning(f"[Maria简报] 日程查询失败: {e}")
         
-        # TODO: 添加更多信息
-        # - 今日日程
-        # - 待办任务
-        # - 系统状态
+        # ===== 2. AI团队任务进度 =====
+        try:
+            async with AsyncSessionLocal() as db:
+                # 进行中的任务
+                result = await db.execute(
+                    text("""
+                        SELECT agent_type, COUNT(*) 
+                        FROM ai_tasks 
+                        WHERE status = 'pending' 
+                        GROUP BY agent_type
+                    """)
+                )
+                pending_tasks = result.fetchall()
+                
+                # 昨日完成的任务
+                result2 = await db.execute(
+                    text("""
+                        SELECT COUNT(*) FROM ai_tasks 
+                        WHERE status = 'completed' 
+                        AND completed_at >= CURRENT_DATE - INTERVAL '1 day'
+                        AND completed_at < CURRENT_DATE
+                    """)
+                )
+                yesterday_completed = result2.fetchone()[0]
+                
+                # 失败的任务
+                result3 = await db.execute(
+                    text("""
+                        SELECT COUNT(*) FROM ai_tasks 
+                        WHERE status = 'failed' 
+                        AND created_at >= CURRENT_DATE - INTERVAL '1 day'
+                    """)
+                )
+                recent_failed = result3.fetchone()[0]
+            
+            agent_names = {
+                "coordinator": "小调", "video_creator": "小影",
+                "copywriter": "小文", "sales": "小销",
+                "follow": "小跟", "analyst": "小析",
+                "lead_hunter": "小猎", "analyst2": "小析2",
+                "eu_customs_monitor": "小欧间谍",
+            }
+            
+            if pending_tasks:
+                total_pending = sum(row[1] for row in pending_tasks)
+                brief_parts.append(f"AI团队：{total_pending}个任务待处理")
+                for row in pending_tasks:
+                    name = agent_names.get(row[0], row[0])
+                    brief_parts.append(f"  {name}: {row[1]}个")
+                brief_parts.append("")
+                
+                if total_pending > 10:
+                    suggestions.append(f"任务积压：当前有{total_pending}个待处理任务，建议关注队列消化速度")
+            
+            if yesterday_completed > 0:
+                brief_parts.append(f"昨日完成：{yesterday_completed}个任务")
+            
+            if recent_failed > 0:
+                brief_parts.append(f"近期失败：{recent_failed}个任务")
+                suggestions.append(f"有{recent_failed}个任务执行失败，建议查看原因")
+            
+            brief_parts.append("")
+        except Exception as e:
+            logger.warning(f"[Maria简报] 任务统计失败: {e}")
         
-        brief += "\n祝您今天工作顺利！"
+        # ===== 3. 未读邮件 =====
+        try:
+            from app.services.multi_email_service import multi_email_service
+            email_summary = await multi_email_service.get_unread_summary()
+            total_unread = email_summary.get("total_unread", 0)
+            
+            if total_unread > 0:
+                brief_parts.append(f"未读邮件：{total_unread}封")
+                for account in email_summary.get("accounts", [])[:3]:
+                    if account.get("unread_count", 0) > 0:
+                        brief_parts.append(f"  {account['name']}: {account['unread_count']}封")
+                brief_parts.append("")
+                
+                if total_unread > 20:
+                    suggestions.append(f"邮箱积压：{total_unread}封未读邮件，建议抽空处理")
+            else:
+                brief_parts.append("邮箱清净，没有未读邮件。\n")
+        except Exception as e:
+            logger.warning(f"[Maria简报] 邮件统计失败: {e}")
+        
+        # ===== 4. 主动建议 =====
+        if suggestions:
+            brief_parts.append("我的建议：")
+            for i, s in enumerate(suggestions, 1):
+                brief_parts.append(f"  {i}. {s}")
+            brief_parts.append("")
+        
+        brief_parts.append("有需要随时叫我。")
         
         # 发送简报
+        brief = "\n".join(brief_parts)
         await send_text_message("Frank.Z", brief)
-        logger.info("[Maria后台] ✅ 早间简报已发送")
+        logger.info("[Maria后台] 早间智能简报已发送")
         
     except Exception as e:
         logger.error(f"[Maria后台] 早间简报生成失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())

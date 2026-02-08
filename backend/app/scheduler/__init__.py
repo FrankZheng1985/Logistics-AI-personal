@@ -150,10 +150,10 @@ async def init_scheduler():
     
     # TaskWorker 任务调度引擎
     try:
-        from app.scheduler.task_worker import process_pending_tasks
+        from app.scheduler.task_worker import process_pending_tasks, check_stale_tasks
     except ImportError as e:
         logger.warning(f"TaskWorker导入失败: {e}")
-        process_pending_tasks = None
+        process_pending_tasks = check_stale_tasks = None
     
     # Notion 知识库同步任务
     async def sync_notion_knowledge_task():
@@ -314,6 +314,9 @@ async def init_scheduler():
     
     _safe_add_job(process_pending_tasks, IntervalTrigger(seconds=30),
                   "task_worker", "[TaskWorker] AI员工任务调度 - 每30秒")
+    
+    _safe_add_job(check_stale_tasks, IntervalTrigger(minutes=5),
+                  "task_stale_check", "[TaskWorker] 任务停滞预警 - 每5分钟")
     
     # ==================== 启动调度器 ====================
     

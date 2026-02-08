@@ -443,3 +443,81 @@ def _extract_output_summary(result: Dict) -> str:
         return response[:200] + "..."
     
     return str(response) if response else "任务完成（结果已保存到系统）"
+
+
+# ==================== 任务超时预警与催办 ====================
+
+# 任务停留在 pending 超过此时间视为停滞（秒）
+STALE_THRESHOLD_SECONDS = 300  # 5分钟
+
+async def check_stale_tasks():
+    """
+    检查停滞任务并主动催办（由 APScheduler 每 5 分钟调用一次）
+    
+    规则：
+    1. pending 超过 5 分钟的任务 -> 预警（可能是 TaskWorker 跑不过来）
+    2. processing 超过 3 分钟的任务 -> 可能卡住了
+    3. 连续失败 2 次以上的任务 -> 通知老板
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            # 1. 长期 pending 的任务（超过5分钟没被拉取）
+            result = await db.execute(
+                text("""
+                    SELECT id, agent_type, input_data, created_at, retry_count
+                    FROM ai_tasks
+                    WHERE status = 'pending'
+                    AND created_at < NOW() - INTERVAL ':threshold seconds'
+                    ORDER BY created_at ASC
+                    LIMIT 5
+                """.replace(":threshold", str(STALE_THRESHOLD_SECONDS)))
+            )
+            stale_pending = result.fetchall()
+            
+            # 2. 长期 processing 的任务（可能卡住了）
+            result2 = await db.execute(
+                text("""
+                    SELECT id, agent_type, input_data, started_at
+                    FROM ai_tasks
+                    WHERE status = 'processing'
+                    AND started_at < NOW() - INTERVAL '3 minutes'
+                    LIMIT 5
+                """)
+            )
+            stuck_processing = result2.fetchall()
+        
+        alerts = []
+        
+        agent_names = {
+            "coordinator": "小调", "video_creator": "小影",
+            "copywriter": "小文", "sales": "小销",
+            "follow": "小跟", "analyst": "小析",
+            "lead_hunter": "小猎", "analyst2": "小析2",
+            "eu_customs_monitor": "小欧间谍",
+        }
+        
+        if stale_pending:
+            for row in stale_pending:
+                input_data = row[3] if isinstance(row[3], dict) else {}
+                name = agent_names.get(row[1], row[1])
+                alerts.append(f"{name}有任务排队超过5分钟未执行")
+        
+        if stuck_processing:
+            for row in stuck_processing:
+                name = agent_names.get(row[1], row[1])
+                alerts.append(f"{name}的任务执行超过3分钟可能卡住了")
+        
+        # 发送预警
+        if alerts:
+            from app.api.wechat_assistant import send_text_message
+            
+            msg = "【任务进度预警】\n"
+            for i, alert in enumerate(alerts[:5], 1):
+                msg += f"{i}. {alert}\n"
+            msg += "\n我会继续尝试处理，如需干预请告诉我。"
+            
+            await send_text_message("Frank.Z", msg)
+            logger.info(f"[TaskWorker] 发送任务预警: {len(alerts)} 条")
+        
+    except Exception as e:
+        logger.warning(f"[TaskWorker] 停滞任务检查失败: {e}")

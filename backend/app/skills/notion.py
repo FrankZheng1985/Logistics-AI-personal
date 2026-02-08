@@ -723,6 +723,7 @@ class NotionSkill(BaseSkill):
                 icon={"type": "emoji", "emoji": "📊"},
                 properties={
                     "任务名称": {"title": {}},
+                    "所属项目": {"select": {"options": []}},  # 动态填充
                     "负责人": {"select": {"options": self.AGENT_NAMES_SELECT}},
                     "状态": {"select": {"options": self.STATUS_SELECT}},
                     "优先级": {"select": {"options": self.PRIORITY_SELECT}},
@@ -780,6 +781,11 @@ class NotionSkill(BaseSkill):
             agent_name = data.get("agent_name") or self.AGENT_TYPE_TO_NAME.get(data.get("agent_type", ""), "")
             if agent_name:
                 properties["负责人"] = {"select": {"name": agent_name}}
+
+            # 所属项目
+            project = data.get("project")
+            if project:
+                properties["所属项目"] = {"select": {"name": project}}
 
             if data.get("status"):
                 properties["状态"] = {"select": {"name": data["status"]}}
