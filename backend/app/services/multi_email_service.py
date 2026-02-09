@@ -605,16 +605,20 @@ class MultiEmailService:
     ) -> bool:
         """保存邮件到缓存表"""
         try:
+            # 生成 body_preview（去除多余空格，取前200字符）
+            body_text = email_data.get("body_text", "") or ""
+            body_preview = " ".join(body_text.split())[:200]
+            
             async with AsyncSessionLocal() as db:
                 await db.execute(
                     text("""
                         INSERT INTO email_cache 
                         (account_id, message_id, subject, from_address, from_name,
-                         to_addresses, body_text, body_html, has_attachments, 
+                         to_addresses, body_text, body_html, body_preview, has_attachments, 
                          attachment_names, received_at)
                         VALUES 
                         (:account_id, :message_id, :subject, :from_address, :from_name,
-                         :to_addresses, :body_text, :body_html, :has_attachments,
+                         :to_addresses, :body_text, :body_html, :body_preview, :has_attachments,
                          :attachment_names, :received_at)
                         ON CONFLICT (account_id, message_id) DO NOTHING
                     """),
@@ -627,6 +631,7 @@ class MultiEmailService:
                         "to_addresses": email_data["to_addresses"],
                         "body_text": email_data["body_text"],
                         "body_html": email_data["body_html"],
+                        "body_preview": body_preview,
                         "has_attachments": email_data["has_attachments"],
                         "attachment_names": email_data["attachment_names"],
                         "received_at": email_data["received_at"]
@@ -728,7 +733,8 @@ class MultiEmailService:
                 text(f"""
                     SELECT ec.id, ec.subject, ec.from_address, ec.from_name,
                            ec.received_at, ec.has_attachments, ec.is_important,
-                           ea.name as account_name, ec.body_text, ec.body_preview
+                           ea.name as account_name, ec.body_text,
+                           COALESCE(ec.body_preview, LEFT(ec.body_text, 200)) as body_preview
                     FROM email_cache ec
                     JOIN email_accounts ea ON ec.account_id = ea.id
                     WHERE ec.is_read = FALSE

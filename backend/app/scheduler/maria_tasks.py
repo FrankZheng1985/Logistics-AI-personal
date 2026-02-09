@@ -43,8 +43,11 @@ async def auto_sync_emails():
         if total_new > 0:
             logger.info(f"[Maria后台] ✅ 邮件同步完成，共新增 {total_new} 封")
             
-            # TODO: 如果有重要邮件，主动通知用户
-            # await check_important_emails_and_notify()
+            # 检查是否有重要邮件，主动通知用户
+            try:
+                await check_important_emails_and_notify()
+            except Exception as notify_err:
+                logger.warning(f"[Maria后台] 重要邮件检查失败: {notify_err}")
         else:
             logger.info(f"[Maria后台] ✅ 邮件同步完成，没有新邮件")
             
@@ -69,58 +72,114 @@ async def auto_sync_calendar():
 
 async def check_important_emails_and_notify():
     """
-    检查重要邮件并主动通知用户
-    - VIP发件人
+    检查重要邮件并主动通知用户（增强版）
+    - VIP发件人（可配置）
     - 包含紧急关键词
     - 大额订单相关
+    - 回复/转发的邮件
+    - 客户域名邮件
     """
     try:
         from app.services.multi_email_service import multi_email_service
         from app.api.wechat_assistant import send_text_message
         
-        # 获取最近10分钟的未读邮件
+        # 获取未读邮件摘要
         summary = await multi_email_service.get_unread_summary()
+        
+        # 紧急关键词（主题和正文）
+        URGENT_KEYWORDS = [
+            # 英文
+            "urgent", "asap", "important", "critical", "emergency", "deadline",
+            "payment", "invoice", "order", "shipping", "delivery", "tracking",
+            "quote", "quotation", "inquiry", "rfq", "po ", "purchase order",
+            "customs", "clearance", "delay",
+            # 中文
+            "紧急", "重要", "急", "订单", "付款", "发票", "报价", "询盘",
+            "货运", "物流", "清关", "海关", "延误", "催", "尽快",
+        ]
+        
+        # VIP发件人域名（可扩展）
+        VIP_DOMAINS = [
+            # 大客户域名
+            "amazon.com", "alibaba.com", "dhl.com", "fedex.com", "ups.com",
+        ]
         
         important_emails = []
         
         for account in summary.get("accounts", []):
-            for email in account.get("recent_emails", [])[:5]:  # 只看最新5封
-                subject = email.get("subject", "").lower()
-                from_addr = email.get("from_address", "").lower()
+            for email in account.get("recent_emails", [])[:10]:  # 检查最新10封
+                subject = (email.get("subject", "") or "").lower()
+                from_addr = (email.get("from_address", "") or "").lower()
+                body_preview = (email.get("body_preview", "") or "").lower()
                 
-                # 简单的重要性判断规则
                 is_important = False
+                reason = ""
                 
-                # 规则1：紧急关键词
-                urgent_keywords = ["urgent", "紧急", "asap", "重要", "订单", "payment", "付款"]
-                if any(kw in subject for kw in urgent_keywords):
+                # 规则1：紧急关键词（主题优先）
+                for kw in URGENT_KEYWORDS:
+                    if kw in subject:
+                        is_important = True
+                        reason = f"主题含「{kw}」"
+                        break
+                    if kw in body_preview:
+                        is_important = True
+                        reason = f"正文含「{kw}」"
+                        break
+                
+                # 规则2：VIP发件人域名
+                if not is_important:
+                    for domain in VIP_DOMAINS:
+                        if domain in from_addr:
+                            is_important = True
+                            reason = f"来自 {domain}"
+                            break
+                
+                # 规则3：回复邮件（可能是客户回复）
+                if not is_important and (subject.startswith("re:") or subject.startswith("回复:")):
                     is_important = True
-                
-                # 规则2：VIP发件人（可扩展）
-                # vip_senders = ["important@example.com"]
-                # if any(vip in from_addr for vip in vip_senders):
-                #     is_important = True
+                    reason = "客户回复"
                 
                 if is_important:
                     important_emails.append({
-                        "subject": email.get("subject"),
+                        "subject": email.get("subject", "(无主题)"),
                         "from": email.get("from_name") or email.get("from_address"),
-                        "account": account.get("name")
+                        "account": account.get("name"),
+                        "reason": reason,
+                        "preview": (email.get("body_preview", "") or "")[:60],
                     })
         
+        # 去重（同一主题只保留一封）
+        seen_subjects = set()
+        unique_emails = []
+        for e in important_emails:
+            subj_key = e["subject"][:30].lower()
+            if subj_key not in seen_subjects:
+                seen_subjects.add(subj_key)
+                unique_emails.append(e)
+        
         # 如果有重要邮件，发送通知
-        if important_emails:
-            message = "📬 郑总，您有重要邮件：\n\n"
-            for i, email in enumerate(important_emails[:3], 1):  # 最多通知3封
+        if unique_emails:
+            message = f"📬 郑总，您有 {len(unique_emails)} 封重要邮件：\n\n"
+            for i, email in enumerate(unique_emails[:5], 1):  # 最多通知5封
                 message += f"{i}. 【{email['account']}】{email['from']}\n"
-                message += f"   {email['subject']}\n\n"
+                message += f"   📌 {email['subject'][:40]}\n"
+                if email.get("preview"):
+                    message += f"   💬 {email['preview']}...\n"
+                message += f"   🔖 {email['reason']}\n\n"
+            
+            if len(unique_emails) > 5:
+                message += f"还有 {len(unique_emails) - 5} 封，请查看邮箱。\n"
+            
+            message += "需要我帮您处理或回复吗？"
             
             # 发送到企业微信
             await send_text_message("Frank.Z", message)
-            logger.info(f"[Maria后台] ✅ 已通知用户 {len(important_emails)} 封重要邮件")
+            logger.info(f"[Maria后台] ✅ 已通知用户 {len(unique_emails)} 封重要邮件")
             
     except Exception as e:
+        import traceback
         logger.error(f"[Maria后台] 检查重要邮件失败: {e}")
+        logger.error(traceback.format_exc())
 
 
 async def maria_morning_brief():
