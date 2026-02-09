@@ -9,7 +9,6 @@ import asyncio
 import random
 import time
 import uuid
-from functools import wraps
 from loguru import logger
 
 from app.core.config import settings
@@ -19,6 +18,44 @@ from app.core.config import settings
 MAX_RETRIES = 3
 BASE_DELAY = 1.0  # 基础延迟（秒）
 MAX_DELAY = 30.0  # 最大延迟（秒）
+
+# 限流配置
+MAX_CONCURRENT_REQUESTS = 10  # 最大并发请求数
+REQUESTS_PER_MINUTE = 60      # 每分钟最大请求数
+
+# 全局限流器
+_request_semaphore: asyncio.Semaphore = None
+_request_times: list = []  # 记录请求时间戳
+
+
+def _get_semaphore() -> asyncio.Semaphore:
+    """获取或创建信号量（延迟初始化）"""
+    global _request_semaphore
+    if _request_semaphore is None:
+        _request_semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+    return _request_semaphore
+
+
+async def _check_rate_limit():
+    """
+    检查请求频率限制
+    使用滑动窗口算法
+    """
+    global _request_times
+    
+    now = time.time()
+    # 清理超过1分钟的记录
+    _request_times = [t for t in _request_times if now - t < 60]
+    
+    if len(_request_times) >= REQUESTS_PER_MINUTE:
+        # 计算需要等待的时间
+        oldest = _request_times[0]
+        wait_time = 60 - (now - oldest) + 0.1
+        if wait_time > 0:
+            logger.warning(f"LLM 请求频率限制，等待 {wait_time:.1f}s")
+            await asyncio.sleep(wait_time)
+    
+    _request_times.append(time.time())
 
 # 可重试的异常类型
 RETRYABLE_EXCEPTIONS = (
@@ -253,7 +290,13 @@ class ClaudeLLM(BaseLLM):
                 return response.json()
         
         try:
-            data = await retry_with_exponential_backoff(_make_request)
+            # 应用限流
+            await _check_rate_limit()
+            semaphore = _get_semaphore()
+            
+            async with semaphore:
+                data = await retry_with_exponential_backoff(_make_request)
+            
             response_text = data["content"][0]["text"]
         
             # 计算响应时间
@@ -356,7 +399,13 @@ class OpenAILLM(BaseLLM):
                 return response.json()
         
         try:
-            data = await retry_with_exponential_backoff(_make_request)
+            # 应用限流
+            await _check_rate_limit()
+            semaphore = _get_semaphore()
+            
+            async with semaphore:
+                data = await retry_with_exponential_backoff(_make_request)
+            
             response_text = data["choices"][0]["message"]["content"]
         
             # 计算响应时间
@@ -459,7 +508,13 @@ class OpenAILLM(BaseLLM):
                 return response.json()
         
         try:
-            data = await retry_with_exponential_backoff(_make_request)
+            # 应用限流
+            await _check_rate_limit()
+            semaphore = _get_semaphore()
+            
+            async with semaphore:
+                data = await retry_with_exponential_backoff(_make_request)
+            
             message = data["choices"][0]["message"]
             
             response_time_ms = int((time.time() - start_time) * 1000)
@@ -502,42 +557,128 @@ class OpenAILLM(BaseLLM):
             raise
 
 
+class HunyuanLLM(BaseLLM):
+    """腾讯混元 API 封装"""
+    
+    provider = "hunyuan"
+    
+    def __init__(self, secret_id: str, secret_key: str, model: str = "hunyuan-pro"):
+        self.secret_id = secret_id
+        self.secret_key = secret_key
+        self.model = model
+        self.endpoint = "hunyuan.tencentcloudapi.com"
+    
+    async def chat(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+        system_prompt: Optional[str] = None
+    ) -> str:
+        """调用腾讯混元 API"""
+        import hashlib
+        import hmac
+        from datetime import datetime
+        
+        # 构建消息
+        full_messages = messages.copy()
+        if system_prompt:
+            full_messages.insert(0, {"role": "system", "content": system_prompt})
+        
+        # 腾讯云 API 签名（简化版，实际应使用 SDK）
+        # 这里使用 HTTP API 兼容模式
+        try:
+            import httpx
+            
+            # 腾讯混元也支持 OpenAI 兼容接口
+            headers = {
+                "Authorization": f"Bearer {self.secret_id}:{self.secret_key}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "model": self.model,
+                "messages": full_messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }
+            
+            start_time = time.time()
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"https://api.hunyuan.cloud.tencent.com/v1/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=60.0
+                )
+                response.raise_for_status()
+                data = response.json()
+            
+            response_text = data["choices"][0]["message"]["content"]
+            
+            # 记录用量
+            response_time_ms = int((time.time() - start_time) * 1000)
+            usage = data.get("usage", {})
+            await self._record_usage(
+                model_name=self.model,
+                input_tokens=usage.get("prompt_tokens", 0),
+                output_tokens=usage.get("completion_tokens", 0),
+                response_time_ms=response_time_ms,
+                is_success=True
+            )
+            
+            return response_text
+            
+        except Exception as e:
+            logger.error(f"腾讯混元 API 调用失败: {e}")
+            raise
+
+
 class LLMFactory:
-    """LLM工厂类"""
+    """
+    LLM工厂类 - 博士后级多模型智能路由
+    
+    模型矩阵：
+    - Qwen-Max: 主力模型，综合能力强
+    - DeepSeek: 代码专家，逻辑分析强
+    - 混元Pro: 腾讯云原生，稳定备份
+    - Claude (OpenRouter): 复杂推理，法律分析
+    - Gemini (OpenRouter): 长上下文，多模态
+    - GPT-4 (OpenRouter): 通用备选
+    """
     
     _claude_instance: Optional[ClaudeLLM] = None
     _openai_instance: Optional[OpenAILLM] = None
     _qwen_instance: Optional[OpenAILLM] = None
     _deepseek_instance: Optional[OpenAILLM] = None
+    _hunyuan_instance: Optional[HunyuanLLM] = None
+    _openrouter_claude_instance: Optional[OpenAILLM] = None
+    _openrouter_gemini_instance: Optional[OpenAILLM] = None
+    _openrouter_gpt4_instance: Optional[OpenAILLM] = None
     
     @classmethod
     def get_primary(cls) -> BaseLLM:
-        """获取主要LLM（优先级：通义千问 > Claude > OpenAI）"""
-        # 优先使用通义千问（国内访问快，有免费额度）
+        """获取主力LLM（Qwen-Max 优先）"""
+        # 优先使用通义千问 Max
         if settings.DASHSCOPE_API_KEY:
             if cls._qwen_instance is None:
                 cls._qwen_instance = OpenAILLM(
                     api_key=settings.DASHSCOPE_API_KEY,
                     base_url=settings.DASHSCOPE_BASE_URL,
-                    model=settings.DASHSCOPE_MODEL
+                    model=settings.DASHSCOPE_MODEL  # qwen-max
                 )
             return cls._qwen_instance
         
-        # 其次使用 Claude
-        if settings.ANTHROPIC_API_KEY:
-            if cls._claude_instance is None:
-                cls._claude_instance = ClaudeLLM(settings.ANTHROPIC_API_KEY)
-            return cls._claude_instance
+        # 备用：DeepSeek
+        if settings.DEEPSEEK_API_KEY:
+            return cls.get_deepseek()
         
-        # 最后使用 OpenAI
-        return cls.get_fallback()
+        raise ValueError("未配置任何AI API密钥，请在.env中配置 DASHSCOPE_API_KEY")
     
     @classmethod
-    def get_advanced(cls) -> BaseLLM:
-        """获取高级LLM（用于代码编写、计划书、深度分析等复杂任务）
-        优先级：DeepSeek > Claude > 通义千问
-        """
-        # DeepSeek-V3 在代码和长文本逻辑上最强
+    def get_deepseek(cls) -> BaseLLM:
+        """获取 DeepSeek（代码和逻辑分析专家）"""
         if settings.DEEPSEEK_API_KEY:
             if cls._deepseek_instance is None:
                 cls._deepseek_instance = OpenAILLM(
@@ -546,24 +687,161 @@ class LLMFactory:
                     model="deepseek-chat"
                 )
             return cls._deepseek_instance
+        return cls.get_primary()
+    
+    @classmethod
+    def get_hunyuan(cls) -> Optional[BaseLLM]:
+        """获取腾讯混元（稳定备份）"""
+        secret_id = getattr(settings, 'HUNYUAN_SECRET_ID', None) or getattr(settings, 'TENCENT_SECRET_ID', None)
+        secret_key = getattr(settings, 'HUNYUAN_SECRET_KEY', None) or getattr(settings, 'TENCENT_SECRET_KEY', None)
         
-        # Claude 也擅长复杂任务
-        if settings.ANTHROPIC_API_KEY:
-            if cls._claude_instance is None:
-                cls._claude_instance = ClaudeLLM(settings.ANTHROPIC_API_KEY)
-            return cls._claude_instance
+        if secret_id and secret_key:
+            if cls._hunyuan_instance is None:
+                cls._hunyuan_instance = HunyuanLLM(
+                    secret_id=secret_id,
+                    secret_key=secret_key,
+                    model=getattr(settings, 'HUNYUAN_MODEL', 'hunyuan-pro')
+                )
+            return cls._hunyuan_instance
+        return None
+    
+    @classmethod
+    def get_claude_via_openrouter(cls) -> Optional[BaseLLM]:
+        """通过 OpenRouter 获取 Claude（复杂推理/法律分析）"""
+        api_key = getattr(settings, 'OPENROUTER_API_KEY', None)
+        if api_key:
+            if cls._openrouter_claude_instance is None:
+                cls._openrouter_claude_instance = OpenAILLM(
+                    api_key=api_key,
+                    base_url=getattr(settings, 'OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1'),
+                    model=getattr(settings, 'OPENROUTER_CLAUDE_MODEL', 'anthropic/claude-3.5-sonnet')
+                )
+                cls._openrouter_claude_instance.provider = "openrouter/claude"
+            return cls._openrouter_claude_instance
+        return None
+    
+    @classmethod
+    def get_gemini_via_openrouter(cls) -> Optional[BaseLLM]:
+        """通过 OpenRouter 获取 Gemini（长上下文/多模态）"""
+        api_key = getattr(settings, 'OPENROUTER_API_KEY', None)
+        if api_key:
+            if cls._openrouter_gemini_instance is None:
+                cls._openrouter_gemini_instance = OpenAILLM(
+                    api_key=api_key,
+                    base_url=getattr(settings, 'OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1'),
+                    model=getattr(settings, 'OPENROUTER_GEMINI_MODEL', 'google/gemini-pro-1.5')
+                )
+                cls._openrouter_gemini_instance.provider = "openrouter/gemini"
+            return cls._openrouter_gemini_instance
+        return None
+    
+    @classmethod
+    def get_gpt4_via_openrouter(cls) -> Optional[BaseLLM]:
+        """通过 OpenRouter 获取 GPT-4"""
+        api_key = getattr(settings, 'OPENROUTER_API_KEY', None)
+        if api_key:
+            if cls._openrouter_gpt4_instance is None:
+                cls._openrouter_gpt4_instance = OpenAILLM(
+                    api_key=api_key,
+                    base_url=getattr(settings, 'OPENROUTER_BASE_URL', 'https://openrouter.ai/api/v1'),
+                    model=getattr(settings, 'OPENROUTER_GPT4_MODEL', 'openai/gpt-4-turbo')
+                )
+                cls._openrouter_gpt4_instance.provider = "openrouter/gpt4"
+            return cls._openrouter_gpt4_instance
+        return None
+    
+    @classmethod
+    def get_advanced(cls) -> BaseLLM:
+        """获取高级LLM（复杂任务：代码/计划/深度分析）
+        优先级：DeepSeek > Claude(OpenRouter) > Qwen-Max
+        """
+        # DeepSeek-V3 在代码和长文本逻辑上最强
+        if settings.DEEPSEEK_API_KEY:
+            return cls.get_deepseek()
         
-        # 回退到通义千问
+        # Claude 擅长复杂推理
+        claude = cls.get_claude_via_openrouter()
+        if claude:
+            return claude
+        
+        # 回退到 Qwen-Max
+        return cls.get_primary()
+    
+    @classmethod
+    def get_for_task(cls, task_type: str) -> BaseLLM:
+        """
+        根据任务类型智能选择最优模型
+        
+        Args:
+            task_type: 任务类型
+                - "code": 代码生成/分析
+                - "legal": 法律/合同分析
+                - "finance": 财务/会计分析
+                - "creative": 创意写作
+                - "chat": 日常对话
+                - "long_doc": 长文档分析
+                - "reasoning": 复杂推理
+        
+        Returns:
+            最适合的 LLM 实例
+        """
+        task_type = task_type.lower() if task_type else "chat"
+        
+        # 代码任务 → DeepSeek 最强
+        if task_type in ["code", "coding", "programming"]:
+            return cls.get_deepseek()
+        
+        # 法律/合同分析 → Claude 推理能力强
+        if task_type in ["legal", "contract", "law"]:
+            claude = cls.get_claude_via_openrouter()
+            if claude:
+                return claude
+            return cls.get_deepseek()  # DeepSeek 也不错
+        
+        # 财务/会计 → DeepSeek 逻辑强
+        if task_type in ["finance", "accounting", "calculation"]:
+            return cls.get_deepseek()
+        
+        # 长文档 → Gemini 上下文窗口大
+        if task_type in ["long_doc", "long_document", "summarize"]:
+            gemini = cls.get_gemini_via_openrouter()
+            if gemini:
+                return gemini
+            return cls.get_primary()
+        
+        # 复杂推理 → Claude 或 DeepSeek
+        if task_type in ["reasoning", "analysis", "planning"]:
+            claude = cls.get_claude_via_openrouter()
+            if claude:
+                return claude
+            return cls.get_deepseek()
+        
+        # 创意写作 → Qwen-Max 中文写作强
+        if task_type in ["creative", "writing", "copywriting"]:
+            return cls.get_primary()
+        
+        # 默认：日常对话用 Qwen-Max
         return cls.get_primary()
     
     @classmethod
     def get_fallback(cls) -> BaseLLM:
-        """获取备用LLM（GPT-4）"""
-        if settings.OPENAI_API_KEY:
-            if cls._openai_instance is None:
-                cls._openai_instance = OpenAILLM(settings.OPENAI_API_KEY)
-            return cls._openai_instance
-        raise ValueError("未配置任何AI API密钥，请在.env中配置 DASHSCOPE_API_KEY 或 OPENAI_API_KEY")
+        """获取备用LLM（按优先级尝试所有可用模型）"""
+        # 尝试顺序：Qwen > DeepSeek > 混元 > OpenRouter GPT-4
+        if settings.DASHSCOPE_API_KEY:
+            return cls.get_primary()
+        
+        if settings.DEEPSEEK_API_KEY:
+            return cls.get_deepseek()
+        
+        hunyuan = cls.get_hunyuan()
+        if hunyuan:
+            return hunyuan
+        
+        gpt4 = cls.get_gpt4_via_openrouter()
+        if gpt4:
+            return gpt4
+        
+        raise ValueError("未配置任何AI API密钥")
 
 
 async def chat_completion(
@@ -578,10 +856,11 @@ async def chat_completion(
     task_type: str = None,
     agent_id: int = None,
     tools: List[Dict[str, Any]] = None,
-    tool_choice: str = "auto"
+    tool_choice: str = "auto",
+    model_preference: str = None  # 新增：模型偏好（code/legal/finance/creative/long_doc/reasoning）
 ) -> Any:
     """
-    统一的聊天完成接口（带自动降级和用量记录）
+    统一的聊天完成接口（博士后级智能路由 + 自动降级）
     
     Args:
         messages: 消息列表 [{"role": "user", "content": "..."}]
@@ -594,6 +873,15 @@ async def chat_completion(
         agent_name: AI员工名称（用于用量统计）
         task_type: 任务类型（用于用量统计）
         agent_id: AI员工ID（用于用量统计）
+        tools: 工具定义列表
+        tool_choice: 工具选择策略
+        model_preference: 模型偏好，用于智能路由
+            - "code": 代码任务 → DeepSeek
+            - "legal": 法律分析 → Claude (OpenRouter)
+            - "finance": 财务分析 → DeepSeek
+            - "creative": 创意写作 → Qwen-Max
+            - "long_doc": 长文档 → Gemini (OpenRouter)
+            - "reasoning": 复杂推理 → Claude (OpenRouter)
     
     Returns:
         - 无 tools 时：str（AI回复文本）
@@ -611,6 +899,24 @@ async def chat_completion(
     }
     
     try:
+        # ===== 智能模型选择 =====
+        def select_llm():
+            """根据参数智能选择最优模型"""
+            # 1. 如果指定了模型偏好，使用智能路由
+            if model_preference:
+                return LLMFactory.get_for_task(model_preference)
+            
+            # 2. 如果使用备用模型
+            if use_fallback:
+                return LLMFactory.get_fallback()
+            
+            # 3. 如果使用高级模型
+            if use_advanced:
+                return LLMFactory.get_advanced()
+            
+            # 4. 默认使用主力模型
+            return LLMFactory.get_primary()
+        
         # ===== 带工具调用的模式 =====
         if tools:
             tools_kwargs = {
@@ -619,11 +925,7 @@ async def chat_completion(
                 "tool_choice": tool_choice,
             }
             
-            # 优先用高级模型（DeepSeek）
-            if use_advanced:
-                llm = LLMFactory.get_advanced()
-            else:
-                llm = LLMFactory.get_primary()
+            llm = select_llm()
             
             # 只有 OpenAILLM 支持 chat_with_tools
             if hasattr(llm, 'chat_with_tools'):
@@ -648,32 +950,32 @@ async def chat_completion(
                 result = await llm.chat(**kwargs)
                 return {"content": result, "tool_calls": None}
         
-        # ===== 普通文本模式（保持原有逻辑）=====
-        if use_fallback:
-            llm = LLMFactory.get_fallback()
-            return await llm.chat(**kwargs)
+        # ===== 普通文本模式 =====
+        llm = select_llm()
         
-        if use_advanced:
-            llm = LLMFactory.get_advanced()
-            return await llm.chat(**kwargs)
-        
-        # 先尝试主模型
+        # 尝试选中的模型
         try:
-            llm = LLMFactory.get_primary()
             return await llm.chat(**kwargs)
         except Exception as e:
             if auto_fallback:
-                logger.warning(f"主LLM调用失败，尝试备用模型: {e}")
-                try:
-                    fallback_llm = LLMFactory.get_fallback()
-                    # 避免使用同一个实例
-                    if fallback_llm is not llm:
-                        return await fallback_llm.chat(**kwargs)
-                except ValueError:
-                    # 没有配置备用模型
-                    pass
-                except Exception as fallback_error:
-                    logger.error(f"备用LLM也调用失败: {fallback_error}")
+                logger.warning(f"LLM调用失败 ({llm.provider if hasattr(llm, 'provider') else 'unknown'})，尝试备用模型: {e}")
+                # 尝试备用模型列表
+                fallback_order = [
+                    LLMFactory.get_deepseek,
+                    LLMFactory.get_primary,
+                    LLMFactory.get_hunyuan,
+                    LLMFactory.get_claude_via_openrouter,
+                    LLMFactory.get_gpt4_via_openrouter
+                ]
+                for get_fallback in fallback_order:
+                    try:
+                        fallback_llm = get_fallback()
+                        if fallback_llm and fallback_llm is not llm:
+                            logger.info(f"尝试备用模型: {fallback_llm.provider if hasattr(fallback_llm, 'provider') else 'unknown'}")
+                            return await fallback_llm.chat(**kwargs)
+                    except Exception as fallback_error:
+                        continue
+                logger.error("所有备用模型都调用失败")
             raise
     finally:
         # 清除调用上下文

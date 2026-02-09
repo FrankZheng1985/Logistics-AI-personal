@@ -363,3 +363,246 @@ async def maria_morning_brief():
         logger.error(f"[Maria后台] 早间简报生成失败: {e}")
         import traceback
         logger.error(traceback.format_exc())
+
+
+async def check_maria_inbox_attachments():
+    """
+    检查 Maria 专属邮箱中带附件的邮件
+    自动下载附件并分析内容，通知老板
+    
+    每10分钟执行一次
+    """
+    try:
+        from app.services.multi_email_service import multi_email_service
+        from app.api.wechat_assistant import send_text_message
+        from app.services.document_service import document_service
+        from app.core.llm import chat_completion
+        
+        logger.info("[Maria邮箱] 检查收件箱附件...")
+        
+        # 获取 Maria 邮箱最近24小时的未读邮件
+        emails = await multi_email_service.get_maria_inbox_emails(
+            hours=24,
+            unread_only=True
+        )
+        
+        if not emails:
+            logger.debug("[Maria邮箱] 没有新邮件")
+            return
+        
+        # 筛选带附件的邮件
+        emails_with_attachments = [e for e in emails if e.get("has_attachments")]
+        
+        if not emails_with_attachments:
+            logger.debug("[Maria邮箱] 没有带附件的新邮件")
+            return
+        
+        logger.info(f"[Maria邮箱] 发现 {len(emails_with_attachments)} 封带附件的邮件")
+        
+        for email in emails_with_attachments:
+            try:
+                email_id = email["id"]
+                subject = email.get("subject", "(无主题)")
+                from_name = email.get("from_name") or email.get("from_address", "未知发件人")
+                attachment_names = email.get("attachment_names", [])
+                
+                # 先通知收到邮件
+                await send_text_message(
+                    "Frank.Z",
+                    f"📧 收到一封带附件的邮件：\n\n"
+                    f"📌 主题：{subject}\n"
+                    f"👤 发件人：{from_name}\n"
+                    f"📎 附件：{', '.join(attachment_names)}\n\n"
+                    f"正在下载并分析..."
+                )
+                
+                # 下载附件
+                download_result = await multi_email_service.download_attachments(
+                    email_id,
+                    save_dir="/tmp/maria_attachments"
+                )
+                
+                if not download_result.get("success"):
+                    await send_text_message(
+                        "Frank.Z",
+                        f"⚠️ 附件下载失败：{download_result.get('error', '未知错误')}"
+                    )
+                    continue
+                
+                attachments = download_result.get("attachments", [])
+                
+                # 分析每个附件
+                for att in attachments:
+                    filename = att.get("filename", "未知文件")
+                    filepath = att.get("path")
+                    content_type = att.get("content_type", "")
+                    
+                    # 只分析文档类型
+                    supported_types = [
+                        "application/pdf", "application/msword",
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "text/plain"
+                    ]
+                    
+                    if content_type not in supported_types and not filename.lower().endswith(('.pdf', '.doc', '.docx', '.txt')):
+                        await send_text_message(
+                            "Frank.Z",
+                            f"📎 附件「{filename}」不是文档类型，暂不支持分析。"
+                        )
+                        continue
+                    
+                    # 读取文档内容
+                    doc_result = await document_service.read_document(filepath, filename)
+                    
+                    if not doc_result.get("success"):
+                        await send_text_message(
+                            "Frank.Z",
+                            f"⚠️ 无法读取「{filename}」：{doc_result.get('error', '格式不支持')}"
+                        )
+                        continue
+                    
+                    content = doc_result.get("content", "")
+                    word_count = len(content)
+                    
+                    if word_count < 50:
+                        await send_text_message(
+                            "Frank.Z",
+                            f"📎 附件「{filename}」内容过少（{word_count}字），跳过分析。"
+                        )
+                        continue
+                    
+                    # 判断文档类型并构建分析提示词
+                    filename_lower = filename.lower()
+                    is_contract = any(kw in filename_lower for kw in ["合同", "协议", "contract", "agreement"])
+                    is_finance = any(kw in filename_lower for kw in ["发票", "invoice", "财务", "报表", "账单"])
+                    is_logistics = any(kw in filename_lower for kw in ["运输", "物流", "logistics", "shipping", "提单", "报关"])
+                    
+                    if is_contract:
+                        prompt = f"""【法律顾问模式】老板通过邮件发来一份合同/协议，请以资深法务的身份进行专业分析：
+
+📄 文件名：{filename}
+📧 来自：{from_name}
+📌 邮件主题：{subject}
+
+📝 文档内容：
+{content[:15000]}
+
+---
+请分析：
+1. 合同类型和主要条款
+2. 对我方的主要权利和义务
+3. 潜在风险点（红旗条款）
+4. 建议的修改或谈判要点
+5. 总体评估（是否建议签署）"""
+                    elif is_finance:
+                        prompt = f"""【财务分析模式】老板通过邮件发来一份财务文档，请以专业会计的身份进行分析：
+
+📄 文件名：{filename}
+📧 来自：{from_name}
+📌 邮件主题：{subject}
+
+📝 文档内容：
+{content[:15000]}
+
+---
+请分析：
+1. 文档类型和主要内容
+2. 关键数据摘要
+3. 需要注意的事项
+4. 建议的处理方式"""
+                    elif is_logistics:
+                        prompt = f"""【跨境贸易专家模式】老板通过邮件发来一份物流/贸易文档，请以国际贸易专家的身份分析：
+
+📄 文件名：{filename}
+📧 来自：{from_name}
+📌 邮件主题：{subject}
+
+📝 文档内容：
+{content[:15000]}
+
+---
+请分析：
+1. 文档类型和关键信息
+2. 运输/贸易条款分析
+3. 潜在风险和注意事项
+4. 后续需要跟进的事项"""
+                    else:
+                        prompt = f"""老板通过邮件发来一份文档，请帮忙阅读并分析：
+
+📄 文件名：{filename}
+📧 来自：{from_name}
+📌 邮件主题：{subject}
+
+📝 文档内容：
+{content[:15000]}
+
+---
+请分析：
+1. 文档的主要内容和目的
+2. 关键信息摘要
+3. 需要老板关注或决策的事项
+4. 建议的处理方式"""
+                    
+                    # 调用 LLM 分析（智能选择最优模型）
+                    import asyncio
+                    
+                    # 根据文档类型选择最优模型
+                    if is_contract:
+                        model_preference = "legal"  # 法律分析 → Claude
+                    elif is_finance:
+                        model_preference = "finance"  # 财务分析 → DeepSeek
+                    elif is_logistics:
+                        model_preference = "reasoning"  # 复杂分析 → Claude/DeepSeek
+                    else:
+                        model_preference = None  # 通用任务 → Qwen-Max
+                    
+                    try:
+                        response = await asyncio.wait_for(
+                            chat_completion(
+                                messages=[{"role": "user", "content": prompt}],
+                                model_preference=model_preference,  # 博士后级智能路由
+                                use_advanced=True  # 备用：高级模型
+                            ),
+                            timeout=120  # 2分钟超时
+                        )
+                        
+                        # 处理返回结果（可能是字符串或字典）
+                        if isinstance(response, str):
+                            analysis = response
+                        elif isinstance(response, dict):
+                            analysis = response.get("content", str(response))
+                        else:
+                            analysis = str(response)
+                        
+                        # 发送分析结果
+                        await send_text_message(
+                            "Frank.Z",
+                            f"📄 **{filename}** 分析完成（{word_count}字）\n\n{analysis}"
+                        )
+                        
+                    except asyncio.TimeoutError:
+                        await send_text_message(
+                            "Frank.Z",
+                            f"⚠️ 分析「{filename}」超时，文档可能太长。您可以直接回复让我重试。"
+                        )
+                    except Exception as llm_err:
+                        logger.error(f"[Maria邮箱] LLM 分析失败: {llm_err}")
+                        await send_text_message(
+                            "Frank.Z",
+                            f"⚠️ 分析「{filename}」时出错：{str(llm_err)[:100]}"
+                        )
+                
+                # 标记邮件已读
+                await multi_email_service.mark_email_read(email_id)
+                
+            except Exception as email_err:
+                logger.error(f"[Maria邮箱] 处理邮件失败: {email_err}")
+                import traceback
+                logger.error(traceback.format_exc())
+        
+        logger.info(f"[Maria邮箱] 处理完成")
+        
+    except Exception as e:
+        logger.error(f"[Maria邮箱] 检查附件失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())

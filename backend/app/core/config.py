@@ -29,19 +29,31 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
     
-    # 通义千问配置（推荐）
+    # 通义千问配置（主力模型）
     DASHSCOPE_API_KEY: Optional[str] = None
     DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    DASHSCOPE_MODEL: str = "qwen-plus"  # 可选: qwen-turbo, qwen-plus, qwen-max
+    DASHSCOPE_MODEL: str = "qwen-max"  # 升级到 qwen-max（最强版本）
     
-    # DeepSeek配置
+    # DeepSeek配置（代码专家）
     DEEPSEEK_API_KEY: Optional[str] = None
     DEEPSEEK_API_BASE: str = "https://api.deepseek.com/v1"
     
-    AI_PRIMARY_MODEL: str = "qwen-plus"
-    AI_FALLBACK_MODEL: str = "gpt-4-turbo-preview"
+    # 腾讯混元配置（腾讯云原生，稳定）
+    HUNYUAN_SECRET_ID: Optional[str] = None  # 可复用 TENCENT_SECRET_ID
+    HUNYUAN_SECRET_KEY: Optional[str] = None  # 可复用 TENCENT_SECRET_KEY
+    HUNYUAN_MODEL: str = "hunyuan-pro"  # 可选: hunyuan-lite, hunyuan-standard, hunyuan-pro
+    
+    # OpenRouter 中转配置（访问 Claude/Gemini/GPT）
+    OPENROUTER_API_KEY: Optional[str] = None
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_CLAUDE_MODEL: str = "anthropic/claude-3.5-sonnet"  # Claude 3.5
+    OPENROUTER_GEMINI_MODEL: str = "google/gemini-pro-1.5"  # Gemini 1.5 Pro
+    OPENROUTER_GPT4_MODEL: str = "openai/gpt-4-turbo"  # GPT-4 Turbo
+    
+    AI_PRIMARY_MODEL: str = "qwen-max"
+    AI_FALLBACK_MODEL: str = "deepseek-chat"
     AI_TEMPERATURE: float = 0.7
-    AI_MAX_TOKENS: int = 2000
+    AI_MAX_TOKENS: int = 4000  # 增加 token 限制
     
     # 可灵视频API (Kling AI)
     KELING_API_KEY: Optional[str] = None  # 旧版单密钥（可选）
