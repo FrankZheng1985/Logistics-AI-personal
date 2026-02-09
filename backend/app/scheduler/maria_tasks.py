@@ -543,18 +543,18 @@ async def check_maria_inbox_attachments():
 3. 需要老板关注或决策的事项
 4. 建议的处理方式"""
                     
-                    # 调用 LLM 分析（智能选择最优模型）
+                    # 调用 LLM 分析（成本优化：优先便宜模型）
                     import asyncio
                     
-                    # 根据文档类型选择最优模型
+                    # 根据文档类型选择最优模型（优先便宜的）
                     if is_contract:
-                        model_preference = "legal"  # 法律分析 → Claude
+                        model_preference = "legal"  # 法律分析 → DeepSeek（便宜够用）
                     elif is_finance:
                         model_preference = "finance"  # 财务分析 → DeepSeek
                     elif is_logistics:
-                        model_preference = "reasoning"  # 复杂分析 → Claude/DeepSeek
+                        model_preference = "reasoning"  # 物流分析 → DeepSeek
                     else:
-                        model_preference = None  # 通用任务 → Qwen-Max
+                        model_preference = None  # 通用任务 → Qwen-Max（最便宜）
                     
                     try:
                         response = await asyncio.wait_for(

@@ -770,57 +770,70 @@ class LLMFactory:
     @classmethod
     def get_for_task(cls, task_type: str) -> BaseLLM:
         """
-        根据任务类型智能选择最优模型
+        根据任务类型智能选择最优模型（成本优化版）
+        
+        优先使用便宜模型，只在必要时使用贵的模型
+        成本排序：Qwen < DeepSeek < 混元 < Claude/Gemini/GPT-4
         
         Args:
             task_type: 任务类型
-                - "code": 代码生成/分析
-                - "legal": 法律/合同分析
-                - "finance": 财务/会计分析
-                - "creative": 创意写作
-                - "chat": 日常对话
-                - "long_doc": 长文档分析
-                - "reasoning": 复杂推理
+                - "code": 代码生成/分析 → DeepSeek（便宜且强）
+                - "legal": 法律/合同分析 → DeepSeek（够用）
+                - "legal_complex": 复杂法律分析 → Claude（必要时）
+                - "finance": 财务/会计分析 → DeepSeek
+                - "creative": 创意写作 → Qwen（最便宜）
+                - "chat": 日常对话 → Qwen（最便宜）
+                - "long_doc": 长文档分析 → Qwen（32K够用）
+                - "reasoning": 复杂推理 → DeepSeek
         
         Returns:
             最适合的 LLM 实例
         """
         task_type = task_type.lower() if task_type else "chat"
         
-        # 代码任务 → DeepSeek 最强
+        # ========== 便宜模型优先 ==========
+        
+        # 代码任务 → DeepSeek（便宜且代码能力最强）
         if task_type in ["code", "coding", "programming"]:
             return cls.get_deepseek()
         
-        # 法律/合同分析 → Claude 推理能力强
+        # 法律/合同分析 → DeepSeek 优先（便宜，能力足够）
+        # 只有明确指定 legal_complex 才用 Claude
         if task_type in ["legal", "contract", "law"]:
+            return cls.get_deepseek()  # DeepSeek 法律分析够用
+        
+        # 复杂法律（如重大合同、诉讼文件）→ Claude（必要时才用）
+        if task_type in ["legal_complex", "litigation"]:
             claude = cls.get_claude_via_openrouter()
             if claude:
                 return claude
-            return cls.get_deepseek()  # DeepSeek 也不错
+            return cls.get_deepseek()
         
-        # 财务/会计 → DeepSeek 逻辑强
+        # 财务/会计 → DeepSeek（逻辑强，便宜）
         if task_type in ["finance", "accounting", "calculation"]:
             return cls.get_deepseek()
         
-        # 长文档 → Gemini 上下文窗口大
+        # 长文档 → Qwen-Max 优先（32K上下文够用，最便宜）
+        # 只有超长文档(>50页)才考虑 Gemini
         if task_type in ["long_doc", "long_document", "summarize"]:
+            return cls.get_primary()  # Qwen-Max 32K 够用
+        
+        # 超长文档（明确指定）→ Gemini
+        if task_type in ["very_long_doc"]:
             gemini = cls.get_gemini_via_openrouter()
             if gemini:
                 return gemini
             return cls.get_primary()
         
-        # 复杂推理 → Claude 或 DeepSeek
+        # 复杂推理 → DeepSeek 优先（便宜，推理能力强）
         if task_type in ["reasoning", "analysis", "planning"]:
-            claude = cls.get_claude_via_openrouter()
-            if claude:
-                return claude
             return cls.get_deepseek()
         
-        # 创意写作 → Qwen-Max 中文写作强
+        # 创意写作 → Qwen-Max（中文写作强，最便宜）
         if task_type in ["creative", "writing", "copywriting"]:
             return cls.get_primary()
         
-        # 默认：日常对话用 Qwen-Max
+        # 默认：日常对话用 Qwen-Max（最便宜）
         return cls.get_primary()
     
     @classmethod
