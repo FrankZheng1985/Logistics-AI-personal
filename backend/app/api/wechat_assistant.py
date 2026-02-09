@@ -445,104 +445,147 @@ async def process_voice_message(user_id: str, media_id: str):
 
 
 async def process_file_message(user_id: str, media_id: str, file_name: str):
-    """处理文件消息（可能是会议录音）"""
+    """处理文件消息（会议录音、文档等）"""
     from app.agents.assistant_agent import clauwdbot_agent
     from app.services.speech_recognition_service import speech_recognition_service
     from app.services.cos_storage_service import cos_storage_service
+    from app.services.document_service import document_service
     
     logger.info(f"[Clauwdbot] 收到文件: user={user_id}, file={file_name}")
     
-    # 检查是否是音频文件
-    audio_extensions = [".mp3", ".m4a", ".wav", ".amr", ".ogg", ".aac"]
-    is_audio = any(file_name.lower().endswith(ext) for ext in audio_extensions)
-    
-    if not is_audio:
-        await send_text_message(user_id, f"收到文件: {file_name}\n\n目前我只能处理音频文件（mp3/m4a/wav等）。")
+    # 1. 下载文件（通用步骤）
+    file_data = await download_media(media_id)
+    if not file_data:
+        await send_text_message(user_id, "文件下载失败，请重新发送。")
         return
     
-    # 检查云存储和语音识别是否已配置
-    if not cos_storage_service.is_configured:
+    # 保存到临时文件
+    import tempfile
+    temp_dir = tempfile.gettempdir()
+    temp_path = os.path.join(temp_dir, file_name)
+    
+    try:
+        with open(temp_path, "wb") as f:
+            f.write(file_data)
+            
+        # 2. 判断文件类型
+        ext = os.path.splitext(file_name)[1].lower()
+        
+        # --- 情况A：音频文件 (会议录音) ---
+        audio_extensions = [".mp3", ".m4a", ".wav", ".amr", ".ogg", ".aac"]
+        if ext in audio_extensions:
+            await _handle_audio_file(user_id, file_name, file_data, cos_storage_service, speech_recognition_service)
+            return
+
+        # --- 情况B：文档文件 (Word, PDF, TXT) ---
+        doc_extensions = [".docx", ".doc", ".pdf", ".txt", ".md", ".csv", ".json"]
+        if ext in doc_extensions:
+            await send_text_message(user_id, f"收到文档「{file_name}」，正在阅读分析...")
+            
+            # 解析文档
+            doc_result = await document_service.read_document(temp_path, file_name)
+            
+            if not doc_result["success"]:
+                await send_text_message(user_id, f"文档读取失败: {doc_result['error']}")
+                return
+            
+            content = doc_result["content"]
+            
+            # 构建提示词，让 Maria 处理文档
+            prompt = f"我发送了一个文件给你：{file_name}\n\n文件内容如下：\n\n{content}\n\n请阅读并分析这个文件。如果我没有具体指令，请先总结文件的主要内容。"
+            
+            # 调用 Maria
+            result = await clauwdbot_agent.process({
+                "message": prompt,
+                "user_id": user_id,
+                "message_type": "text"  # 伪装成文本消息，包含文件内容
+            })
+            
+            # 发送回复
+            response = result.get("response", "")
+            if response:
+                await send_text_message(user_id, response)
+            return
+
+        # --- 情况C：其他文件 ---
+        await send_text_message(user_id, f"收到文件: {file_name}\n\n目前我支持处理：\n1. 音频文件 (转写会议纪要)\n2. 文档 (Word, PDF, TXT)")
+        
+    except Exception as e:
+        logger.error(f"[Clauwdbot] 处理文件失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        await send_text_message(user_id, f"处理文件时出现系统错误: {str(e)}")
+    finally:
+        # 清理临时文件
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+
+
+async def _handle_audio_file(user_id, file_name, audio_data, cos_service, asr_service):
+    """处理音频文件的具体逻辑"""
+    # 检查配置
+    if not cos_service.is_configured:
         await send_text_message(user_id, f"📼 收到录音: {file_name}\n\n⚠️ 云存储未配置，请联系管理员配置腾讯云COS。")
         return
     
-    if not speech_recognition_service.is_configured():
+    if not asr_service.is_configured():
         await send_text_message(user_id, f"📼 收到录音: {file_name}\n\n⚠️ 语音识别未配置，请联系管理员配置腾讯云ASR。")
         return
     
-    # 通知用户开始处理
+    # 通知用户
     await send_text_message(user_id, f"📼 收到会议录音: {file_name}\n\n正在处理中，转写完成后会自动发送会议纪要。\n⏱ 预计需要2-5分钟")
     
-    try:
-        # 1. 下载音频文件
-        logger.info(f"[Clauwdbot] 下载音频文件: {media_id}")
-        audio_data = await download_media(media_id)
-        if not audio_data:
-            await send_text_message(user_id, "音频文件下载失败，请重新发送。")
-            return
-        
-        logger.info(f"[Clauwdbot] 音频文件下载成功: {len(audio_data)} bytes")
-        
-        # 2. 上传到腾讯云COS
-        logger.info(f"[Clauwdbot] 上传到COS...")
-        success, result = await cos_storage_service.upload_bytes(
-            data=audio_data,
-            filename=file_name,
-            folder="meeting_audio"
+    # 上传到COS
+    success, result = await cos_service.upload_bytes(
+        data=audio_data,
+        filename=file_name,
+        folder="meeting_audio"
+    )
+    
+    if not success:
+        await send_text_message(user_id, f"音频上传失败: {result}")
+        return
+    
+    audio_url = result
+    
+    # 创建会议记录
+    from app.models.database import AsyncSessionLocal
+    from sqlalchemy import text
+    
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            text("""
+                INSERT INTO meeting_records (audio_file_url, transcription_status, created_by)
+                VALUES (:url, 'processing', :user_id)
+                RETURNING id
+            """),
+            {"url": audio_url, "user_id": user_id}
         )
-        
-        if not success:
-            logger.error(f"[Clauwdbot] COS上传失败: {result}")
-            await send_text_message(user_id, f"音频上传失败: {result}")
-            return
-        
-        audio_url = result
-        logger.info(f"[Clauwdbot] COS上传成功: {audio_url}")
-        
-        # 3. 创建会议记录
-        from app.models.database import AsyncSessionLocal
-        from sqlalchemy import text
-        
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(
-                text("""
-                    INSERT INTO meeting_records (audio_file_url, transcription_status, created_by)
-                    VALUES (:url, 'processing', :user_id)
-                    RETURNING id
-                """),
-                {"url": audio_url, "user_id": user_id}
-            )
-            meeting_id = str(result.fetchone()[0])
-            await db.commit()
-        
-        logger.info(f"[Clauwdbot] 创建会议记录: {meeting_id}")
-        
-        # 4. 调用语音识别服务
-        ext = os.path.splitext(file_name)[1].lower().lstrip('.')
-        audio_format = ext if ext in ['mp3', 'm4a', 'wav', 'amr', 'ogg'] else 'mp3'
-        
-        transcribe_result = await speech_recognition_service.transcribe_audio(
-            audio_url=audio_url,
-            meeting_id=meeting_id,
-            audio_format=audio_format
-        )
-        
-        if not transcribe_result.get("success"):
-            error_msg = transcribe_result.get("error", "未知错误")
-            logger.error(f"[Clauwdbot] 语音识别任务提交失败: {error_msg}")
-            await send_text_message(user_id, f"语音识别启动失败: {error_msg}")
-            return
-        
-        logger.info(f"[Clauwdbot] 语音识别任务已提交: {transcribe_result.get('tencent_task_id')}")
-        
-        # 5. 启动后台任务等待结果并发送给用户
-        import asyncio
-        asyncio.create_task(
-            _wait_and_send_meeting_summary(user_id, meeting_id, transcribe_result.get('task_id'))
-        )
-        
-    except Exception as e:
-        logger.error(f"[Clauwdbot] 处理音频文件失败: {e}")
-        await send_text_message(user_id, f"处理音频文件时出现问题：{str(e)}")
+        meeting_id = str(result.fetchone()[0])
+        await db.commit()
+    
+    # 调用语音识别
+    ext = os.path.splitext(file_name)[1].lower().lstrip('.')
+    audio_format = ext if ext in ['mp3', 'm4a', 'wav', 'amr', 'ogg'] else 'mp3'
+    
+    transcribe_result = await asr_service.transcribe_audio(
+        audio_url=audio_url,
+        meeting_id=meeting_id,
+        audio_format=audio_format
+    )
+    
+    if not transcribe_result.get("success"):
+        await send_text_message(user_id, f"语音识别启动失败: {transcribe_result.get('error')}")
+        return
+    
+    # 启动后台等待
+    import asyncio
+    asyncio.create_task(
+        _wait_and_send_meeting_summary(user_id, meeting_id, transcribe_result.get('task_id'))
+    )
 
 
 async def _wait_and_send_meeting_summary(user_id: str, meeting_id: str, task_id: str):
