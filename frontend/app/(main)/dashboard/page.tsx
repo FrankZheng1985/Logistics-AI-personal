@@ -1,18 +1,19 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Users, 
   MessageSquare, 
-  Video, 
   TrendingUp,
   Bot,
   Bell,
   Settings,
-  ChevronRight,
   X,
-  Check
+  Check,
+  Activity,
+  Zap,
+  Radio
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -22,7 +23,7 @@ const containerVariants = {
   visible: {
     opacity: 1,
     transition: {
-      staggerChildren: 0.1
+      staggerChildren: 0.08
     }
   }
 }
@@ -30,6 +31,39 @@ const containerVariants = {
 const itemVariants = {
   hidden: { opacity: 0, y: 20 },
   visible: { opacity: 1, y: 0 }
+}
+
+// 数字跳动动画组件
+function AnimatedNumber({ value, duration = 1000 }: { value: number; duration?: number }) {
+  const [displayValue, setDisplayValue] = useState(0)
+  
+  useEffect(() => {
+    if (value === 0) {
+      setDisplayValue(0)
+      return
+    }
+    
+    let startTime: number
+    let animationFrame: number
+    
+    const animate = (timestamp: number) => {
+      if (!startTime) startTime = timestamp
+      const progress = Math.min((timestamp - startTime) / duration, 1)
+      
+      // easeOutExpo for smooth deceleration
+      const eased = 1 - Math.pow(2, -10 * progress)
+      setDisplayValue(Math.floor(eased * value))
+      
+      if (progress < 1) {
+        animationFrame = requestAnimationFrame(animate)
+      }
+    }
+    
+    animationFrame = requestAnimationFrame(animate)
+    return () => cancelAnimationFrame(animationFrame)
+  }, [value, duration])
+  
+  return <span>{displayValue}</span>
 }
 
 // 通知弹窗
@@ -50,7 +84,6 @@ function NotificationsModal({
   
   const handleNotificationClick = (notif: { id: string; action_url?: string; read: boolean }) => {
     onMarkRead(notif.id)
-    // 如果有跳转链接，则跳转
     if (notif.action_url) {
       onClose()
       window.location.href = notif.action_url
@@ -138,112 +171,275 @@ function NotificationsModal({
   )
 }
 
-// 统计卡片组件
-function StatCard({ 
+// HUD 统计指标卡片
+function HUDStatCard({ 
   title, 
   value, 
-  change, 
   icon: Icon,
-  color = 'cyber-blue'
+  color = 'cyber-blue',
+  glowColor = 'rgba(0, 212, 255, 0.3)'
 }: {
   title: string
-  value: string | number
-  change?: string
+  value: number
   icon: any
   color?: string
+  glowColor?: string
 }) {
   return (
     <motion.div 
       variants={itemVariants}
-      className="glass-card-hover p-4 md:p-6"
+      className="relative overflow-hidden"
     >
-      <div className="flex items-start justify-between">
-        <div className="min-w-0 flex-1">
-          <p className="text-gray-400 text-xs md:text-sm mb-1 truncate">{title}</p>
-          <p className={`text-xl md:text-3xl font-bold font-number text-${color}`}>{value}</p>
-          {change && (
-            <p className="text-cyber-green text-xs md:text-sm mt-1 truncate">{change}</p>
-          )}
+      {/* 背景光效 */}
+      <div 
+        className="absolute inset-0 opacity-20"
+        style={{ 
+          background: `radial-gradient(ellipse at center, ${glowColor} 0%, transparent 70%)`
+        }}
+      />
+      
+      {/* 边框光效 */}
+      <div className={`glass-card p-4 md:p-5 border-t-2 border-${color}`} style={{ borderTopColor: glowColor }}>
+        <div className="flex items-center justify-between relative z-10">
+          <div>
+            <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">{title}</p>
+            <p className={`text-3xl md:text-4xl font-bold font-number text-${color}`}>
+              <AnimatedNumber value={value} />
+            </p>
+          </div>
+          <div className={`p-3 rounded-lg bg-${color}/10`}>
+            <Icon className={`w-6 h-6 text-${color}`} style={{ color: glowColor }} />
+          </div>
         </div>
-        <div className={`p-2 md:p-3 rounded-lg bg-${color}/10 flex-shrink-0 ml-2`}>
-          <Icon className={`w-4 h-4 md:w-6 md:h-6 text-${color}`} />
+        
+        {/* 底部扫描线动画 */}
+        <div className="absolute bottom-0 left-0 right-0 h-0.5 overflow-hidden">
+          <motion.div 
+            className="h-full w-1/3"
+            style={{ background: `linear-gradient(90deg, transparent, ${glowColor}, transparent)` }}
+            animate={{ x: ['-100%', '400%'] }}
+            transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
+          />
         </div>
       </div>
     </motion.div>
   )
 }
 
-// AI员工卡片组件
-function AgentCard({ 
+// 打字效果 Hook
+function useTypingEffect(text: string | null, speed = 30) {
+  const [displayText, setDisplayText] = useState('')
+  
+  useEffect(() => {
+    if (!text) {
+      setDisplayText('')
+      return
+    }
+    
+    setDisplayText('')
+    let index = 0
+    const timer = setInterval(() => {
+      if (index < text.length) {
+        setDisplayText(text.slice(0, index + 1))
+        index++
+      } else {
+        clearInterval(timer)
+      }
+    }, speed)
+    
+    return () => clearInterval(timer)
+  }, [text, speed])
+  
+  return displayText
+}
+
+// AI 员工指挥卡片（新版）
+function AgentCommandCard({ 
   name, 
   role, 
   status, 
-  tasksToday 
+  currentTask,
+  tasksToday,
+  lastActive
 }: {
   name: string
   role: string
   status: 'online' | 'busy' | 'offline'
+  currentTask: string | null
   tasksToday: number
+  lastActive: string | null
 }) {
+  const typedTask = useTypingEffect(currentTask, 25)
+  
   const statusConfig = {
-    online: { label: '在线', class: 'badge-online', glow: 'shadow-cyber' },
-    busy: { label: '忙碌', class: 'badge-busy', glow: 'shadow-[0_0_15px_rgba(255,107,53,0.3)]' },
-    offline: { label: '离线', class: 'badge-offline', glow: '' }
+    online: { 
+      label: '待命', 
+      bgColor: 'bg-cyber-green', 
+      glowColor: 'shadow-[0_0_12px_rgba(0,255,136,0.5)]',
+      ringColor: 'ring-cyber-green/50'
+    },
+    busy: { 
+      label: '执行中', 
+      bgColor: 'bg-energy-orange', 
+      glowColor: 'shadow-[0_0_12px_rgba(255,107,53,0.5)]',
+      ringColor: 'ring-energy-orange/50'
+    },
+    offline: { 
+      label: '离线', 
+      bgColor: 'bg-gray-500', 
+      glowColor: '',
+      ringColor: 'ring-gray-500/30'
+    }
   }
   
   const config = statusConfig[status]
   
   return (
-    <Link href="/team">
-      <motion.div 
-        variants={itemVariants}
-        whileHover={{ scale: 1.02 }}
-        className={`glass-card p-4 cursor-pointer transition-all ${config.glow}`}
-      >
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-cyber-blue to-neon-purple flex items-center justify-center text-lg font-bold">
+    <motion.div 
+      variants={itemVariants}
+      className="glass-card p-4 relative overflow-hidden group hover:border-cyber-blue/30 transition-all duration-300"
+    >
+      {/* 左侧状态条 */}
+      <div 
+        className={`absolute left-0 top-0 bottom-0 w-1 ${config.bgColor}`}
+        style={{ opacity: status === 'busy' ? 1 : 0.6 }}
+      />
+      
+      {/* 头部信息 */}
+      <div className="flex items-center gap-3 mb-3">
+        {/* 头像 + 状态指示灯 */}
+        <div className="relative">
+          <div className={`w-11 h-11 rounded-full bg-gradient-to-br from-cyber-blue to-neon-purple flex items-center justify-center text-lg font-bold ring-2 ${config.ringColor}`}>
             {name[0]}
           </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <span className="font-medium">{name}</span>
-              <span className={config.class}>{config.label}</span>
-            </div>
-            <p className="text-gray-400 text-sm">{role}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-2xl font-number font-bold text-cyber-blue">{tasksToday}</p>
-            <p className="text-gray-500 text-xs">今日任务</p>
-          </div>
+          {/* 呼吸灯状态点 */}
+          <div 
+            className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ${config.bgColor} ${config.glowColor} ${status === 'busy' ? 'animate-pulse' : ''}`}
+          />
         </div>
-      </motion.div>
-    </Link>
+        
+        {/* 名称和角色 */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-white">{name}</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${config.bgColor}/20 text-${status === 'busy' ? 'energy-orange' : status === 'online' ? 'cyber-green' : 'gray-400'}`}>
+              {config.label}
+            </span>
+          </div>
+          <p className="text-gray-500 text-xs">{role}</p>
+        </div>
+        
+        {/* 今日任务数 */}
+        <div className="text-right">
+          <p className="text-xl font-number font-bold text-cyber-blue">{tasksToday}</p>
+          <p className="text-gray-600 text-[10px]">今日任务</p>
+        </div>
+      </div>
+      
+      {/* 当前任务显示区域（终端风格） */}
+      <div className="bg-black/40 rounded-lg p-2.5 min-h-[48px] border border-white/5">
+        {currentTask ? (
+          <div className="flex items-start gap-2">
+            <Zap className="w-3.5 h-3.5 text-energy-orange flex-shrink-0 mt-0.5 animate-pulse" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] text-energy-orange mb-0.5">正在执行:</p>
+              <p className="text-xs text-gray-300 font-mono leading-relaxed">
+                {typedTask}
+                <span className="animate-pulse text-cyber-blue">|</span>
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-gray-600">
+            <Radio className="w-3.5 h-3.5" />
+            <span className="text-xs font-mono">等待任务分配...</span>
+          </div>
+        )}
+      </div>
+      
+      {/* 波形动画（仅在执行中显示） */}
+      {status === 'busy' && (
+        <div className="absolute bottom-0 left-1 right-0 h-0.5 flex items-end justify-around opacity-60">
+          {[...Array(20)].map((_, i) => (
+            <motion.div
+              key={i}
+              className="w-0.5 bg-energy-orange rounded-full"
+              animate={{ 
+                height: [2, Math.random() * 6 + 2, 2],
+              }}
+              transition={{
+                duration: 0.5 + Math.random() * 0.5,
+                repeat: Infinity,
+                delay: i * 0.05
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </motion.div>
   )
 }
 
-// 活动项组件
-function ActivityItem({ 
-  agent, 
-  action, 
-  time,
-  highlight = false
-}: {
-  agent: string
-  action: string
-  time: string
-  highlight?: boolean
+// 系统终端日志组件
+function SystemTerminal({ 
+  activities 
+}: { 
+  activities: Array<{ agent: string; action: string; time: string }> 
 }) {
+  const terminalRef = useRef<HTMLDivElement>(null)
+  
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight
+    }
+  }, [activities])
+  
   return (
-    <motion.div 
-      variants={itemVariants}
-      className={`flex items-center gap-3 p-3 rounded-lg ${
-        highlight ? 'bg-cyber-green/10 border border-cyber-green/30' : 'hover:bg-white/5'
-      } transition-colors`}
-    >
-      <div className={`w-2 h-2 rounded-full ${highlight ? 'bg-cyber-green animate-pulse' : 'bg-gray-500'}`} />
-      <span className="text-cyber-blue font-medium">[{agent}]</span>
-      <span className="flex-1 text-gray-300 truncate">{action}</span>
-      <span className="text-gray-500 text-sm">{time}</span>
+    <motion.div variants={itemVariants} className="h-full flex flex-col">
+      {/* 终端标题栏 */}
+      <div className="flex items-center gap-2 mb-3">
+        <Activity className="w-4 h-4 text-cyber-green" />
+        <h2 className="text-sm font-bold text-gray-300 uppercase tracking-wider">System Log</h2>
+        <div className="flex-1" />
+        <div className="flex items-center gap-1">
+          <div className="w-2 h-2 rounded-full bg-alert-red" />
+          <div className="w-2 h-2 rounded-full bg-energy-orange" />
+          <div className="w-2 h-2 rounded-full bg-cyber-green" />
+        </div>
+      </div>
+      
+      {/* 终端内容区 */}
+      <div 
+        ref={terminalRef}
+        className="flex-1 bg-black/60 rounded-lg p-3 font-mono text-xs overflow-y-auto border border-white/5 space-y-1.5"
+        style={{ maxHeight: '340px' }}
+      >
+        {activities.length === 0 ? (
+          <div className="text-gray-600">
+            <span className="text-cyber-green">$</span> 等待系统日志...
+          </div>
+        ) : (
+          activities.map((activity, index) => (
+            <motion.div 
+              key={index}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: index * 0.05 }}
+              className="flex items-start gap-2 group hover:bg-white/5 px-1 py-0.5 rounded"
+            >
+              <span className="text-gray-600 flex-shrink-0">{activity.time}</span>
+              <span className="text-cyber-blue flex-shrink-0">[{activity.agent}]</span>
+              <span className="text-gray-400 break-all">{activity.action}</span>
+            </motion.div>
+          ))
+        )}
+        
+        {/* 光标闪烁 */}
+        <div className="flex items-center gap-1 text-cyber-green pt-1">
+          <span>$</span>
+          <span className="animate-pulse">_</span>
+        </div>
+      </div>
     </motion.div>
   )
 }
@@ -252,21 +448,20 @@ export default function Dashboard() {
   const [stats, setStats] = useState({
     newCustomers: 0,
     highIntent: 0,
-    conversations: 0,
-    videos: 0,
-    processing: 0
+    conversations: 0
   })
   
-  const [agents, setAgents] = useState([
-    { name: '小调', role: '调度主管', status: 'online' as const, tasksToday: 0 },
-    { name: '小销', role: '销售客服', status: 'online' as const, tasksToday: 0 },
-    { name: '小析', role: '客户分析', status: 'online' as const, tasksToday: 0 },
-    { name: '小文', role: '文案策划', status: 'online' as const, tasksToday: 0 },
-    { name: '小视', role: '视频创作', status: 'online' as const, tasksToday: 0 },
-    { name: '小跟', role: '跟进专员', status: 'online' as const, tasksToday: 0 },
-  ])
+  const [agents, setAgents] = useState<Array<{
+    name: string
+    type: string
+    role: string
+    status: 'online' | 'busy' | 'offline'
+    currentTask: string | null
+    tasksToday: number
+    lastActive: string | null
+  }>>([])
   
-  const [activities, setActivities] = useState<Array<{agent: string; action: string; time: string; highlight: boolean}>>([])
+  const [activities, setActivities] = useState<Array<{agent: string; action: string; time: string}>>([])
   const [loading, setLoading] = useState(true)
   
   // 通知状态
@@ -274,10 +469,8 @@ export default function Dashboard() {
   const [notifications, setNotifications] = useState<Array<{ id: string; title: string; content: string; time: string; read: boolean; action_url?: string }>>([])
   const [mounted, setMounted] = useState(false)
   
-  // 客户端挂载后初始化通知（从真实API获取）
   useEffect(() => {
     setMounted(true)
-    // 获取真实通知
     const fetchNotifications = async () => {
       try {
         const res = await fetch('/api/notifications?limit=10')
@@ -314,25 +507,23 @@ export default function Dashboard() {
           setStats({
             newCustomers: statsData.today?.new_customers || 0,
             highIntent: statsData.today?.high_intent_customers || 0,
-            conversations: statsData.today?.conversations || 0,
-            videos: statsData.today?.videos_generated || 0,
-            processing: statsData.today?.processing_tasks || 0
+            conversations: statsData.today?.conversations || 0
           })
         }
         
-        // 获取AI团队状态
+        // 获取AI团队状态（包含当前任务）
         const teamRes = await fetch('/api/dashboard/team-status')
         if (teamRes.ok) {
           const teamData = await teamRes.json()
           if (teamData.agents && teamData.agents.length > 0) {
-            const agentMap: Record<string, any> = {}
-            teamData.agents.forEach((a: any) => {
-              agentMap[a.name] = a
-            })
-            setAgents(prev => prev.map(agent => ({
-              ...agent,
-              status: agentMap[agent.name]?.status || 'online',
-              tasksToday: agentMap[agent.name]?.tasks_today || 0
+            setAgents(teamData.agents.map((a: any) => ({
+              name: a.name,
+              type: a.type,
+              role: a.role || '未知',
+              status: a.status || 'online',
+              currentTask: a.current_task || null,
+              tasksToday: a.tasks_today || 0,
+              lastActive: a.last_active || null
             })))
           }
         }
@@ -342,14 +533,13 @@ export default function Dashboard() {
         if (activitiesRes.ok) {
           const activitiesData = await activitiesRes.json()
           if (activitiesData.activities && activitiesData.activities.length > 0) {
-            setActivities(activitiesData.activities.map((a: any, i: number) => ({
+            setActivities(activitiesData.activities.map((a: any) => ({
               agent: a.agent || '系统',
               action: a.content_preview || a.action || '活动记录',
-              time: formatTime(a.timestamp),
-              highlight: i === 0
+              time: formatTimeShort(a.timestamp)
             })))
           } else {
-            setActivities([{ agent: '系统', action: '暂无活动记录', time: '刚刚', highlight: false }])
+            setActivities([{ agent: '系统', action: '系统启动完成，等待任务...', time: formatTimeShort(new Date().toISOString()) }])
           }
         }
       } catch (error) {
@@ -360,7 +550,7 @@ export default function Dashboard() {
     }
     
     fetchData()
-    const interval = setInterval(fetchData, 30000)
+    const interval = setInterval(fetchData, 15000) // 15秒刷新
     return () => clearInterval(interval)
   }, [])
   
@@ -374,64 +564,120 @@ export default function Dashboard() {
     return `${Math.floor(diff / 86400)}天前`
   }
   
+  const formatTimeShort = (timestamp: string) => {
+    const date = new Date(timestamp)
+    return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  }
+  
   const handleMarkRead = async (id: string) => {
     try {
-      // 调用后端API持久化已读状态
       const res = await fetch(`/api/notifications/${id}/read`, { method: 'PUT' })
       if (res.ok) {
         setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
       }
     } catch (error) {
       console.error('标记已读失败:', error)
-      // 即使API失败，也更新本地状态以保持UI响应
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
     }
   }
   
   const handleClearAll = async () => {
     try {
-      // 调用后端API标记所有为已读
       const res = await fetch('/api/notifications/read-all', { method: 'PUT' })
       if (res.ok) {
         setNotifications(prev => prev.map(n => ({ ...n, read: true })))
       }
     } catch (error) {
       console.error('标记全部已读失败:', error)
-      // 即使API失败，也更新本地状态
       setNotifications(prev => prev.map(n => ({ ...n, read: true })))
     }
   }
   
+  // 获取当前时间
+  const [currentTime, setCurrentTime] = useState(new Date())
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+  
   return (
-    <div className="min-h-screen">
-      {/* 顶部导航 */}
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 md:mb-8">
-        <div>
-          <h1 className="page-title">
-            AI获客控制中心
-          </h1>
-          <p className="page-subtitle">物流行业智能获客系统</p>
+    <div className="min-h-screen relative">
+      {/* 背景网格增强 */}
+      <div className="fixed inset-0 pointer-events-none opacity-30">
+        <div className="absolute inset-0" style={{
+          backgroundImage: `
+            linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px)
+          `,
+          backgroundSize: '50px 50px'
+        }} />
+      </div>
+      
+      {/* 顶部指挥中心头部 */}
+      <header className="relative mb-6 md:mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          {/* 左侧标题区 */}
+          <div>
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-8 bg-gradient-to-b from-cyber-blue to-neon-purple rounded-full" />
+              <div>
+                <h1 className="text-2xl md:text-3xl font-bold font-tech tracking-wide">
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyber-blue via-white to-neon-purple">
+                    AI 指挥中心
+                  </span>
+                </h1>
+                <p className="text-gray-500 text-sm">Command Center · 物流智能获客系统</p>
+              </div>
+            </div>
+          </div>
+          
+          {/* 右侧状态区 */}
+          <div className="flex items-center gap-3 sm:gap-4">
+            {/* 系统时间 */}
+            <div className="hidden md:block text-right">
+              <p className="text-cyber-blue font-mono text-lg font-bold">
+                {currentTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </p>
+              <p className="text-gray-600 text-xs">
+                {currentTime.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', weekday: 'short' })}
+              </p>
+            </div>
+            
+            <div className="h-8 w-px bg-white/10 hidden md:block" />
+            
+            <button 
+              onClick={() => setShowNotifications(true)}
+              className="p-2 glass-card hover:border-cyber-blue/50 transition-colors relative"
+            >
+              <Bell className="w-5 h-5 text-gray-400" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-alert-red text-white text-xs rounded-full flex items-center justify-center animate-pulse">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+            <Link 
+              href="/settings"
+              className="p-2 glass-card hover:border-cyber-blue/50 transition-colors"
+            >
+              <Settings className="w-5 h-5 text-gray-400" />
+            </Link>
+          </div>
         </div>
-        <div className="flex items-center gap-2 sm:gap-4">
-          <button 
-            onClick={() => setShowNotifications(true)}
-            className="p-2 glass-card hover:border-cyber-blue/50 transition-colors relative"
-          >
-            <Bell className="w-5 h-5 text-gray-400" />
-            {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-alert-red text-white text-xs rounded-full flex items-center justify-center">
-                {unreadCount}
-              </span>
-            )}
-          </button>
-          <Link 
-            href="/settings"
-            className="p-2 glass-card hover:border-cyber-blue/50 transition-colors"
-          >
-            <Settings className="w-5 h-5 text-gray-400" />
-          </Link>
-          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-cyber-blue to-neon-purple flex items-center justify-center font-bold text-sm sm:text-base">
-            A
+        
+        {/* 状态指示条 */}
+        <div className="mt-4 flex items-center gap-4 text-xs">
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-cyber-green animate-pulse" />
+            <span className="text-gray-500">系统在线</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-cyber-blue" />
+            <span className="text-gray-500">{agents.filter(a => a.status !== 'offline').length} 个AI在线</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-energy-orange" />
+            <span className="text-gray-500">{agents.filter(a => a.status === 'busy').length} 个执行中</span>
           </div>
         </div>
       </header>
@@ -442,94 +688,82 @@ export default function Dashboard() {
         animate="visible"
         className="space-y-6"
       >
-        {/* 统计卡片 */}
-        <div className="stats-grid">
-          <StatCard 
-            title="今日新客户" 
+        {/* HUD 统计指标 */}
+        <div className="grid grid-cols-3 gap-4">
+          <HUDStatCard 
+            title="今日获客" 
             value={stats.newCustomers}
             icon={Users}
             color="cyber-blue"
+            glowColor="rgba(0, 212, 255, 0.4)"
           />
-          <StatCard 
-            title="高意向客户" 
+          <HUDStatCard 
+            title="高意向" 
             value={stats.highIntent}
             icon={TrendingUp}
             color="cyber-green"
+            glowColor="rgba(0, 255, 136, 0.4)"
           />
-          <StatCard 
-            title="对话总数" 
+          <HUDStatCard 
+            title="对话数" 
             value={stats.conversations}
             icon={MessageSquare}
             color="neon-purple"
-          />
-          <StatCard 
-            title="视频生成" 
-            value={stats.videos}
-            change={stats.processing > 0 ? `${stats.processing} 处理中` : undefined}
-            icon={Video}
-            color="energy-orange"
+            glowColor="rgba(139, 92, 246, 0.4)"
           />
         </div>
         
-        {/* 主内容区 */}
+        {/* 主内容区：AI员工监控 + 系统日志 */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* AI团队状态 */}
+          {/* AI 员工监控矩阵 */}
           <motion.div variants={itemVariants} className="lg:col-span-2">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 <Bot className="w-5 h-5 text-cyber-blue" />
-                AI员工团队
-              </h2>
+                <h2 className="text-lg font-bold text-white">AI 员工状态</h2>
+              </div>
               <Link 
                 href="/team" 
-                className="text-cyber-blue hover:text-cyber-blue/80 flex items-center gap-1 text-sm"
+                className="text-cyber-blue hover:text-cyber-blue/80 text-xs flex items-center gap-1"
               >
-                查看详情 <ChevronRight className="w-4 h-4" />
+                详细管理 →
               </Link>
             </div>
+            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {agents.map((agent) => (
-                <AgentCard key={agent.name} {...agent} />
-              ))}
+              {agents.length > 0 ? (
+                agents.map((agent) => (
+                  <AgentCommandCard 
+                    key={agent.type} 
+                    name={agent.name}
+                    role={agent.role}
+                    status={agent.status}
+                    currentTask={agent.currentTask}
+                    tasksToday={agent.tasksToday}
+                    lastActive={agent.lastActive}
+                  />
+                ))
+              ) : (
+                // Loading skeleton
+                [...Array(6)].map((_, i) => (
+                  <div key={i} className="glass-card p-4 animate-pulse">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-11 h-11 rounded-full bg-white/10" />
+                      <div className="flex-1">
+                        <div className="h-4 bg-white/10 rounded w-20 mb-1" />
+                        <div className="h-3 bg-white/5 rounded w-16" />
+                      </div>
+                    </div>
+                    <div className="h-12 bg-black/40 rounded-lg" />
+                  </div>
+                ))
+              )}
             </div>
           </motion.div>
           
-          {/* 实时活动 */}
-          <motion.div variants={itemVariants}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold">实时动态</h2>
-              <span className="text-gray-500 text-sm">自动刷新</span>
-            </div>
-            <div className="glass-card p-4 space-y-2">
-              {activities.map((activity, index) => (
-                <ActivityItem key={index} {...activity} />
-              ))}
-            </div>
-          </motion.div>
+          {/* 系统终端日志 */}
+          <SystemTerminal activities={activities} />
         </div>
-        
-        {/* 快捷操作 */}
-        <motion.div variants={itemVariants}>
-          <h2 className="text-lg md:text-xl font-bold mb-4">快捷操作</h2>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-            <Link href="/videos/create" className="btn-cyber text-center py-3 md:py-4">
-              <Video className="w-4 h-4 md:w-5 md:h-5 mx-auto mb-1 md:mb-2" />
-              <span className="text-xs md:text-sm">生成视频</span>
-            </Link>
-            <Link href="/customers" className="btn-cyber text-center py-3 md:py-4">
-              <Users className="w-4 h-4 md:w-5 md:h-5 mx-auto mb-1 md:mb-2" />
-              <span className="text-xs md:text-sm">客户列表</span>
-            </Link>
-            <Link href="/conversations" className="btn-cyber text-center py-3 md:py-4">
-              <MessageSquare className="w-4 h-4 md:w-5 md:h-5 mx-auto mb-1 md:mb-2" />
-              <span className="text-xs md:text-sm">对话记录</span>
-            </Link>
-            <Link href="/team" className="btn-cyber text-center py-3 md:py-4">
-              <Bot className="w-4 h-4 md:w-5 md:h-5 mx-auto mb-1 md:mb-2" />
-              <span className="text-xs md:text-sm">AI团队</span>
-            </Link>
-          </div>
-        </motion.div>
       </motion.div>
       
       {/* 通知弹窗 */}

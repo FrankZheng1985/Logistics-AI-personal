@@ -28,28 +28,34 @@ import {
   Cpu
 } from 'lucide-react'
 
+// 核心功能菜单（简化版 - 指挥中心风格）
 const menuItems = [
-  { href: '/dashboard', label: '控制台', icon: LayoutDashboard },
+  { href: '/dashboard', label: '指挥中心', icon: LayoutDashboard },
   { href: '/customers', label: '客户管理', icon: Users },
   { href: '/leads', label: '线索狩猎', icon: Target },
-  { href: '/products', label: '产品趋势', icon: ShoppingCart },
-  { href: '/content', label: '内容工作台', icon: Smartphone },
-  { href: '/assistant-work', label: '小助工作台', icon: CalendarCheck },
   { href: '/conversations', label: '对话记录', icon: MessageSquare },
-  { href: '/videos', label: '视频中心', icon: Video },
   { href: '/team', label: 'AI团队', icon: Bot },
 ]
 
+// 系统管理菜单（简化版）
 const managementItems = [
   { href: '/knowledge', label: '知识库', icon: BookOpen },
-  { href: '/standards', label: '工作标准', icon: ClipboardCheck },
-  { href: '/monitoring', label: '系统监控', icon: Activity },
-  { href: '/ai-usage', label: 'AI用量监控', icon: Cpu },
-  { href: '/assets', label: '素材库', icon: FolderOpen },
-  { href: '/marketing', label: '营销序列', icon: Mail },
-  { href: '/wechat-groups', label: '微信群监控', icon: MessageCircle },
-  { href: '/settings/erp', label: 'ERP对接', icon: Database },
 ]
+
+// 隐藏的菜单项（保留代码，暂不显示）
+// const hiddenMenuItems = [
+//   { href: '/products', label: '产品趋势', icon: ShoppingCart },
+//   { href: '/content', label: '内容工作台', icon: Smartphone },
+//   { href: '/assistant-work', label: '小助工作台', icon: CalendarCheck },
+//   { href: '/videos', label: '视频中心', icon: Video },
+//   { href: '/standards', label: '工作标准', icon: ClipboardCheck },
+//   { href: '/monitoring', label: '系统监控', icon: Activity },
+//   { href: '/ai-usage', label: 'AI用量监控', icon: Cpu },
+//   { href: '/assets', label: '素材库', icon: FolderOpen },
+//   { href: '/marketing', label: '营销序列', icon: Mail },
+//   { href: '/wechat-groups', label: '微信群监控', icon: MessageCircle },
+//   { href: '/settings/erp', label: 'ERP对接', icon: Database },
+// ]
 
 interface SidebarProps {
   isOpen: boolean
