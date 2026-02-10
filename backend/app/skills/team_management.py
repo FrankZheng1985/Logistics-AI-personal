@@ -161,10 +161,44 @@ class TeamManagementSkill(BaseSkill):
             return self._err(f"查询团队状态时出错：{str(e)}")
 
     # ==================== 任务分配 ====================
+    
+    # 可以直接执行的任务类型映射（混合方案优化）
+    DIRECT_EXECUTE_MAPPING = {
+        "lead_hunter": {
+            "keywords": ["搜索线索", "找线索", "搜线索", "获客", "找客户", "发现话题"],
+            "direct_tool": "search_leads",
+            "tool_args_builder": lambda desc: {"max_results": 10}
+        },
+        "copywriter": {
+            "keywords": ["写文案", "写脚本", "写广告", "写邮件", "朋友圈文案", "营销文案"],
+            "direct_tool": "write_copy",
+            "tool_args_builder": lambda desc: {"topic": desc, "copy_type": "general"}
+        },
+        "video_creator": {
+            "keywords": ["生成视频", "做视频", "创建视频", "视频制作"],
+            "direct_tool": "create_video",
+            "tool_args_builder": lambda desc: {"title": desc, "mode": "quick"}
+        },
+        "analyst": {
+            "keywords": ["分析客户", "客户分析", "意向分析", "客户画像"],
+            "direct_tool": "analyze_customer",
+            "tool_args_builder": lambda desc: {"conversation": desc}
+        },
+        "follow": {
+            "keywords": ["跟进", "发跟进", "生成跟进", "写跟进邮件"],
+            "direct_tool": "generate_followup",
+            "tool_args_builder": lambda desc: {"context": desc, "followup_type": "email"}
+        }
+    }
 
     async def _handle_agent_dispatch(self, message: str, intent: Dict, user_id: str, args: Dict = None) -> Dict[str, Any]:
-        """向指定AI员工分配任务"""
-        await self.log_step("think", "分析任务分配", "识别目标AI员工和任务内容")
+        """向指定AI员工分配任务
+        
+        混合方案优化：
+        1. 优先检查是否可以直接执行（不走异步任务队列）
+        2. 对于复杂或长时间任务，走异步派发流程
+        """
+        await self.log_step("think", "分析任务分配", "判断是否可直接执行或需要派发")
 
         dispatch_prompt = f"""分析以下指令，提取任务分配信息：
 
@@ -181,7 +215,12 @@ class TeamManagementSkill(BaseSkill):
 - eu_customs_monitor (小欧间谍) - 海关监控
 
 返回JSON：
-{{"target_agent": "agent_type", "task_description": "具体任务内容", "priority": "medium", "project": "所属项目名称（如有，如'独立站项目'、'欧洲物流方案'，没有则为空字符串）"}}
+{{"target_agent": "agent_type", "task_description": "具体任务内容", "priority": "medium", "project": "所属项目名称（如有，如'独立站项目'、'欧洲物流方案'，没有则为空字符串）", "can_direct_execute": true/false}}
+
+can_direct_execute判断标准：
+- 简单的搜索线索、写文案、生成短视频 = true
+- 复杂的长视频、批量任务、需要多步骤配合 = false
+
 只返回JSON。
 """
         try:
@@ -196,6 +235,44 @@ class TeamManagementSkill(BaseSkill):
             task_desc = dispatch_data.get("task_description", message)
             priority = dispatch_data.get("priority", "medium")
             project_name = dispatch_data.get("project", "")
+            can_direct = dispatch_data.get("can_direct_execute", False)
+            
+            # ===== 混合方案优化：尝试直接执行 =====
+            if can_direct and target_agent_key in self.DIRECT_EXECUTE_MAPPING:
+                direct_config = self.DIRECT_EXECUTE_MAPPING[target_agent_key]
+                
+                # 检查任务描述是否匹配直接执行关键词
+                if any(kw in message.lower() or kw in task_desc.lower() for kw in direct_config["keywords"]):
+                    await self.log_step("action", f"直接执行任务", f"使用Maria直接能力执行: {target_agent_key}")
+                    
+                    try:
+                        from app.skills.maria_direct import MariaDirectSkill
+                        direct_skill = MariaDirectSkill()
+                        direct_skill.agent = self.agent  # 传递agent引用
+                        
+                        tool_name = direct_config["direct_tool"]
+                        tool_args = direct_config["tool_args_builder"](task_desc)
+                        
+                        result = await direct_skill.handle(
+                            tool_name=tool_name,
+                            args=tool_args,
+                            message=task_desc,
+                            user_id=user_id
+                        )
+                        
+                        if result.get("status") == "success":
+                            agent_info = AGENT_INFO.get(target_agent_key)
+                            agent_name = agent_info["name"] if agent_info else target_agent_key
+                            
+                            # 构建友好的返回消息
+                            return self._ok(
+                                f"已直接完成{agent_name}的任务！\n\n{result.get('message', '执行成功')}",
+                                direct_execute=True,
+                                result=result
+                            )
+                    except Exception as direct_err:
+                        logger.warning(f"[TeamSkill] 直接执行失败，回退到异步派发: {direct_err}")
+                        # 继续走异步派发流程
 
             agent_info = AGENT_INFO.get(target_agent_key)
             if not agent_info:

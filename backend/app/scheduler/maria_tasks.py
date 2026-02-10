@@ -903,3 +903,293 @@ async def maria_evening_summary():
         logger.error(f"[Maria晚报] 晚间总结生成失败: {e}")
         import traceback
         logger.error(traceback.format_exc())
+
+
+# ============================================================
+# 混合方案新增：自动化工作流任务
+# ============================================================
+
+async def maria_auto_process_new_leads():
+    """
+    Maria 自动处理新线索（每30分钟执行）
+    
+    工作流：
+    1. 查询最近30分钟新发现的线索
+    2. 自动分析每条线索的意向等级
+    3. 高意向线索：立即通知老板 + 生成跟进建议
+    4. 中意向线索：记录待跟进列表
+    5. 低意向线索：归档观察
+    """
+    import fcntl
+    lock_file = "/tmp/maria_auto_leads.lock"
+    
+    try:
+        # 文件锁防止重复执行
+        with open(lock_file, "w") as f:
+            try:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                logger.debug("[Maria自动化] 线索处理任务正在执行，跳过")
+                return
+            
+            from app.models.database import AsyncSessionLocal
+            from sqlalchemy import text
+            from app.api.wechat_assistant import send_text_message
+            
+            logger.info("[Maria自动化] 开始自动处理新线索...")
+            
+            async with AsyncSessionLocal() as db:
+                # 1. 查询最近30分钟且未处理的新线索
+                result = await db.execute(
+                    text("""
+                        SELECT id, source, source_url, content, ai_summary, intent_level,
+                               ai_confidence, language, created_at
+                        FROM leads
+                        WHERE status = 'new'
+                        AND created_at > NOW() - INTERVAL '30 minutes'
+                        AND intent_level IS NOT NULL
+                        ORDER BY ai_confidence DESC
+                        LIMIT 10
+                    """)
+                )
+                new_leads = result.fetchall()
+                
+                if not new_leads:
+                    logger.info("[Maria自动化] 最近30分钟没有新线索")
+                    fcntl.flock(f, fcntl.LOCK_UN)
+                    return
+                
+                logger.info(f"[Maria自动化] 发现 {len(new_leads)} 条新线索，开始处理")
+                
+                high_intent_leads = []
+                medium_intent_leads = []
+                
+                for lead in new_leads:
+                    lead_id = lead[0]
+                    source = lead[1]
+                    source_url = lead[2]
+                    content = lead[3]
+                    ai_summary = lead[4]
+                    intent_level = lead[5]
+                    confidence = lead[6]
+                    language = lead[7]
+                    created_at = lead[8]
+                    
+                    # 根据意向等级分类
+                    if intent_level == 'high':
+                        high_intent_leads.append({
+                            "id": lead_id,
+                            "source": source,
+                            "summary": ai_summary or "暂无摘要",
+                            "confidence": f"{int(confidence * 100)}%" if confidence else "未知",
+                            "url": source_url,
+                            "language": language or "zh"
+                        })
+                        
+                        # 更新状态为待跟进
+                        await db.execute(
+                            text("UPDATE leads SET status = 'following' WHERE id = :id"),
+                            {"id": lead_id}
+                        )
+                        
+                    elif intent_level == 'medium':
+                        medium_intent_leads.append({
+                            "id": lead_id,
+                            "source": source,
+                            "summary": ai_summary or "暂无摘要"
+                        })
+                        
+                        # 更新状态为已分析
+                        await db.execute(
+                            text("UPDATE leads SET status = 'analyzed' WHERE id = :id"),
+                            {"id": lead_id}
+                        )
+                    else:
+                        # 低意向归档
+                        await db.execute(
+                            text("UPDATE leads SET status = 'archived' WHERE id = :id"),
+                            {"id": lead_id}
+                        )
+                
+                await db.commit()
+                
+                # 2. 高意向线索立即通知老板
+                if high_intent_leads:
+                    message = f"🎯 Maria发现 {len(high_intent_leads)} 条高意向线索！\n\n"
+                    
+                    for i, lead in enumerate(high_intent_leads[:5], 1):
+                        message += f"{i}. 【{lead['source']}】\n"
+                        message += f"   📝 {lead['summary'][:50]}...\n"
+                        message += f"   🎯 意向度: {lead['confidence']}\n"
+                        if lead.get('url'):
+                            message += f"   🔗 {lead['url'][:50]}...\n"
+                        message += "\n"
+                    
+                    if len(high_intent_leads) > 5:
+                        message += f"还有 {len(high_intent_leads) - 5} 条高意向线索...\n"
+                    
+                    message += "需要我帮您生成跟进话术吗？"
+                    
+                    await send_text_message("Frank.Z", message)
+                    logger.info(f"[Maria自动化] 已通知老板 {len(high_intent_leads)} 条高意向线索")
+                
+                # 3. 中意向线索汇总（每日汇报，不即时通知）
+                if medium_intent_leads:
+                    # 记录到日志，晚报时汇总
+                    logger.info(f"[Maria自动化] 发现 {len(medium_intent_leads)} 条中意向线索，已记录")
+            
+            fcntl.flock(f, fcntl.LOCK_UN)
+            logger.info("[Maria自动化] 新线索处理完成")
+            
+    except Exception as e:
+        logger.error(f"[Maria自动化] 处理新线索失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
+async def maria_auto_followup_reminder():
+    """
+    Maria 自动跟进提醒（每天10:00和15:00执行）
+    
+    功能：
+    1. 查询需要今日跟进的客户
+    2. 生成跟进话术建议
+    3. 发送提醒给老板
+    """
+    try:
+        from app.models.database import AsyncSessionLocal
+        from sqlalchemy import text
+        from app.api.wechat_assistant import send_text_message
+        import pytz
+        
+        logger.info("[Maria自动化] 检查今日待跟进客户...")
+        
+        CHINA_TZ = pytz.timezone('Asia/Shanghai')
+        now = datetime.now(CHINA_TZ)
+        
+        async with AsyncSessionLocal() as db:
+            # 查询今日需要跟进的客户
+            result = await db.execute(
+                text("""
+                    SELECT c.id, c.name, c.company, c.email, c.intent_level,
+                           c.last_contact_at, c.next_contact_at, c.notes
+                    FROM customers c
+                    WHERE DATE(c.next_contact_at) = CURRENT_DATE
+                    AND c.status = 'active'
+                    ORDER BY c.intent_level DESC, c.next_contact_at ASC
+                    LIMIT 10
+                """)
+            )
+            customers = result.fetchall()
+            
+            if not customers:
+                logger.info("[Maria自动化] 今日没有需要跟进的客户")
+                return
+            
+            # 按意向分组
+            high_intent = [c for c in customers if c[4] == 'high']
+            other_intent = [c for c in customers if c[4] != 'high']
+            
+            message = f"📋 郑总，今日有 {len(customers)} 位客户需要跟进：\n\n"
+            
+            if high_intent:
+                message += "🔥 高意向客户（优先）：\n"
+                for c in high_intent[:3]:
+                    name = c[1] or "未知"
+                    company = c[2] or ""
+                    email = c[3] or ""
+                    last_contact = c[5]
+                    notes = c[7] or ""
+                    
+                    message += f"• {name}"
+                    if company:
+                        message += f" ({company})"
+                    message += "\n"
+                    
+                    if last_contact:
+                        days_ago = (now.date() - last_contact.date()).days
+                        message += f"  上次联系: {days_ago}天前\n"
+                    
+                    if notes:
+                        message += f"  备注: {notes[:30]}...\n"
+                    
+                    message += "\n"
+            
+            if other_intent:
+                message += f"\n📌 其他客户：{len(other_intent)} 位\n"
+                for c in other_intent[:3]:
+                    name = c[1] or "未知"
+                    company = c[2] or ""
+                    message += f"• {name}"
+                    if company:
+                        message += f" ({company})"
+                    message += "\n"
+            
+            message += "\n需要我帮您生成跟进邮件或话术吗？"
+            
+            await send_text_message("Frank.Z", message)
+            logger.info(f"[Maria自动化] 已发送跟进提醒，{len(customers)} 位客户")
+            
+    except Exception as e:
+        logger.error(f"[Maria自动化] 跟进提醒失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
+async def maria_lead_hunt_scheduler():
+    """
+    Maria 自动线索狩猎调度（每3小时执行）
+    
+    功能：
+    1. 根据时间段智能调度线索搜索
+    2. 工作时间(9-21点)执行搜索
+    3. 自动调用小猎搜索线索
+    4. 搜索完成后触发自动处理流程
+    """
+    import fcntl
+    lock_file = "/tmp/maria_lead_hunt.lock"
+    
+    try:
+        # 检查是否在工作时间
+        import pytz
+        CHINA_TZ = pytz.timezone('Asia/Shanghai')
+        now = datetime.now(CHINA_TZ)
+        
+        if not (9 <= now.hour < 21):
+            logger.info(f"[Maria自动化] 当前 {now.hour}:00 不在工作时间(9-21点)，跳过线索搜索")
+            return
+        
+        # 文件锁防止重复执行
+        with open(lock_file, "w") as f:
+            try:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                logger.debug("[Maria自动化] 线索狩猎任务正在执行，跳过")
+                return
+            
+            logger.info("[Maria自动化] 启动自动线索狩猎...")
+            
+            # 直接调用小猎的智能狩猎
+            from app.agents.lead_hunter import lead_hunter_agent
+            
+            result = await lead_hunter_agent.process({
+                "action": "smart_hunt",
+                "max_keywords": 3,  # 每次搜索3个关键词
+                "max_results": 15   # 每次最多分析15条
+            })
+            
+            leads_found = result.get("total_leads", 0)
+            high_intent = result.get("high_intent_leads", 0)
+            
+            logger.info(f"[Maria自动化] 线索狩猎完成: 发现 {leads_found} 条线索，高意向 {high_intent} 条")
+            
+            # 如果发现线索，触发自动处理
+            if leads_found > 0:
+                await maria_auto_process_new_leads()
+            
+            fcntl.flock(f, fcntl.LOCK_UN)
+            
+    except Exception as e:
+        logger.error(f"[Maria自动化] 线索狩猎调度失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())

@@ -18,12 +18,13 @@ class EmailSkill(BaseSkill):
     """邮件管理技能"""
 
     name = "email"
-    description = "邮件管理：查询、阅读、发送、同步邮件，管理邮箱账户"
+    description = "邮件管理：查询、阅读、发送、同步邮件，管理邮箱账户，分析邮件附件"
     tool_names = [
         "read_emails",
         "send_email",
         "sync_emails",
         "manage_email_account",
+        "analyze_email_attachment",  # 新增：分析邮件附件
     ]
 
     async def handle(self, tool_name: str, args: Dict[str, Any],
@@ -33,6 +34,7 @@ class EmailSkill(BaseSkill):
             "send_email": self._handle_send_email,
             "sync_emails": self._handle_sync_emails,
             "manage_email_account": self._handle_manage_email_account,
+            "analyze_email_attachment": self._handle_analyze_attachment,  # 新增
         }
         handler = handlers.get(tool_name)
         if handler:
@@ -311,6 +313,252 @@ class EmailSkill(BaseSkill):
         except Exception as e:
             logger.error(f"[EmailSkill] 邮箱管理操作失败: {e}")
             return self._err(f"操作失败: {str(e)}")
+
+    # ==================== 分析邮件附件 ====================
+
+    async def _handle_analyze_attachment(self, message: str, user_id: str, args: Dict = None) -> Dict[str, Any]:
+        """
+        分析邮件中的附件文档
+        
+        功能：
+        1. 根据关键词搜索邮件
+        2. 下载附件
+        3. 解析文档内容
+        4. 用 LLM 进行专业分析
+        """
+        from app.services.multi_email_service import multi_email_service
+        from app.services.document_service import document_service
+        from app.core.llm import chat_completion
+        import os
+
+        args = args or {}
+        search_keyword = args.get("search_keyword", "")
+        email_id = args.get("email_id")
+        analysis_focus = args.get("analysis_focus", "")
+
+        await self.log_step("search", "搜索邮件附件", f"关键词: {search_keyword or '最近附件'}")
+
+        try:
+            # 1. 查找带附件的邮件
+            from app.models.database import AsyncSessionLocal
+            from sqlalchemy import text
+
+            async with AsyncSessionLocal() as db:
+                if email_id:
+                    # 直接用 ID 查找
+                    result = await db.execute(
+                        text("""
+                            SELECT id, subject, from_name, from_address, attachment_names, message_id, account_id
+                            FROM email_cache 
+                            WHERE id = :email_id AND has_attachments = true
+                        """),
+                        {"email_id": email_id}
+                    )
+                elif search_keyword:
+                    # 用关键词搜索
+                    result = await db.execute(
+                        text("""
+                            SELECT id, subject, from_name, from_address, attachment_names, message_id, account_id
+                            FROM email_cache 
+                            WHERE has_attachments = true 
+                              AND (subject ILIKE :kw OR array_to_string(attachment_names, ',') ILIKE :kw)
+                            ORDER BY received_at DESC
+                            LIMIT 1
+                        """),
+                        {"kw": f"%{search_keyword}%"}
+                    )
+                else:
+                    # 获取最近一封带附件的邮件
+                    result = await db.execute(
+                        text("""
+                            SELECT id, subject, from_name, from_address, attachment_names, message_id, account_id
+                            FROM email_cache 
+                            WHERE has_attachments = true
+                            ORDER BY received_at DESC
+                            LIMIT 1
+                        """)
+                    )
+
+                row = result.fetchone()
+
+            if not row:
+                return self._err(f"没找到{'包含\"' + search_keyword + '\"的' if search_keyword else ''}带附件的邮件")
+
+            email_db_id = str(row[0])
+            subject = row[1]
+            from_name = row[2] or row[3]
+            attachment_names = row[4] or []
+
+            await self.log_step("download", "下载附件", f"邮件: {subject}")
+
+            # 2. 下载附件
+            download_result = await multi_email_service.download_attachments(
+                email_db_id,
+                save_dir="/tmp/maria_attachments"
+            )
+
+            if not download_result.get("success"):
+                return self._err(f"附件下载失败: {download_result.get('error', '未知错误')}")
+
+            attachments = download_result.get("attachments", [])
+            if not attachments:
+                return self._err("邮件中没有可下载的附件")
+
+            # 3. 读取并分析每个附件
+            analysis_results = []
+
+            for att in attachments:
+                filename = att.get("filename", "未知文件")
+                filepath = att.get("path")
+                
+                # 只处理文档类型
+                if not filename.lower().endswith(('.pdf', '.doc', '.docx', '.txt')):
+                    analysis_results.append(f"**{filename}**: 非文档类型，跳过分析")
+                    continue
+
+                await self.log_step("analyze", "分析文档", filename)
+
+                # 读取文档内容
+                doc_result = await document_service.read_document(filepath, filename)
+
+                if not doc_result.get("success"):
+                    analysis_results.append(f"**{filename}**: 无法读取 - {doc_result.get('error', '格式不支持')}")
+                    continue
+
+                content = doc_result.get("content", "")
+                word_count = len(content)
+
+                if word_count < 50:
+                    analysis_results.append(f"**{filename}**: 内容太少（{word_count}字），无法分析")
+                    continue
+
+                # 4. 判断文档类型并构建分析提示词
+                filename_lower = filename.lower()
+                is_contract = any(kw in filename_lower or kw in subject.lower() 
+                                for kw in ["合同", "协议", "contract", "agreement"])
+                is_finance = any(kw in filename_lower for kw in ["发票", "invoice", "财务", "报表"])
+                is_logistics = any(kw in filename_lower or kw in subject.lower() 
+                                 for kw in ["运输", "物流", "提单", "报关", "清关", "transport", "shipping"])
+
+                if is_contract:
+                    prompt = f"""【合同法专家模式】请以资深合同律师的视角分析以下合同：
+
+📄 文件名：{filename}
+📧 邮件主题：{subject}
+👤 发件人：{from_name}
+{f'🎯 分析重点：{analysis_focus}' if analysis_focus else ''}
+
+📝 合同内容：
+{content[:15000]}
+
+---
+请分析：
+1. 合同类型和主要条款概览
+2. 关键商业条款（价格、付款、期限）
+3. 风险条款识别（违约、责任限制、不可抗力）
+4. 对我方的利弊分析
+5. 修改建议"""
+                elif is_logistics:
+                    prompt = f"""【跨境物流专家模式】请以国际物流专家的视角分析：
+
+📄 文件名：{filename}
+📧 邮件主题：{subject}
+👤 发件人：{from_name}
+{f'🎯 分析重点：{analysis_focus}' if analysis_focus else ''}
+
+📝 文档内容：
+{content[:15000]}
+
+---
+请分析：
+1. 文档类型和关键信息
+2. 运输条款/贸易条款
+3. 潜在风险和注意事项
+4. 后续需要跟进的事项"""
+                else:
+                    prompt = f"""请分析以下文档：
+
+📄 文件名：{filename}
+📧 邮件主题：{subject}
+👤 发件人：{from_name}
+{f'🎯 分析重点：{analysis_focus}' if analysis_focus else ''}
+
+📝 文档内容：
+{content[:15000]}
+
+---
+请分析：
+1. 文档的主要内容和目的
+2. 关键信息摘要
+3. 需要关注或决策的事项
+4. 建议的处理方式"""
+
+                # 5. 调用 LLM 分析
+                try:
+                    import asyncio
+                    
+                    # 选择合适的模型
+                    if is_contract:
+                        model_preference = "legal"
+                    elif is_finance:
+                        model_preference = "finance"
+                    elif is_logistics:
+                        model_preference = "reasoning"
+                    else:
+                        model_preference = None
+
+                    response = await asyncio.wait_for(
+                        chat_completion(
+                            messages=[{"role": "user", "content": prompt}],
+                            model_preference=model_preference,
+                            use_advanced=True
+                        ),
+                        timeout=120
+                    )
+
+                    if isinstance(response, str):
+                        analysis = response
+                    elif isinstance(response, dict):
+                        analysis = response.get("content", str(response))
+                    else:
+                        analysis = str(response)
+
+                    analysis_results.append(f"## 📄 {filename}（{word_count}字）\n\n{analysis}")
+
+                    # 保存到邮件上下文（以便后续引用）
+                    try:
+                        from app.services.email_context_service import email_context_service
+                        
+                        doc_type = "contract" if is_contract else ("logistics" if is_logistics else "general")
+                        await email_context_service.save_email_context(
+                            user_id=user_id or "Frank.Z",
+                            email_id=email_db_id,
+                            subject=subject,
+                            from_address=row[3],
+                            from_name=from_name,
+                            attachment_name=filename,
+                            attachment_content=content,
+                            analysis_result=analysis,
+                            doc_type=doc_type
+                        )
+                    except Exception as ctx_err:
+                        logger.warning(f"[EmailSkill] 保存邮件上下文失败: {ctx_err}")
+
+                except asyncio.TimeoutError:
+                    analysis_results.append(f"**{filename}**: 分析超时（文档可能太长）")
+                except Exception as llm_err:
+                    logger.error(f"[EmailSkill] LLM分析失败: {llm_err}")
+                    analysis_results.append(f"**{filename}**: 分析出错 - {str(llm_err)[:100]}")
+
+            # 6. 返回结果
+            if not analysis_results:
+                return self._err("没有可分析的文档附件")
+
+            return self._ok(f"📧 **{subject}** 附件分析\n\n" + "\n\n---\n\n".join(analysis_results))
+
+        except Exception as e:
+            logger.error(f"[EmailSkill] 分析附件失败: {e}", exc_info=True)
+            return self._err(f"分析附件失败: {str(e)}")
 
 
 # 注册

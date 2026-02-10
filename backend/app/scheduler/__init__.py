@@ -144,13 +144,18 @@ async def init_scheduler():
             auto_sync_calendar,
             maria_morning_brief,
             check_maria_inbox_attachments,
-            maria_proactive_task_check,  # 新增：主动任务巡检
-            maria_evening_summary  # 新增：晚间工作总结
+            maria_proactive_task_check,  # 主动任务巡检
+            maria_evening_summary,  # 晚间工作总结
+            # 混合方案新增：自动化工作流
+            maria_auto_process_new_leads,  # 自动处理新线索
+            maria_auto_followup_reminder,  # 自动跟进提醒
+            maria_lead_hunt_scheduler  # 自动线索狩猎调度
         )
     except ImportError as e:
         logger.warning(f"Maria后台任务导入失败: {e}")
         auto_sync_emails = auto_sync_calendar = maria_morning_brief = check_maria_inbox_attachments = None
         maria_proactive_task_check = maria_evening_summary = None
+        maria_auto_process_new_leads = maria_auto_followup_reminder = maria_lead_hunt_scheduler = None
     
     # TaskWorker 任务调度引擎
     try:
@@ -319,6 +324,23 @@ async def init_scheduler():
     # Maria 晚间工作总结（新增）
     _safe_add_job(maria_evening_summary, CronTrigger(hour=18, minute=30),
                   "maria_evening_summary", "[Maria] 晚间工作总结 - 18:30")
+    
+    # ==================== Maria 自动化工作流（混合方案）====================
+    
+    # 自动处理新线索（每30分钟）
+    _safe_add_job(maria_auto_process_new_leads, IntervalTrigger(minutes=30),
+                  "maria_auto_process_leads", "[Maria自动化] 处理新线索 - 每30分钟")
+    
+    # 自动跟进提醒（每天10:00和15:00）
+    _safe_add_job(maria_auto_followup_reminder, CronTrigger(hour=10, minute=0),
+                  "maria_followup_morning", "[Maria自动化] 跟进提醒(上午) - 10:00")
+    
+    _safe_add_job(maria_auto_followup_reminder, CronTrigger(hour=15, minute=0),
+                  "maria_followup_afternoon", "[Maria自动化] 跟进提醒(下午) - 15:00")
+    
+    # 自动线索狩猎调度（每3小时，工作时间内）
+    _safe_add_job(maria_lead_hunt_scheduler, IntervalTrigger(hours=3),
+                  "maria_lead_hunt_scheduler", "[Maria自动化] 线索狩猎调度 - 每3小时")
     
     # ==================== Notion 知识库同步 ====================
     

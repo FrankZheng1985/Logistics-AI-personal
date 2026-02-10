@@ -10,12 +10,59 @@ from app.core.config import settings
 from app.api import router as api_router
 
 
+def check_critical_config():
+    """
+    检查关键配置项，防止使用不安全的默认值
+    """
+    warnings = []
+    errors = []
+    
+    # 检查 JWT 密钥
+    if settings.JWT_SECRET == "your-secret-key-change-in-production":
+        if settings.DEBUG:
+            warnings.append("⚠️ JWT_SECRET 使用默认值（调试模式允许）")
+        else:
+            errors.append("❌ 生产环境必须设置 JWT_SECRET 环境变量")
+    
+    # 检查数据库密码
+    if "password@localhost" in settings.DATABASE_URL:
+        if settings.DEBUG:
+            warnings.append("⚠️ DATABASE_URL 使用默认密码（调试模式允许）")
+        else:
+            errors.append("❌ 生产环境必须配置安全的数据库密码")
+    
+    # 检查 AI API 密钥
+    if not any([settings.DASHSCOPE_API_KEY, settings.OPENAI_API_KEY, settings.ANTHROPIC_API_KEY]):
+        warnings.append("⚠️ 未配置任何 AI API 密钥，AI 功能将不可用")
+    
+    # 检查加密密钥
+    import os
+    if not os.getenv("CREDENTIAL_ENCRYPTION_KEY"):
+        warnings.append("⚠️ 未配置 CREDENTIAL_ENCRYPTION_KEY，凭证将以明文存储")
+    
+    # 输出警告和错误
+    for warn in warnings:
+        logger.warning(warn)
+    
+    for err in errors:
+        logger.error(err)
+    
+    # 生产环境有错误时退出
+    if errors and not settings.DEBUG:
+        raise RuntimeError("关键配置缺失，请检查环境变量。详见上方错误信息。")
+    
+    return len(errors) == 0
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时执行
     logger.info(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} 启动中...")
     logger.info(f"📊 调试模式: {settings.DEBUG}")
+    
+    # 检查关键配置
+    check_critical_config()
     
     # 初始化AI员工状态
     logger.info("🤖 AI员工团队上线:")
@@ -78,13 +125,20 @@ app = FastAPI(
     openapi_url="/api/openapi.json"
 )
 
-# CORS中间件
+# CORS中间件（限制允许的方法和头部，增强安全性）
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization", 
+        "X-Requested-With",
+        "Accept",
+        "Origin",
+        "X-CSRF-Token",
+    ],
 )
 
 # 注册路由

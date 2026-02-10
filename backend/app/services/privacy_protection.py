@@ -441,6 +441,7 @@ class ERPDataPrivacyService:
     ):
         """
         记录数据访问审计日志
+        使用参数化查询防止SQL注入
         """
         try:
             async with AsyncSessionLocal() as db:
@@ -448,34 +449,31 @@ class ERPDataPrivacyService:
                 safe_params = cls._sanitize_params(params) if params else {}
                 params_json = json.dumps(safe_params, ensure_ascii=False, default=str)
                 
-                # 准备值
-                safe_user_id = user_id or "anonymous"
-                safe_user_ip = user_ip or "unknown"
-                success_str = "true" if success else "false"
-                error_str = "NULL" if error_message is None else f"'{error_message}'"
-                
-                # 转义单引号防止SQL注入
-                endpoint_safe = endpoint.replace("'", "''")
-                safe_user_id = safe_user_id.replace("'", "''")
-                safe_user_ip = safe_user_ip.replace("'", "''")
-                params_json_safe = params_json.replace("'", "''")
-                
-                sql = f"""
+                # 使用参数化查询（安全）
+                sql = text("""
                     INSERT INTO erp_access_audit 
                     (endpoint, user_id, user_ip, params, data_count, success, error_message, created_at)
                     VALUES (
-                        '{endpoint_safe}', 
-                        '{safe_user_id}', 
-                        '{safe_user_ip}', 
-                        '{params_json_safe}'::jsonb, 
-                        {data_count}, 
-                        {success_str}, 
-                        {error_str}, 
+                        :endpoint, 
+                        :user_id, 
+                        :user_ip, 
+                        :params::jsonb, 
+                        :data_count, 
+                        :success, 
+                        :error_message, 
                         NOW()
                     )
-                """
+                """)
                 
-                await db.execute(text(sql))
+                await db.execute(sql, {
+                    "endpoint": endpoint,
+                    "user_id": user_id or "anonymous",
+                    "user_ip": user_ip or "unknown",
+                    "params": params_json,
+                    "data_count": data_count,
+                    "success": success,
+                    "error_message": error_message
+                })
                 await db.commit()
         except Exception as e:
             # 审计日志记录失败不应该影响主业务

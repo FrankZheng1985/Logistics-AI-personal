@@ -23,6 +23,7 @@ from app.core.prompts.lead_hunter import SYSTEM_PROMPT as LEAD_HUNTER_SYSTEM_PRO
 from app.agents.base import BaseAgent, AgentRegistry
 from app.models.conversation import AgentType
 from app.core.config import settings
+from app.core.prompt_utils import sanitize_user_input, wrap_user_content
 
 
 class LeadHunterAgent(BaseAgent):
@@ -873,12 +874,16 @@ class LeadHunterAgent(BaseAgent):
         # 检查是否包含高意向关键词
         has_high_intent = any(kw in content for kw in self.HIGH_INTENT_KEYWORDS)
         
-        # 用AI深度分析
+        # 用AI深度分析（清理用户输入防止注入）
+        safe_content = sanitize_user_input(content, max_length=5000)
+        safe_url = sanitize_user_input(url, max_length=500)
+        safe_source = sanitize_user_input(source, max_length=100)
+        
         prompt = f"""请分析以下内容是否是潜在的物流客户线索：
 
-来源平台：{source}
-URL：{url}
-内容：{content}
+来源平台：{safe_source}
+URL：{safe_url}
+内容：{safe_content}
 
 注意：
 1. 如果这是物流公司/货代公司的广告或推广，返回 is_lead: false

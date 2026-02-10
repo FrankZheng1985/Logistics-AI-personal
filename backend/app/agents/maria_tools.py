@@ -382,6 +382,31 @@ MARIA_TOOLS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "analyze_email_attachment",
+            "description": "分析邮件中的附件文档（合同/发票/报价单等）。可以搜索特定邮件的附件进行分析，支持Word/PDF/TXT格式",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "search_keyword": {
+                        "type": "string",
+                        "description": "搜索关键词，用于找到对应邮件。如'合同'、'铁路运输'、'欧桥'"
+                    },
+                    "email_id": {
+                        "type": "string",
+                        "description": "可选，直接指定邮件ID"
+                    },
+                    "analysis_focus": {
+                        "type": "string",
+                        "description": "可选，分析重点。如'风险条款'、'价格'、'付款条件'"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "generate_work_summary",
             "description": "生成工作总结（日报/周报/月报），汇总今天或本周的工作成果",
             "parameters": {
@@ -658,6 +683,243 @@ MARIA_TOOLS: List[Dict[str, Any]] = [
             }
         }
     },
+
+    # ============================================================
+    # 13. Maria 直接执行能力（混合方案 - 不经过任务派发）
+    # ============================================================
+    
+    # ── 13.1 线索搜索（直接调用小猎核心能力）──
+    {
+        "type": "function",
+        "function": {
+            "name": "search_leads",
+            "description": "【直接执行】立即搜索互联网上的潜在客户线索。Maria直接执行，不派发给其他员工，结果实时返回",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "搜索关键词列表，如['欧洲物流', '德国FBA']。不传则使用系统默认关键词"
+                    },
+                    "platforms": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "搜索平台，可选: google, weibo, zhihu, xiaohongshu, tieba。不传则智能选择"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "最大返回结果数，默认10"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "discover_topics",
+            "description": "【直接执行】发现热门话题，用于内容引流。搜索知乎、小红书等平台的热门物流相关问题",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "max_topics": {
+                        "type": "integer",
+                        "description": "最大返回话题数，默认5"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    
+    # ── 13.2 文案创作（直接调用小文核心能力）──
+    {
+        "type": "function",
+        "function": {
+            "name": "write_copy",
+            "description": "【直接执行】立即撰写各类营销文案。Maria直接调用文案能力，结果实时返回",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "copy_type": {
+                        "type": "string",
+                        "enum": ["script", "long_script", "moments", "ad", "email", "general"],
+                        "description": "文案类型: script=短视频脚本, long_script=长视频脚本, moments=朋友圈, ad=广告, email=邮件, general=通用"
+                    },
+                    "topic": {
+                        "type": "string",
+                        "description": "文案主题，如'欧洲FBA头程服务'"
+                    },
+                    "target_audience": {
+                        "type": "string",
+                        "description": "目标受众，如'跨境电商卖家'"
+                    },
+                    "duration": {
+                        "type": "integer",
+                        "description": "视频时长（秒），仅脚本类型需要"
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "语言，默认中文。支持: zh-CN, en-US, de-DE, fr-FR, es-ES, ja-JP 等"
+                    }
+                },
+                "required": ["topic"]
+            }
+        }
+    },
+    
+    # ── 13.3 视频生成（直接调用小影核心能力）──
+    {
+        "type": "function",
+        "function": {
+            "name": "create_video",
+            "description": "【直接执行】立即生成AI视频。Maria直接调用视频生成能力，支持5秒短视频或1.5-5分钟长视频",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "视频标题"
+                    },
+                    "script": {
+                        "type": "string",
+                        "description": "视频脚本内容。如果没有，Maria会先生成脚本"
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["quick", "movie"],
+                        "description": "生成模式: quick=5-10秒快速视频, movie=1.5-5分钟电影级视频"
+                    },
+                    "duration": {
+                        "type": "integer",
+                        "description": "目标时长（秒），movie模式下默认120秒"
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "配音语言，默认中文"
+                    }
+                },
+                "required": ["title"]
+            }
+        }
+    },
+    
+    # ── 13.4 客户分析（直接调用小析核心能力）──
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_customer",
+            "description": "【直接执行】分析客户意向和画像。Maria直接分析对话内容，给出意向评分和跟进建议",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "customer_id": {
+                        "type": "string",
+                        "description": "客户ID（如果已有）"
+                    },
+                    "conversation": {
+                        "type": "string",
+                        "description": "与客户的对话内容"
+                    },
+                    "customer_info": {
+                        "type": "object",
+                        "description": "已知客户信息，如公司名、联系方式等"
+                    }
+                },
+                "required": ["conversation"]
+            }
+        }
+    },
+    
+    # ── 13.5 客户跟进（直接调用小跟核心能力）──
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_followup",
+            "description": "【直接执行】生成客户跟进消息或邮件。Maria根据客户情况直接生成个性化跟进内容",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "customer_id": {
+                        "type": "string",
+                        "description": "客户ID"
+                    },
+                    "followup_type": {
+                        "type": "string",
+                        "enum": ["email", "wechat", "phone_script"],
+                        "description": "跟进类型: email=邮件, wechat=微信消息, phone_script=电话话术"
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "跟进背景，如'客户上次询价后未回复'"
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "语言，默认根据客户自动检测"
+                    }
+                },
+                "required": ["context"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_followup_email",
+            "description": "【直接执行】直接发送跟进邮件给客户。Maria生成内容后直接发送，一步完成",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to_email": {
+                        "type": "string",
+                        "description": "收件人邮箱"
+                    },
+                    "customer_name": {
+                        "type": "string",
+                        "description": "客户名称"
+                    },
+                    "followup_reason": {
+                        "type": "string",
+                        "description": "跟进原因，如'报价后3天未回复'"
+                    },
+                    "previous_context": {
+                        "type": "string",
+                        "description": "之前的沟通内容摘要"
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "邮件语言"
+                    }
+                },
+                "required": ["to_email", "followup_reason"]
+            }
+        }
+    },
+    
+    # ── 13.6 一键工作流（组合能力）──
+    {
+        "type": "function",
+        "function": {
+            "name": "lead_to_video_workflow",
+            "description": "【一键工作流】从线索到视频的完整流程：搜索线索→分析高意向→生成针对性文案→制作视频",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "主题方向，如'欧洲FBA'"
+                    },
+                    "video_duration": {
+                        "type": "integer",
+                        "description": "视频时长（秒），默认60"
+                    }
+                },
+                "required": ["topic"]
+            }
+        }
+    },
     {
         "type": "function",
         "function": {
@@ -754,6 +1016,8 @@ class MariaToolExecutor:
             import app.skills.document
             import app.skills.self_config
             import app.skills.notion
+            # 混合方案新增：Maria直接执行技能
+            import app.skills.maria_direct
         except ImportError as e:
             logger.warning(f"[MariaToolExecutor] 部分Skill模块加载失败: {e}")
 

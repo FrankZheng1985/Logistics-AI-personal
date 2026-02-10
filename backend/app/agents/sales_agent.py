@@ -12,6 +12,7 @@ import re
 from app.agents.base import BaseAgent, AgentRegistry
 from app.models.conversation import AgentType
 from app.models.database import AsyncSessionLocal
+from app.core.prompt_utils import sanitize_user_input
 from app.models.company_config import CompanyConfig
 from app.core.prompts.sales import SALES_SYSTEM_PROMPT, CHAT_RESPONSE_PROMPT
 from app.services.erp_query_helper import erp_query_helper
@@ -332,6 +333,9 @@ class SalesAgent(BaseAgent):
             # 获取ERP业务数据上下文
             erp_context = await self._get_erp_context(message, customer_id)
             
+            # 清理用户输入防止 Prompt 注入
+            safe_message = sanitize_user_input(message, max_length=2000)
+            
             chat_prompt = f"""你正在与一位潜在客户对话。
 
 ## 你所在公司的信息
@@ -345,7 +349,7 @@ class SalesAgent(BaseAgent):
 {chat_history}
 
 ## 客户最新消息
-{message}
+{safe_message}
 
 请根据公司信息和上下文，给出专业、友好的回复。
 - 如果有ERP业务系统数据，优先使用这些真实数据回答客户问题

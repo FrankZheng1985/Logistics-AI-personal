@@ -827,6 +827,203 @@ class MultiEmailService:
             logger.error(f"标记邮件重要失败: {e}")
             return False
     
+    # ==================== 附件下载 ====================
+    
+    async def download_attachments(
+        self,
+        email_id: str,
+        save_dir: str = "/tmp/email_attachments"
+    ) -> Dict[str, Any]:
+        """
+        下载邮件附件
+        
+        Args:
+            email_id: 邮件缓存ID
+            save_dir: 保存目录
+            
+        Returns:
+            {"success": True, "attachments": [{"filename": "xxx.pdf", "path": "/tmp/...", "size": 1234, "content_type": "application/pdf"}]}
+        """
+        import os
+        
+        # 获取邮件详情和账户信息
+        email_detail = await self.get_email_detail(email_id)
+        if not email_detail:
+            return {"success": False, "error": "邮件不存在"}
+        
+        if not email_detail.get("has_attachments"):
+            return {"success": False, "error": "该邮件没有附件"}
+        
+        account = await self._get_account_with_password(email_detail["account_id"])
+        if not account:
+            return {"success": False, "error": "邮箱账户不存在"}
+        
+        message_id = email_detail["message_id"]
+        
+        def _download():
+            """同步下载附件"""
+            attachments = []
+            
+            try:
+                # 创建保存目录
+                os.makedirs(save_dir, exist_ok=True)
+                
+                # 连接IMAP
+                if account["imap_ssl"]:
+                    mail = imaplib.IMAP4_SSL(account["imap_host"], account["imap_port"])
+                else:
+                    mail = imaplib.IMAP4(account["imap_host"], account["imap_port"])
+                
+                mail.login(account["imap_user"], account["imap_password"])
+                mail.select("INBOX")
+                
+                # 搜索指定邮件
+                _, message_numbers = mail.search(None, f'HEADER Message-ID "{message_id}"')
+                
+                if not message_numbers[0]:
+                    mail.logout()
+                    return {"success": False, "error": "在邮箱中找不到该邮件，可能已被删除"}
+                
+                num = message_numbers[0].split()[0]
+                _, msg_data = mail.fetch(num, "(RFC822)")
+                
+                if not msg_data or not msg_data[0]:
+                    mail.logout()
+                    return {"success": False, "error": "无法获取邮件内容"}
+                
+                msg = email.message_from_bytes(msg_data[0][1])
+                
+                # 遍历邮件部分，下载附件
+                for part in msg.walk():
+                    content_disposition = str(part.get("Content-Disposition", ""))
+                    
+                    if "attachment" in content_disposition:
+                        filename = part.get_filename()
+                        if filename:
+                            filename = self._decode_header(filename)
+                            # 清理文件名中的非法字符
+                            safe_filename = "".join(c for c in filename if c.isalnum() or c in "._-() 中文")
+                            if not safe_filename:
+                                safe_filename = f"attachment_{len(attachments)+1}"
+                            
+                            # 添加时间戳避免重名
+                            import time
+                            timestamp = int(time.time())
+                            name, ext = os.path.splitext(safe_filename)
+                            safe_filename = f"{name}_{timestamp}{ext}"
+                            
+                            filepath = os.path.join(save_dir, safe_filename)
+                            
+                            # 保存附件
+                            payload = part.get_payload(decode=True)
+                            if payload:
+                                with open(filepath, "wb") as f:
+                                    f.write(payload)
+                                
+                                attachments.append({
+                                    "filename": filename,
+                                    "safe_filename": safe_filename,
+                                    "path": filepath,
+                                    "size": len(payload),
+                                    "content_type": part.get_content_type()
+                                })
+                                logger.info(f"[Email] 下载附件: {filename} -> {filepath}")
+                
+                mail.logout()
+                return {"success": True, "attachments": attachments}
+                
+            except Exception as e:
+                logger.error(f"[Email] 下载附件失败: {e}")
+                return {"success": False, "error": str(e)}
+        
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(_executor, _download)
+            return result
+        except Exception as e:
+            logger.error(f"[Email] 下载附件异常: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def get_maria_inbox_emails(
+        self,
+        maria_email: str = None,
+        hours: int = 24,
+        unread_only: bool = True
+    ) -> List[Dict[str, Any]]:
+        """
+        获取 Maria 专属邮箱的收件（用于文件接收）
+        
+        Args:
+            maria_email: Maria 的邮箱地址，如果为空则查找带 "maria" 或 "assistant" 标签的账户
+            hours: 获取最近多少小时的邮件
+            unread_only: 是否只获取未读邮件
+            
+        Returns:
+            邮件列表，包含附件信息
+        """
+        # 查找 Maria 的邮箱账户
+        async with AsyncSessionLocal() as db:
+            if maria_email:
+                result = await db.execute(
+                    text("SELECT id FROM email_accounts WHERE email_address = :email AND is_active = TRUE"),
+                    {"email": maria_email}
+                )
+            else:
+                # 查找名称中包含 maria 或 assistant 的账户
+                result = await db.execute(
+                    text("""
+                        SELECT id FROM email_accounts 
+                        WHERE (LOWER(name) LIKE '%maria%' OR LOWER(name) LIKE '%assistant%' OR LOWER(name) LIKE '%助理%')
+                        AND is_active = TRUE
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    """)
+                )
+            
+            row = result.fetchone()
+            if not row:
+                logger.warning("[Email] 未找到 Maria 专属邮箱账户")
+                return []
+            
+            maria_account_id = str(row[0])
+        
+        # 获取邮件
+        from datetime import datetime, timedelta
+        since_time = datetime.now() - timedelta(hours=hours)
+        
+        async with AsyncSessionLocal() as db:
+            query = """
+                SELECT id, subject, from_address, from_name, received_at, 
+                       has_attachments, attachment_names, body_text, body_preview
+                FROM email_cache 
+                WHERE account_id = :account_id
+                AND received_at >= :since_time
+            """
+            if unread_only:
+                query += " AND is_read = FALSE"
+            query += " ORDER BY received_at DESC"
+            
+            result = await db.execute(
+                text(query),
+                {"account_id": maria_account_id, "since_time": since_time}
+            )
+            rows = result.fetchall()
+        
+        return [
+            {
+                "id": str(row[0]),
+                "subject": row[1],
+                "from_address": row[2],
+                "from_name": row[3],
+                "received_at": row[4].isoformat() if row[4] else None,
+                "has_attachments": row[5],
+                "attachment_names": row[6] or [],
+                "body_text": row[7],
+                "body_preview": row[8]
+            }
+            for row in rows
+        ]
+    
     # ==================== 邮件发送 ====================
     
     async def send_email(

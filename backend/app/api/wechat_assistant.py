@@ -444,6 +444,127 @@ async def process_voice_message(user_id: str, media_id: str):
     await send_text_message(user_id, "收到语音消息。如果是会议录音，请发送完整的录音文件。")
 
 
+def _detect_document_type(file_name: str) -> str:
+    """检测文档类型，返回中文描述"""
+    file_name_lower = file_name.lower()
+    
+    contract_keywords = ["合同", "协议", "contract", "agreement", "代理", "运输", "物流", "委托"]
+    if any(kw in file_name_lower for kw in contract_keywords):
+        return "⚖️ 合同法律"
+    
+    finance_keywords = ["发票", "invoice", "财务", "报表", "账单", "bill", "费用", "报价", "quote"]
+    if any(kw in file_name_lower for kw in finance_keywords):
+        return "💰 财务会计"
+    
+    logistics_keywords = ["提单", "b/l", "报关", "海关", "customs", "shipping", "运单", "incoterms"]
+    if any(kw in file_name_lower for kw in logistics_keywords):
+        return "🚢 跨境贸易"
+    
+    return "📋 综合内容"
+
+
+def _build_document_analysis_prompt(file_name: str, content: str) -> str:
+    """
+    根据文档类型智能构建分析提示词
+    自动识别合同、简历、报告等类型，触发专家模式
+    """
+    file_name_lower = file_name.lower()
+    
+    # 合同类文档 - 启用法律顾问专家角色
+    contract_keywords = ["合同", "协议", "contract", "agreement", "代理", "运输", "物流", "委托"]
+    is_contract = any(kw in file_name_lower for kw in contract_keywords)
+    
+    # 财务类文档 - 启用财务会计专家角色
+    finance_keywords = ["发票", "invoice", "财务", "报表", "账单", "bill", "费用", "报价", "quote"]
+    is_finance = any(kw in file_name_lower for kw in finance_keywords)
+    
+    # 物流/贸易类文档 - 启用跨境贸易专家角色
+    logistics_keywords = ["提单", "b/l", "报关", "海关", "customs", "shipping", "运单", "incoterms"]
+    is_logistics = any(kw in file_name_lower for kw in logistics_keywords)
+    
+    # 构建专业分析提示词
+    if is_contract:
+        prompt = f"""【法律顾问模式】老板发送了一份合同文件需要你审核：
+
+📄 文件名：{file_name}
+
+📝 合同内容：
+{content}
+
+---
+请以法律顾问的专业角度进行全面审核，包括：
+
+1. **合同概述**：合同类型、签约双方、主要标的
+
+2. **关键条款审查**：
+   - 权利义务是否对等
+   - 价款/费用条款是否清晰
+   - 交付/验收标准是否明确
+   - 违约责任是否合理
+
+3. **风险提示** ⚠️：
+   - 潜在法律风险
+   - 不利条款/霸王条款
+   - 模糊表述可能引发的争议
+
+4. **修改建议**：需要补充或修改的条款
+
+5. **总体评估**：是否建议签署，或需要进一步协商的要点"""
+
+    elif is_finance:
+        prompt = f"""【财务会计模式】老板发送了一份财务相关文件需要你分析：
+
+📄 文件名：{file_name}
+
+📝 文件内容：
+{content}
+
+---
+请以财务专家的角度进行分析，包括：
+
+1. **文件概述**：文件类型、涉及金额、相关方
+2. **合规性检查**：发票/单据是否符合规范
+3. **数据核验**：金额计算是否正确，有无异常
+4. **税务风险**：潜在的税务问题
+5. **建议事项**：需要注意的财务要点"""
+
+    elif is_logistics:
+        prompt = f"""【跨境贸易专家模式】老板发送了一份物流/贸易文件需要你分析：
+
+📄 文件名：{file_name}
+
+📝 文件内容：
+{content}
+
+---
+请以跨境贸易专家的角度进行分析，包括：
+
+1. **文件概述**：文件类型、贸易条款、涉及方
+2. **Incoterms分析**：贸易术语下的风险转移点和费用承担
+3. **合规检查**：海关申报、原产地规则等合规性
+4. **物流风险**：运输方式、保险、交付风险
+5. **建议事项**：需要关注的要点"""
+
+    else:
+        # 通用文档分析
+        prompt = f"""老板发送了一个文件给你：{file_name}
+
+📝 文件内容：
+{content}
+
+---
+请阅读并分析这个文件：
+
+1. **内容概述**：文件的主要内容和目的
+2. **关键信息**：重要的数据、日期、金额等
+3. **需要关注的要点**：潜在问题或需要注意的地方
+4. **建议行动**：下一步应该做什么
+
+如果这是合同类文件，请特别注意审核条款风险。"""
+
+    return prompt
+
+
 async def process_file_message(user_id: str, media_id: str, file_name: str):
     """处理文件消息（会议录音、文档等）"""
     from app.agents.assistant_agent import clauwdbot_agent
@@ -480,31 +601,54 @@ async def process_file_message(user_id: str, media_id: str, file_name: str):
         # --- 情况B：文档文件 (Word, PDF, TXT) ---
         doc_extensions = [".docx", ".doc", ".pdf", ".txt", ".md", ".csv", ".json"]
         if ext in doc_extensions:
-            await send_text_message(user_id, f"收到文档「{file_name}」，正在阅读分析...")
+            # 立即反馈，让用户知道开始处理
+            await send_text_message(user_id, f"📄 收到「{file_name}」\n⏳ 正在读取文档内容...")
             
             # 解析文档
             doc_result = await document_service.read_document(temp_path, file_name)
             
             if not doc_result["success"]:
-                await send_text_message(user_id, f"文档读取失败: {doc_result['error']}")
+                await send_text_message(user_id, f"❌ 文档读取失败: {doc_result['error']}")
                 return
             
             content = doc_result["content"]
+            file_name_lower = file_name.lower()
             
-            # 构建提示词，让 Maria 处理文档
-            prompt = f"我发送了一个文件给你：{file_name}\n\n文件内容如下：\n\n{content}\n\n请阅读并分析这个文件。如果我没有具体指令，请先总结文件的主要内容。"
+            # 发送进度更新
+            doc_type = _detect_document_type(file_name_lower)
+            await send_text_message(user_id, f"✅ 文档读取完成（{len(content)}字）\n🔍 正在进行{doc_type}分析...")
             
-            # 调用 Maria
-            result = await clauwdbot_agent.process({
-                "message": prompt,
-                "user_id": user_id,
-                "message_type": "text"  # 伪装成文本消息，包含文件内容
-            })
+            # 智能识别文档类型，构建专业提示词
+            prompt = _build_document_analysis_prompt(file_name_lower, content)
             
-            # 发送回复
-            response = result.get("response", "")
-            if response:
-                await send_text_message(user_id, response)
+            # 使用快速直接调用 LLM，跳过复杂的 ReAct 循环
+            try:
+                from app.core.llm import chat_completion
+                import asyncio
+                
+                # 设置超时，避免无限等待
+                response = await asyncio.wait_for(
+                    chat_completion(
+                        messages=[{"role": "user", "content": prompt}],
+                        system_prompt="你是Maria，老板的AI助理，具备法律、财务、物流等专业知识。请直接分析文档内容，给出专业建议。",
+                        use_advanced=True,
+                        agent_name="Maria",
+                        task_type="document_analysis",
+                        max_tokens=4000,  # 允许更长的回复
+                    ),
+                    timeout=120  # 2分钟超时
+                )
+                
+                if response:
+                    await send_text_message(user_id, response)
+                else:
+                    await send_text_message(user_id, "⚠️ 分析完成但未生成回复，请重试或换个方式提问。")
+                    
+            except asyncio.TimeoutError:
+                await send_text_message(user_id, "⏰ 分析时间较长，我会继续处理。如有结果会立即通知您。")
+            except Exception as e:
+                logger.error(f"[Maria] 文档分析失败: {e}")
+                await send_text_message(user_id, f"⚠️ 分析出现问题: {str(e)[:100]}\n请稍后重试。")
             return
 
         # --- 情况C：其他文件 ---
@@ -733,9 +877,15 @@ async def receive_message(
             "MsgId": msg_root.find("MsgId").text if msg_root.find("MsgId") is not None else None,
             "MediaId": msg_root.find("MediaId").text if msg_root.find("MediaId") is not None else None,
             "FileName": msg_root.find("FileName").text if msg_root.find("FileName") is not None else None,
+            # Link 消息字段
+            "Title": msg_root.find("Title").text if msg_root.find("Title") is not None else None,
+            "Description": msg_root.find("Description").text if msg_root.find("Description") is not None else None,
+            "Url": msg_root.find("Url").text if msg_root.find("Url") is not None else None,
+            "PicUrl": msg_root.find("PicUrl").text if msg_root.find("PicUrl") is not None else None,
         }
         
-        logger.info(f"[Clauwdbot] 收到消息: {message}")
+        logger.info(f"[Clauwdbot] 收到消息: type={message.get('MsgType')}, from={message.get('FromUserName')}, media_id={message.get('MediaId')}, file_name={message.get('FileName')}")
+        logger.debug(f"[Clauwdbot] 完整消息: {message}")
         
         # 消息去重
         msg_id = message.get("MsgId")
@@ -762,8 +912,51 @@ async def receive_message(
         elif msg_type == "file":
             media_id = message.get("MediaId")
             file_name = message.get("FileName", "unknown")
+            logger.info(f"[Clauwdbot] 📁 收到文件: {file_name}, media_id={media_id}")
             if media_id:
                 background_tasks.add_task(process_file_message, user_id, media_id, file_name)
+            else:
+                logger.warning(f"[Clauwdbot] 文件消息缺少 MediaId")
+        
+        elif msg_type == "image":
+            logger.info(f"[Clauwdbot] 🖼️ 收到图片消息")
+            await send_text_message(user_id, "收到图片。目前我支持处理文本、文档和音频文件。")
+        
+        elif msg_type == "link":
+            # Link 消息（可能是分享的文档、网页等）
+            title = message.get("Title", "")
+            description = message.get("Description", "")
+            url = message.get("Url", "")
+            logger.info(f"[Clauwdbot] 🔗 收到链接消息: title={title}, url={url}")
+            
+            # 如果有描述内容，当作文本处理
+            if description and len(description) > 50:
+                # 描述内容较长，可能是文档内容
+                content = f"【{title}】\n\n{description}"
+                background_tasks.add_task(process_text_message, user_id, content)
+            elif url and "doc.weixin.qq.com" in url:
+                # 腾讯文档/企业微信微盘链接
+                reply = f"""📄 收到微盘文档：**{title}**
+
+由于企业微信微盘的限制，我无法直接读取文档内容。
+
+📋 **请这样操作：**
+1. 点击文档链接打开
+2. 在腾讯文档页面按 **Ctrl+A** 全选
+3. **Ctrl+C** 复制
+4. 回到聊天窗口 **Ctrl+V** 粘贴发给我
+
+或者：直接把 Word/PDF 原文件拖拽发送给我（不要通过微盘）"""
+                await send_text_message(user_id, reply)
+            elif url:
+                # 其他链接
+                await send_text_message(user_id, f"收到链接：{title}\n\n如果您想让我分析文档内容，请直接复制粘贴文档文字发给我。")
+            else:
+                await send_text_message(user_id, "收到链接消息，但无法获取内容。请直接复制粘贴文档文字发给我。")
+        
+        else:
+            # 记录未知消息类型
+            logger.warning(f"[Clauwdbot] ⚠️ 未处理的消息类型: {msg_type}")
         
         # 立即返回success
         return PlainTextResponse(content="success")

@@ -63,6 +63,7 @@ class DocumentService:
 
     def _read_docx(self, filepath: str) -> str:
         """解析 Word 文档"""
+        # 先尝试用 python-docx 读取 (适用于 .docx)
         try:
             import docx
             doc = docx.Document(filepath)
@@ -73,10 +74,48 @@ class DocumentService:
         except ImportError:
             raise ImportError("请安装 python-docx 库")
         except Exception as e:
-            # 尝试处理 .doc (旧格式通常很难直接用 python 读取，建议提示用户转 docx)
-            if filepath.endswith(".doc"):
-                raise ValueError("暂不支持旧版 .doc 格式，请另存为 .docx 后重试")
+            # 如果失败且是 .doc 文件，尝试用 antiword
+            if filepath.endswith(".doc") or "Package not found" in str(e) or "not a valid" in str(e).lower():
+                return self._read_doc_with_antiword(filepath)
             raise e
+    
+    def _read_doc_with_antiword(self, filepath: str) -> str:
+        """使用 antiword 解析旧版 .doc 文件"""
+        import subprocess
+        try:
+            # 使用 antiword 命令行工具
+            result = subprocess.run(
+                ['antiword', filepath],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            if result.returncode == 0:
+                content = result.stdout
+                if content.strip():
+                    logger.info(f"[Document] antiword 成功解析 .doc 文件: {len(content)} 字符")
+                    return content
+            
+            # antiword 失败，尝试 catdoc
+            result = subprocess.run(
+                ['catdoc', '-w', filepath],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                logger.info(f"[Document] catdoc 成功解析 .doc 文件: {len(result.stdout)} 字符")
+                return result.stdout
+            
+            # 都失败了，提示用户
+            raise ValueError("无法读取 .doc 文件内容，请另存为 .docx 格式后重试")
+            
+        except FileNotFoundError:
+            raise ValueError("服务器缺少 antiword/catdoc 工具，无法处理旧版 .doc 文件")
+        except subprocess.TimeoutExpired:
+            raise ValueError("处理 .doc 文件超时")
+        except Exception as e:
+            raise ValueError(f"解析 .doc 文件失败: {e}")
 
     def _read_pdf(self, filepath: str) -> str:
         """解析 PDF 文档"""
