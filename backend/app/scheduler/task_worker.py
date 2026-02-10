@@ -30,8 +30,21 @@ MAX_TASKS_PER_ROUND = 3
 # 单任务超时（秒）
 TASK_TIMEOUT = 120
 
+# 视频任务超时（秒）- 视频生成需要更长时间
+VIDEO_TASK_TIMEOUT = 600  # 10分钟
+
+# 需要更长超时的任务类型
+LONG_TIMEOUT_AGENTS = {"video_creator"}
+
 # 最大重试次数
 MAX_RETRIES = 2
+
+
+def _get_task_timeout(agent_type: str) -> int:
+    """根据任务类型获取合适的超时时间"""
+    if agent_type in LONG_TIMEOUT_AGENTS:
+        return VIDEO_TASK_TIMEOUT
+    return TASK_TIMEOUT
 
 
 async def process_pending_tasks():
@@ -68,12 +81,13 @@ async def process_pending_tasks():
                     "notion_page_id": notion_page_id,
                 })
                 
-                # 3. 执行任务
+                # 3. 执行任务（视频任务使用更长超时）
                 started = datetime.now()
-                logger.info(f"[TaskWorker] 开始执行任务 {task_id[:8]}... | 员工: {agent_type}")
+                timeout = _get_task_timeout(agent_type)
+                logger.info(f"[TaskWorker] 开始执行任务 {task_id[:8]}... | 员工: {agent_type} | 超时: {timeout}s")
                 result = await asyncio.wait_for(
                     _execute_task(agent_type, input_data),
-                    timeout=TASK_TIMEOUT
+                    timeout=timeout
                 )
                 
                 # 4. 标记为 completed + 更新 Notion 看板
@@ -103,7 +117,8 @@ async def process_pending_tasks():
                 logger.info(f"[TaskWorker] 任务 {task_id[:8]} 执行成功 ✅ ({duration})")
                 
             except asyncio.TimeoutError:
-                logger.error(f"[TaskWorker] 任务 {task_id[:8]} 超时 ({TASK_TIMEOUT}s)")
+                actual_timeout = _get_task_timeout(agent_type)
+                logger.error(f"[TaskWorker] 任务 {task_id[:8]} 超时 ({actual_timeout}s)")
                 if retry_count < MAX_RETRIES:
                     await _update_task_status(task_id, "pending", retry_count=retry_count + 1)
                     logger.info(f"[TaskWorker] 任务 {task_id[:8]} 将重试 (第{retry_count + 1}次)")
@@ -112,12 +127,12 @@ async def process_pending_tasks():
                     await _update_notion_board(task_id, {
                         "status": "失败",
                         "completed_at": datetime.now().isoformat(),
-                        "output": f"执行超时（{TASK_TIMEOUT}秒）",
+                        "output": f"执行超时（{actual_timeout}秒）",
                         "notion_page_id": notion_page_id,
                     })
                     from_user = input_data.get("from_user", "")
                     if from_user:
-                        await _notify_failure(from_user, agent_type, input_data, "任务执行超时")
+                        await _notify_failure(from_user, agent_type, input_data, f"任务执行超时（{actual_timeout}秒）")
                 
             except Exception as e:
                 logger.error(f"[TaskWorker] 任务 {task_id[:8]} 执行失败: {e}")
