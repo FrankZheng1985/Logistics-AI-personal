@@ -407,6 +407,27 @@ MARIA_TOOLS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "ignore_email",
+            "description": "将邮件加入忽略列表，以后不再提醒。当老板说'不处理'、'已读'、'过滤'、'不用管'、'跳过'等时调用此工具",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "identifier": {
+                        "type": "string",
+                        "description": "要忽略的邮件标识：可以是邮件主题关键词（如'Maria助理'）、发件人邮箱（如'noreply@xxx.com'）、或完整主题"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "可选，忽略原因（便于以后查看）"
+                    }
+                },
+                "required": ["identifier"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "generate_work_summary",
             "description": "生成工作总结（日报/周报/月报），汇总今天或本周的工作成果",
             "parameters": {

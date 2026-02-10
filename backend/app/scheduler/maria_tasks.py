@@ -79,6 +79,90 @@ _notified_emails_cache = {}
 _NOTIFIED_CACHE_MAX_SIZE = 500  # 最多缓存500条
 _NOTIFIED_CACHE_EXPIRE_HOURS = 24  # 24小时后过期可重新提醒
 
+# ========== 用户忽略的邮件列表（持久化到Redis） ==========
+IGNORED_EMAILS_REDIS_KEY = "maria:ignored_emails"
+
+
+async def _get_ignored_emails() -> set:
+    """从Redis获取用户忽略的邮件列表"""
+    try:
+        from app.services.cache_service import cache_service
+        data = await cache_service.get(IGNORED_EMAILS_REDIS_KEY)
+        if data:
+            return set(data) if isinstance(data, list) else set()
+    except Exception as e:
+        logger.warning(f"[邮件忽略] 读取忽略列表失败: {e}")
+    return set()
+
+
+async def _add_ignored_email(email_identifier: str) -> bool:
+    """将邮件加入忽略列表（永久忽略）
+    
+    email_identifier 可以是：
+    - 邮件主题（模糊匹配）
+    - 发件人邮箱
+    - 完整邮件ID
+    """
+    try:
+        from app.services.cache_service import cache_service
+        ignored = await _get_ignored_emails()
+        ignored.add(email_identifier.lower().strip())
+        # 持久化到 Redis，不设过期时间（永久忽略）
+        await cache_service.set(IGNORED_EMAILS_REDIS_KEY, list(ignored), ttl=None)
+        logger.info(f"[邮件忽略] 已添加忽略: {email_identifier}")
+        return True
+    except Exception as e:
+        logger.error(f"[邮件忽略] 添加失败: {e}")
+        return False
+
+
+async def _is_email_ignored(email: dict, account_name: str) -> bool:
+    """检查邮件是否在忽略列表中"""
+    try:
+        ignored = await _get_ignored_emails()
+        if not ignored:
+            return False
+        
+        subject = (email.get("subject", "") or "").lower()
+        from_addr = (email.get("from_address", "") or "").lower()
+        
+        for pattern in ignored:
+            # 匹配主题（包含关键词即忽略）
+            if pattern in subject:
+                return True
+            # 匹配发件人
+            if pattern in from_addr:
+                return True
+        
+        return False
+    except Exception as e:
+        logger.warning(f"[邮件忽略] 检查失败: {e}")
+        return False
+
+
+async def ignore_email_by_user(identifier: str) -> dict:
+    """用户明确要求忽略某封邮件/某类邮件
+    
+    这是 Maria 调用的接口，当用户说"不处理"、"已读"、"过滤"时调用
+    
+    Args:
+        identifier: 邮件主题关键词、发件人邮箱等
+    
+    Returns:
+        {"success": True/False, "message": "..."}
+    """
+    success = await _add_ignored_email(identifier)
+    if success:
+        return {
+            "success": True,
+            "message": f"好的，已将包含「{identifier}」的邮件加入忽略列表，以后不会再提醒您。"
+        }
+    else:
+        return {
+            "success": False,
+            "message": "抱歉，添加忽略失败，请稍后再试。"
+        }
+
 
 def _get_email_id(email: dict, account_name: str) -> str:
     """生成邮件唯一标识"""
@@ -190,7 +274,11 @@ async def check_important_emails_and_notify():
                     reason = "客户回复"
                 
                 if is_important:
-                    # 检查是否已通知过（避免重复提醒）
+                    # 检查是否在用户忽略列表中（永久忽略）
+                    if await _is_email_ignored(email, account.get("name", "")):
+                        continue  # 用户已明确说不处理，永久跳过
+                    
+                    # 检查是否已通知过（24小时内避免重复提醒）
                     email_id = _get_email_id(email, account.get("name", ""))
                     if _is_email_notified(email_id):
                         continue  # 跳过已通知的邮件

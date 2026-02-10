@@ -25,6 +25,7 @@ class EmailSkill(BaseSkill):
         "sync_emails",
         "manage_email_account",
         "analyze_email_attachment",  # 新增：分析邮件附件
+        "ignore_email",  # 新增：忽略邮件
     ]
 
     async def handle(self, tool_name: str, args: Dict[str, Any],
@@ -35,6 +36,7 @@ class EmailSkill(BaseSkill):
             "sync_emails": self._handle_sync_emails,
             "manage_email_account": self._handle_manage_email_account,
             "analyze_email_attachment": self._handle_analyze_attachment,  # 新增
+            "ignore_email": self._handle_ignore_email,  # 新增
         }
         handler = handlers.get(tool_name)
         if handler:
@@ -559,6 +561,37 @@ class EmailSkill(BaseSkill):
         except Exception as e:
             logger.error(f"[EmailSkill] 分析附件失败: {e}", exc_info=True)
             return self._err(f"分析附件失败: {str(e)}")
+
+    # ==================== 忽略邮件 ====================
+
+    async def _handle_ignore_email(self, message: str, user_id: str, args: Dict = None) -> Dict[str, Any]:
+        """
+        将邮件加入忽略列表，以后不再提醒
+        当用户说"不处理"、"已读"、"过滤"等时调用
+        """
+        from app.scheduler.maria_tasks import ignore_email_by_user
+
+        args = args or {}
+        identifier = args.get("identifier", "")
+        reason = args.get("reason", "用户要求忽略")
+
+        if not identifier:
+            # 如果没有指定，尝试从消息中提取关键词
+            return self._err("请告诉我要忽略哪些邮件？可以是邮件主题关键词或发件人邮箱。")
+
+        await self.log_step("action", "添加忽略规则", f"忽略: {identifier}")
+
+        try:
+            result = await ignore_email_by_user(identifier)
+            
+            if result.get("success"):
+                return self._ok(f"好的，已将「{identifier}」加入忽略列表，以后不会再提醒您这类邮件了。")
+            else:
+                return self._err(result.get("message", "添加忽略失败"))
+                
+        except Exception as e:
+            logger.error(f"[EmailSkill] 忽略邮件失败: {e}")
+            return self._err(f"忽略邮件失败: {str(e)}")
 
 
 # 注册
