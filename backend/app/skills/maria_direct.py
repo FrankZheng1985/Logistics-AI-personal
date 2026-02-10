@@ -13,6 +13,8 @@ Maria 直接执行技能模块（混合方案核心）
 6. generate_followup - 生成跟进内容（小跟能力）
 7. send_followup_email - 发送跟进邮件
 8. lead_to_video_workflow - 一键工作流
+9. generate_website - 生成网站代码（小码能力）
+10. deploy_website - 部署网站（小码能力）
 """
 from typing import Dict, Any, List, Optional
 from loguru import logger
@@ -38,7 +40,10 @@ class MariaDirectSkill(BaseSkill):
         "analyze_customer",
         "generate_followup",
         "send_followup_email",
-        "lead_to_video_workflow"
+        "lead_to_video_workflow",
+        "generate_website",
+        "deploy_website",
+        "save_project_file",
     ]
     
     async def handle(
@@ -60,6 +65,9 @@ class MariaDirectSkill(BaseSkill):
             "generate_followup": self._generate_followup,
             "send_followup_email": self._send_followup_email,
             "lead_to_video_workflow": self._lead_to_video_workflow,
+            "generate_website": self._generate_website,
+            "deploy_website": self._deploy_website,
+            "save_project_file": self._save_project_file,
         }
         
         handler = handlers.get(tool_name)
@@ -553,3 +561,153 @@ class MariaDirectSkill(BaseSkill):
             workflow_result["status"] = "failed"
             workflow_result["error"] = str(e)
             return workflow_result
+    
+    # ========== 7. 网站生成（小码能力）==========
+    
+    async def _generate_website(self, args: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+        """直接生成网站代码"""
+        try:
+            from app.agents.code_engineer import CodeEngineerAgent
+            from app.services.project_storage_service import project_storage_service, ensure_project_exists
+            
+            project_name = args.get("project_name", "my-website")
+            website_type = args.get("website_type", "corporate")
+            tech_stack = args.get("tech_stack", "static")
+            requirements = args.get("requirements", "")
+            design_guide = args.get("design_guide", {})
+            content = args.get("content", {})
+            assets = args.get("assets", {})
+            save_to_cos = args.get("save_to_cos", True)
+            
+            logger.info(f"[Maria直接执行] 生成网站: project={project_name}, type={website_type}")
+            
+            # 1. 确保项目存在
+            if save_to_cos:
+                project_result = await ensure_project_exists(
+                    project_name=project_name,
+                    description=requirements[:200] if requirements else f"{website_type}类型网站",
+                    created_by="maria"
+                )
+                logger.info(f"[Maria直接执行] 项目状态: {project_result}")
+            
+            # 2. 调用小码生成代码
+            code_engineer = CodeEngineerAgent()
+            
+            result = await code_engineer.process({
+                "task_type": "generate",
+                "project_name": project_name,
+                "website_type": website_type,
+                "tech_stack": tech_stack,
+                "requirements": requirements,
+                "design_guide": design_guide,
+                "content": content,
+                "assets": assets,
+                "save_to_cos": save_to_cos
+            })
+            
+            if result.get("status") == "success":
+                return {
+                    "status": "success",
+                    "message": f"网站代码已生成！共 {result.get('file_count', 0)} 个文件",
+                    "project_name": project_name,
+                    "website_type": website_type,
+                    "tech_stack": tech_stack,
+                    "files": result.get("files", []),
+                    "file_count": result.get("file_count", 0),
+                    "cos_urls": result.get("cos_urls", {}),
+                    "preview_info": result.get("preview_info", {}),
+                    "generated_files": result.get("generated_files", {}),  # 完整代码
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": result.get("message", "代码生成失败"),
+                    "error": result.get("error")
+                }
+            
+        except Exception as e:
+            logger.error(f"[Maria直接执行] 生成网站失败: {e}")
+            return {"status": "error", "message": f"生成网站时出错: {str(e)}"}
+    
+    async def _deploy_website(self, args: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+        """部署网站到 GitHub Pages"""
+        try:
+            from app.agents.code_engineer import CodeEngineerAgent
+            
+            project_name = args.get("project_name")
+            files = args.get("files", {})
+            repo_name = args.get("repo_name", project_name)
+            
+            if not project_name:
+                return {"status": "error", "message": "请提供项目名称"}
+            
+            if not files:
+                return {"status": "error", "message": "请提供要部署的文件"}
+            
+            logger.info(f"[Maria直接执行] 部署网站: {project_name} -> GitHub Pages")
+            
+            code_engineer = CodeEngineerAgent()
+            
+            result = await code_engineer.process({
+                "task_type": "deploy",
+                "project_name": project_name,
+                "files": files,
+                "repo_name": repo_name
+            })
+            
+            return {
+                "status": result.get("status", "error"),
+                "message": result.get("message", "部署结果未知"),
+                "site_url": result.get("site_url"),
+                "repo_url": result.get("repo_url")
+            }
+            
+        except Exception as e:
+            logger.error(f"[Maria直接执行] 部署网站失败: {e}")
+            return {"status": "error", "message": f"部署网站时出错: {str(e)}"}
+    
+    async def _save_project_file(self, args: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+        """保存文件到项目 COS 目录"""
+        try:
+            from app.services.project_storage_service import project_storage_service
+            
+            project_name = args.get("project_name")
+            content = args.get("content", "")
+            filename = args.get("filename", "document.md")
+            agent_type = args.get("agent_type")  # 可选，自动决定目录
+            subfolder = args.get("subfolder")  # 可选，指定目录
+            
+            if not project_name:
+                return {"status": "error", "message": "请提供项目名称"}
+            
+            if not content:
+                return {"status": "error", "message": "请提供要保存的内容"}
+            
+            logger.info(f"[Maria直接执行] 保存项目文件: {project_name}/{filename}")
+            
+            result = await project_storage_service.save_text_file(
+                project_name=project_name,
+                content=content,
+                filename=filename,
+                agent_type=agent_type,
+                subfolder=subfolder
+            )
+            
+            if result.get("success"):
+                return {
+                    "status": "success",
+                    "message": f"文件已保存到 COS: {result.get('path')}",
+                    "filename": filename,
+                    "path": result.get("path"),
+                    "url": result.get("url"),
+                    "directory": result.get("directory")
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": f"保存失败: {result.get('error')}"
+                }
+            
+        except Exception as e:
+            logger.error(f"[Maria直接执行] 保存项目文件失败: {e}")
+            return {"status": "error", "message": f"保存文件时出错: {str(e)}"}

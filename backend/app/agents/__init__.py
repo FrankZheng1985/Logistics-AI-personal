@@ -9,6 +9,7 @@ from app.agents.follow_agent import follow_agent, FollowAgent
 from app.agents.lead_hunter import lead_hunter_agent, LeadHunterAgent
 from app.agents.eu_customs_monitor import eu_customs_monitor_agent, EUCustomsMonitorAgent
 from app.agents.assistant_agent import clauwdbot_agent, assistant_agent, ClauwdbotAgent
+from app.agents.code_engineer import CodeEngineerAgent
 
 # 向后兼容
 AssistantAgent = ClauwdbotAgent
@@ -28,6 +29,7 @@ __all__ = [
     "EUCustomsMonitorAgent",
     "ClauwdbotAgent",
     "AssistantAgent",  # 向后兼容
+    "CodeEngineerAgent",  # 小码 - 前端代码工程师
     # 单例实例
     "coordinator",
     "coordinator_agent",  # 兼容旧代码
@@ -83,6 +85,11 @@ AI_TEAM = {
         "name": "小欧间谍",
         "role": "欧洲海关监控员",
         "description": "监控欧洲海关新闻、反倾销、关税调整、进口政策等",
+    },
+    "code_engineer": {
+        "name": "小码",
+        "role": "前端代码工程师",
+        "description": "网站开发、代码生成、自动部署到GitHub Pages",
     },
     "assistant": {
         "name": "Clauwdbot",

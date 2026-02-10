@@ -40,6 +40,8 @@ AGENT_INFO = {
     "lead_hunter": {"name": "小猎", "type": AgentType.LEAD_HUNTER, "prompt_file": "lead_hunter.py"},
     "analyst2": {"name": "小析2", "type": AgentType.ANALYST2, "prompt_file": "analyst2.py"},
     "eu_customs_monitor": {"name": "小欧间谍", "type": AgentType.EU_CUSTOMS_MONITOR, "prompt_file": "eu_customs_monitor.py"},
+    "code_engineer": {"name": "小码", "type": AgentType.CODE_ENGINEER, "prompt_file": "code_engineer.py"},
+    "knowledge_curator": {"name": "小知", "type": AgentType.KNOWLEDGE_CURATOR, "prompt_file": "knowledge_curator.py"},
 }
 
 
@@ -188,6 +190,11 @@ class TeamManagementSkill(BaseSkill):
             "keywords": ["跟进", "发跟进", "生成跟进", "写跟进邮件"],
             "direct_tool": "generate_followup",
             "tool_args_builder": lambda desc: {"context": desc, "followup_type": "email"}
+        },
+        "code_engineer": {
+            "keywords": ["写代码", "生成网站", "做网页", "开发网站", "建站", "前端代码", "html", "react"],
+            "direct_tool": "generate_website",
+            "tool_args_builder": lambda desc: {"project_name": "website", "requirements": desc, "tech_stack": "static"}
         }
     }
 
@@ -205,14 +212,16 @@ class TeamManagementSkill(BaseSkill):
 用户指令：{message}
 
 可用的AI员工（使用agent_type）：
-- coordinator (小调) - 调度/报告
-- video_creator (小影) - 视频创作
-- copywriter (小文) - 文案策划
+- coordinator (小调) - 调度/报告/网站架构设计
+- video_creator (小影) - 视频创作/视觉素材
+- copywriter (小文) - 文案策划/网站内容
 - sales (小销) - 销售客服
 - follow (小跟) - 客户跟进
 - analyst (小析) - 数据分析
 - lead_hunter (小猎) - 线索搜索
 - eu_customs_monitor (小欧间谍) - 海关监控
+- code_engineer (小码) - 前端开发/网站代码/部署
+- knowledge_curator (小知) - 知识管理
 
 返回JSON：
 {{"target_agent": "agent_type", "task_description": "具体任务内容", "priority": "medium", "project": "所属项目名称（如有，如'独立站项目'、'欧洲物流方案'，没有则为空字符串）", "can_direct_execute": true/false}}

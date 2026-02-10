@@ -941,6 +941,113 @@ MARIA_TOOLS: List[Dict[str, Any]] = [
             }
         }
     },
+    
+    # ── 13.7 网站开发（小码能力）──
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_website",
+            "description": "【直接执行】生成完整的网站代码。小码直接生成HTML/CSS/JS或React代码，自动保存到COS项目目录",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project_name": {
+                        "type": "string",
+                        "description": "项目名称（英文），如'sogoodtea-website'、'company-site'"
+                    },
+                    "website_type": {
+                        "type": "string",
+                        "enum": ["corporate", "product", "landing", "blog", "ecommerce"],
+                        "description": "网站类型: corporate=企业官网, product=产品展示, landing=落地页, blog=博客, ecommerce=电商"
+                    },
+                    "tech_stack": {
+                        "type": "string",
+                        "enum": ["static", "react", "nextjs", "vue"],
+                        "description": "技术栈: static=纯HTML/CSS/JS, react=React+Tailwind, nextjs=Next.js, vue=Vue3"
+                    },
+                    "requirements": {
+                        "type": "string",
+                        "description": "需求描述，包括功能、风格、页面等要求"
+                    },
+                    "design_guide": {
+                        "type": "object",
+                        "description": "设计指南，如主色调、风格、参考网站等"
+                    },
+                    "content": {
+                        "type": "object",
+                        "description": "页面文案内容，由小文提供"
+                    },
+                    "assets": {
+                        "type": "object",
+                        "description": "素材信息，如logo、图片URL等，由小影提供"
+                    },
+                    "save_to_cos": {
+                        "type": "boolean",
+                        "description": "是否保存到COS项目目录，默认true"
+                    }
+                },
+                "required": ["project_name", "requirements"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "deploy_website",
+            "description": "【直接执行】部署网站到GitHub Pages。将生成的代码发布到线上，获得可访问的URL",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project_name": {
+                        "type": "string",
+                        "description": "项目名称"
+                    },
+                    "files": {
+                        "type": "object",
+                        "description": "要部署的文件，格式: {filename: content}"
+                    },
+                    "repo_name": {
+                        "type": "string",
+                        "description": "GitHub仓库名，默认使用项目名"
+                    }
+                },
+                "required": ["project_name", "files"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "save_project_file",
+            "description": "【直接执行】保存文件到COS项目目录。自动根据员工类型和文件类型归类存放",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project_name": {
+                        "type": "string",
+                        "description": "项目名称"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "文件内容"
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "文件名，如'architecture.md'、'homepage.html'"
+                    },
+                    "agent_type": {
+                        "type": "string",
+                        "description": "产出此文件的员工类型，用于自动归类目录。如coordinator->docs, copywriter->content"
+                    },
+                    "subfolder": {
+                        "type": "string",
+                        "description": "指定子目录，覆盖自动判断"
+                    }
+                },
+                "required": ["project_name", "content", "filename"]
+            }
+        }
+    },
     {
         "type": "function",
         "function": {

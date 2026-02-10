@@ -129,6 +129,10 @@ class Settings(BaseSettings):
     NOTION_API_KEY: Optional[str] = None
     NOTION_ROOT_PAGE_ID: Optional[str] = None  # 根页面ID，Maria创建的页面默认放在这里
     
+    # GitHub 配置（小码部署使用）
+    GITHUB_TOKEN: Optional[str] = None  # Personal Access Token，需要repo权限
+    GITHUB_USERNAME: Optional[str] = None  # GitHub用户名，用于GitHub Pages部署
+    
     # CORS配置
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
     
