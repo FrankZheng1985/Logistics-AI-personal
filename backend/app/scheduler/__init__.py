@@ -149,13 +149,18 @@ async def init_scheduler():
             # 混合方案新增：自动化工作流
             maria_auto_process_new_leads,  # 自动处理新线索
             maria_auto_followup_reminder,  # 自动跟进提醒
-            maria_lead_hunt_scheduler  # 自动线索狩猎调度
+            maria_lead_hunt_scheduler,  # 自动线索狩猎调度
+            # 小知 - 知识管家自动化任务
+            xiaozhi_auto_knowledge_collection,  # 自动知识采集
+            xiaozhi_knowledge_maintenance,  # 知识库维护
+            xiaozhi_knowledge_gap_check  # 知识缺口检查
         )
     except ImportError as e:
         logger.warning(f"Maria后台任务导入失败: {e}")
         auto_sync_emails = auto_sync_calendar = maria_morning_brief = check_maria_inbox_attachments = None
         maria_proactive_task_check = maria_evening_summary = None
         maria_auto_process_new_leads = maria_auto_followup_reminder = maria_lead_hunt_scheduler = None
+        xiaozhi_auto_knowledge_collection = xiaozhi_knowledge_maintenance = xiaozhi_knowledge_gap_check = None
     
     # TaskWorker 任务调度引擎
     try:
@@ -341,6 +346,20 @@ async def init_scheduler():
     # 自动线索狩猎调度（每3小时，工作时间内）
     _safe_add_job(maria_lead_hunt_scheduler, IntervalTrigger(hours=3),
                   "maria_lead_hunt_scheduler", "[Maria自动化] 线索狩猎调度 - 每3小时")
+    
+    # ==================== 小知 - 知识管家自动化 ====================
+    
+    # 自动知识采集（每2小时）
+    _safe_add_job(xiaozhi_auto_knowledge_collection, IntervalTrigger(hours=2),
+                  "xiaozhi_knowledge_collection", "[小知] 自动知识采集 - 每2小时")
+    
+    # 知识库维护（每天凌晨3点）
+    _safe_add_job(xiaozhi_knowledge_maintenance, CronTrigger(hour=3, minute=0),
+                  "xiaozhi_knowledge_maintenance", "[小知] 知识库维护 - 03:00")
+    
+    # 知识缺口检查（每周一早上8点）
+    _safe_add_job(xiaozhi_knowledge_gap_check, CronTrigger(day_of_week='mon', hour=8, minute=0),
+                  "xiaozhi_knowledge_gap_check", "[小知] 知识缺口分析 - 周一08:00")
     
     # ==================== Notion 知识库同步 ====================
     

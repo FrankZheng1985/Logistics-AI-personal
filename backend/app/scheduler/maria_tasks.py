@@ -1193,3 +1193,381 @@ async def maria_lead_hunt_scheduler():
         logger.error(f"[Maria自动化] 线索狩猎调度失败: {e}")
         import traceback
         logger.error(traceback.format_exc())
+
+
+# ============================================================
+# 小知 - 智能知识采集与迭代任务
+# ============================================================
+
+async def xiaozhi_auto_knowledge_collection():
+    """
+    小知 - 自动知识采集任务（每2小时执行）
+    
+    功能：
+    1. 从群消息中提取有价值的知识
+    2. 从客户对话中提取FAQ和痛点
+    3. 从海关预警中提取政策知识
+    4. 去重、分类、入库
+    """
+    import fcntl
+    lock_file = "/tmp/xiaozhi_knowledge.lock"
+    
+    try:
+        # 文件锁防止重复执行
+        with open(lock_file, "w") as f:
+            try:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                logger.debug("[小知] 知识采集任务正在执行，跳过")
+                return
+            
+            logger.info("[小知] 🧠 启动自动知识采集...")
+            
+            from app.models.database import async_session_maker
+            from sqlalchemy import text
+            from app.services.knowledge_base import knowledge_base
+            import json
+            
+            stats = {
+                "collected": 0,
+                "added": 0,
+                "merged": 0,
+                "rejected": 0
+            }
+            
+            async with async_session_maker() as db:
+                # 1. 从群消息中提取知识（最近2小时的有价值消息）
+                try:
+                    result = await db.execute(
+                        text("""
+                            SELECT id, content, analysis_result, group_name
+                            FROM wechat_group_messages
+                            WHERE created_at > NOW() - INTERVAL '2 hours'
+                            AND analysis_result IS NOT NULL
+                            AND (analysis_result->>'category' IN ('intel', 'knowledge'))
+                            AND NOT EXISTS (
+                                SELECT 1 FROM knowledge_base kb 
+                                WHERE kb.source_id = CAST(wechat_group_messages.id AS TEXT)
+                            )
+                            LIMIT 20
+                        """)
+                    )
+                    group_messages = result.fetchall()
+                    
+                    for msg in group_messages:
+                        stats["collected"] += 1
+                        msg_id, content, analysis, group_name = msg
+                        
+                        if analysis:
+                            analysis_data = analysis if isinstance(analysis, dict) else json.loads(analysis)
+                            category = analysis_data.get("category", "intel")
+                            summary = analysis_data.get("summary", content[:200])
+                            
+                            # 映射到知识类型
+                            type_mapping = {
+                                "intel": "market_intel",
+                                "knowledge": "clearance_exp"
+                            }
+                            knowledge_type = type_mapping.get(category, "faq")
+                            
+                            # 提取标签
+                            tags = []
+                            if "运价" in content or "价格" in content:
+                                tags.append("运价")
+                                knowledge_type = "price_ref"
+                            if "清关" in content or "海关" in content:
+                                tags.append("清关")
+                            if "政策" in content or "法规" in content:
+                                tags.append("政策")
+                                knowledge_type = "policy"
+                            
+                            tags.append(group_name[:20] if group_name else "微信群")
+                            
+                            # 添加到知识库
+                            knowledge_id = await knowledge_base.add_knowledge(
+                                content=summary if len(summary) > 50 else content[:500],
+                                knowledge_type=knowledge_type,
+                                source="wechat_group",
+                                source_id=str(msg_id),
+                                tags=tags,
+                                is_verified=False
+                            )
+                            
+                            if knowledge_id:
+                                stats["added"] += 1
+                                logger.debug(f"[小知] 从群消息提取知识: {summary[:50]}...")
+                            
+                except Exception as e:
+                    logger.warning(f"[小知] 群消息知识提取失败: {e}")
+                
+                # 2. 从客户对话中提取FAQ（识别高频问题）
+                try:
+                    result = await db.execute(
+                        text("""
+                            SELECT content, COUNT(*) as freq
+                            FROM (
+                                SELECT LOWER(SUBSTRING(content FROM 1 FOR 50)) as content
+                                FROM customer_conversations
+                                WHERE created_at > NOW() - INTERVAL '24 hours'
+                                AND role = 'user'
+                                AND content LIKE '%？%' OR content LIKE '%吗%' OR content LIKE '%怎么%'
+                            ) sub
+                            GROUP BY content
+                            HAVING COUNT(*) >= 2
+                            ORDER BY freq DESC
+                            LIMIT 5
+                        """)
+                    )
+                    frequent_questions = result.fetchall()
+                    
+                    for q in frequent_questions:
+                        question, freq = q
+                        stats["collected"] += 1
+                        
+                        # 检查是否已有类似FAQ
+                        existing = await knowledge_base.search_knowledge(
+                            query=question,
+                            knowledge_type="faq",
+                            limit=1
+                        )
+                        
+                        if not existing:
+                            # 标记为需要补充FAQ（暂不自动生成答案）
+                            await knowledge_base.add_knowledge(
+                                content=f"[待补充答案] 高频问题({freq}次): {question}",
+                                knowledge_type="faq",
+                                source="customer_chat",
+                                tags=["待补充", "高频问题"],
+                                is_verified=False
+                            )
+                            stats["added"] += 1
+                            logger.info(f"[小知] 发现高频问题待补充: {question}")
+                        else:
+                            stats["merged"] += 1
+                            
+                except Exception as e:
+                    logger.warning(f"[小知] 客户对话FAQ提取失败: {e}")
+                
+                # 3. 从海关预警中提取政策知识
+                try:
+                    result = await db.execute(
+                        text("""
+                            SELECT id, title_cn, summary_cn, news_type, urgency
+                            FROM customs_alerts
+                            WHERE created_at > NOW() - INTERVAL '24 hours'
+                            AND importance_score >= 60
+                            AND NOT EXISTS (
+                                SELECT 1 FROM knowledge_base kb 
+                                WHERE kb.source_id = CAST(customs_alerts.id AS TEXT)
+                                AND kb.source = 'customs_alert'
+                            )
+                            LIMIT 10
+                        """)
+                    )
+                    alerts = result.fetchall()
+                    
+                    for alert in alerts:
+                        stats["collected"] += 1
+                        alert_id, title, summary, news_type, urgency = alert
+                        
+                        tags = ["海关", "政策"]
+                        if urgency == "紧急":
+                            tags.append("紧急")
+                        if news_type:
+                            tags.append(news_type)
+                        
+                        knowledge_id = await knowledge_base.add_knowledge(
+                            content=f"{title}\n\n{summary}" if summary else title,
+                            knowledge_type="policy",
+                            source="customs_alert",
+                            source_id=str(alert_id),
+                            tags=tags,
+                            is_verified=True  # 海关预警视为已验证
+                        )
+                        
+                        if knowledge_id:
+                            stats["added"] += 1
+                            logger.debug(f"[小知] 从海关预警提取知识: {title[:50]}...")
+                            
+                except Exception as e:
+                    logger.warning(f"[小知] 海关预警知识提取失败: {e}")
+            
+            logger.info(f"[小知] ✅ 知识采集完成: 采集 {stats['collected']} 条，新增 {stats['added']} 条，合并 {stats['merged']} 条，拒绝 {stats['rejected']} 条")
+            
+            fcntl.flock(f, fcntl.LOCK_UN)
+            
+    except Exception as e:
+        logger.error(f"[小知] 知识采集失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
+async def xiaozhi_knowledge_maintenance():
+    """
+    小知 - 知识库维护任务（每天凌晨执行）
+    
+    功能：
+    1. 检查过期知识并标记
+    2. 统计知识使用情况
+    3. 生成知识健康度报告
+    4. 清理低质量/无用知识
+    """
+    try:
+        logger.info("[小知] 🔧 启动知识库维护...")
+        
+        from app.models.database import async_session_maker
+        from sqlalchemy import text
+        
+        async with async_session_maker() as db:
+            # 1. 标记过期知识（运价参考超过7天）
+            result = await db.execute(
+                text("""
+                    UPDATE knowledge_base
+                    SET tags = array_append(tags, '过期待更新')
+                    WHERE knowledge_type = 'price_ref'
+                    AND updated_at < NOW() - INTERVAL '7 days'
+                    AND NOT ('过期待更新' = ANY(tags))
+                    RETURNING id
+                """)
+            )
+            expired_price = len(result.fetchall())
+            
+            # 2. 标记过期政策（超过30天）
+            result = await db.execute(
+                text("""
+                    UPDATE knowledge_base
+                    SET tags = array_append(tags, '待复核')
+                    WHERE knowledge_type = 'policy'
+                    AND updated_at < NOW() - INTERVAL '30 days'
+                    AND NOT ('待复核' = ANY(tags))
+                    RETURNING id
+                """)
+            )
+            expired_policy = len(result.fetchall())
+            
+            # 3. 清理从未使用且超过90天的未验证知识
+            result = await db.execute(
+                text("""
+                    DELETE FROM knowledge_base
+                    WHERE usage_count = 0
+                    AND is_verified = FALSE
+                    AND created_at < NOW() - INTERVAL '90 days'
+                    RETURNING id
+                """)
+            )
+            cleaned = len(result.fetchall())
+            
+            # 4. 统计知识库健康度
+            result = await db.execute(
+                text("""
+                    SELECT 
+                        COUNT(*) as total,
+                        COUNT(*) FILTER (WHERE is_verified = TRUE) as verified,
+                        COUNT(*) FILTER (WHERE usage_count > 0) as used,
+                        COUNT(*) FILTER (WHERE '过期待更新' = ANY(tags) OR '待复核' = ANY(tags)) as needs_attention
+                    FROM knowledge_base
+                """)
+            )
+            stats = result.fetchone()
+            
+            await db.commit()
+            
+            total, verified, used, needs_attention = stats if stats else (0, 0, 0, 0)
+            health_score = int((verified / max(total, 1) * 40) + (used / max(total, 1) * 40) + ((1 - needs_attention / max(total, 1)) * 20))
+            
+            logger.info(f"[小知] ✅ 知识库维护完成:")
+            logger.info(f"  - 运价过期标记: {expired_price} 条")
+            logger.info(f"  - 政策待复核: {expired_policy} 条")
+            logger.info(f"  - 清理无用知识: {cleaned} 条")
+            logger.info(f"  - 知识库总量: {total} 条")
+            logger.info(f"  - 已验证: {verified} 条")
+            logger.info(f"  - 使用过: {used} 条")
+            logger.info(f"  - 健康度评分: {health_score}/100")
+            
+    except Exception as e:
+        logger.error(f"[小知] 知识库维护失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
+async def xiaozhi_knowledge_gap_check():
+    """
+    小知 - 知识缺口检查（每周执行）
+    
+    功能：
+    1. 分析客户高频问题 vs 知识库覆盖
+    2. 识别知识缺口
+    3. 生成补充建议
+    """
+    try:
+        logger.info("[小知] 🔍 启动知识缺口分析...")
+        
+        from app.models.database import async_session_maker
+        from sqlalchemy import text
+        
+        gaps = []
+        
+        async with async_session_maker() as db:
+            # 1. 分析最近一周的客户高频问题
+            result = await db.execute(
+                text("""
+                    SELECT 
+                        CASE 
+                            WHEN content ILIKE '%时效%' OR content ILIKE '%多久%' THEN '时效查询'
+                            WHEN content ILIKE '%价格%' OR content ILIKE '%多少钱%' OR content ILIKE '%报价%' THEN '价格咨询'
+                            WHEN content ILIKE '%清关%' OR content ILIKE '%海关%' THEN '清关问题'
+                            WHEN content ILIKE '%VAT%' OR content ILIKE '%税%' THEN 'VAT税务'
+                            WHEN content ILIKE '%带电%' OR content ILIKE '%电池%' THEN '带电产品'
+                            WHEN content ILIKE '%退货%' OR content ILIKE '%退回%' THEN '退货处理'
+                            ELSE '其他'
+                        END as topic,
+                        COUNT(*) as freq
+                    FROM customer_conversations
+                    WHERE created_at > NOW() - INTERVAL '7 days'
+                    AND role = 'user'
+                    GROUP BY topic
+                    HAVING COUNT(*) >= 3
+                    ORDER BY freq DESC
+                """)
+            )
+            hot_topics = result.fetchall()
+            
+            # 2. 检查每个热门话题的知识覆盖
+            for topic, freq in hot_topics:
+                if topic == '其他':
+                    continue
+                    
+                # 搜索相关知识
+                result = await db.execute(
+                    text("""
+                        SELECT COUNT(*) 
+                        FROM knowledge_base
+                        WHERE content ILIKE :pattern
+                        AND is_verified = TRUE
+                    """),
+                    {"pattern": f"%{topic.replace('查询', '').replace('咨询', '').replace('问题', '')}%"}
+                )
+                coverage = result.scalar() or 0
+                
+                if coverage < 3:  # 相关知识少于3条视为缺口
+                    gaps.append({
+                        "topic": topic,
+                        "query_frequency": freq,
+                        "knowledge_coverage": coverage,
+                        "severity": "高" if coverage == 0 else "中"
+                    })
+            
+            if gaps:
+                logger.warning(f"[小知] ⚠️ 发现 {len(gaps)} 个知识缺口:")
+                for gap in gaps:
+                    logger.warning(f"  - {gap['topic']}: 咨询{gap['query_frequency']}次，知识覆盖{gap['knowledge_coverage']}条")
+                
+                # 可以在这里发送通知给老板
+                # TODO: 集成通知功能
+            else:
+                logger.info("[小知] ✅ 知识覆盖良好，未发现明显缺口")
+                
+    except Exception as e:
+        logger.error(f"[小知] 知识缺口分析失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
