@@ -72,8 +72,19 @@ class ClauwdbotAgent(BaseAgent):
         "eu_customs_monitor": {"name": "小欧间谍", "type": AgentType.EU_CUSTOMS_MONITOR, "prompt_file": "eu_customs_monitor.py"},
     }
     
-    # ReAct 最大循环轮次
-    MAX_REACT_TURNS = 5
+    # ReAct 最大循环轮次（增加到8轮，处理更复杂的任务）
+    MAX_REACT_TURNS = 8
+    
+    # 记忆系统配置（扩展）
+    CONVERSATION_HISTORY_LIMIT = 20  # 对话历史从10增加到20
+    RAG_TOP_K = 5  # RAG检索从3增加到5
+    
+    # 复杂任务关键词（触发高级模型）
+    COMPLEX_TASK_KEYWORDS = [
+        "分析", "计划", "方案", "策略", "评估", "设计", "架构",
+        "合同", "法律", "风险", "财务", "预算", "报告",
+        "为什么", "怎么办", "如何", "建议", "优化"
+    ]
     
     @staticmethod
     def to_china_time(dt):
@@ -139,8 +150,25 @@ class ClauwdbotAgent(BaseAgent):
                 await self.end_task_session("音频处理完成")
                 return result
             
+            # ===== 1.5 邮件上下文检索（新增）=====
+            # 当用户提到"那个合同"、"刚才的邮件"等，自动注入相关邮件上下文
+            email_context_prompt = None
+            try:
+                from app.services.email_context_service import email_context_service
+                email_context_prompt = await email_context_service.build_context_prompt(user_id, message)
+                if email_context_prompt:
+                    logger.info(f"[Maria] 检测到邮件引用，已注入上下文")
+            except Exception as e:
+                logger.warning(f"[Maria] 邮件上下文检索失败: {e}")
+            
             # ===== 2. 构建对话消息 =====
-            messages = self._build_conversation_messages(message)
+            # 如果有邮件上下文，将其作为系统消息注入
+            if email_context_prompt:
+                augmented_message = f"{email_context_prompt}\n\n---\n**用户请求**: {message}"
+            else:
+                augmented_message = message
+            
+            messages = self._build_conversation_messages(augmented_message)
             
             # ===== 3. ReAct 循环 =====
             from app.agents.maria_tools import MARIA_TOOLS, MariaToolExecutor
@@ -153,7 +181,10 @@ class ClauwdbotAgent(BaseAgent):
             collected_files = []
             
             for turn in range(self.MAX_REACT_TURNS):
-                logger.info(f"[Maria ReAct] 第{turn + 1}轮")
+                logger.info(f"[Maria ReAct] 第{turn + 1}轮 | 复杂任务={getattr(self, '_is_complex_task', False)}")
+                
+                # 智能模型选择：复杂任务用DeepSeek（推理更强），简单任务用Qwen（更便宜）
+                model_pref = "reasoning" if getattr(self, '_is_complex_task', False) else None
                 
                 response = await chat_completion(
                     messages=messages,
@@ -162,6 +193,7 @@ class ClauwdbotAgent(BaseAgent):
                     use_advanced=True,
                     agent_name="Maria",
                     task_type="react_turn",
+                    model_preference=model_pref,  # 根据任务复杂度选择模型
                 )
                 
                 # --- 情况A：纯文本回复（没有工具调用）---
@@ -172,14 +204,26 @@ class ClauwdbotAgent(BaseAgent):
                     
                     # 拦截"口头承诺"
                     strong_promises = ["处理好了", "完成了", "已经添加", "已经生成", "已经发送", "同步完成", "添加成功"]
-                    task_verbs = ["同步", "添加", "生成", "发送", "查询", "检查"]
-                    valid_responses = ["没有", "不能", "无法", "不支持", "暂时", "清净", "空的", "0封", "问题", "失败"]
+                    task_verbs = ["同步", "添加", "生成", "发送", "查询", "检查", "分析", "看看", "读取"]
+                    valid_responses = ["没有", "不能", "无法", "不支持", "暂时", "清净", "空的", "0封"]
                     
                     has_strong_promise = any(word in content for word in strong_promises)
                     user_requests_task = any(verb in message for verb in task_verbs)
                     is_valid_response = any(word in content for word in valid_responses)
                     
+                    # 特殊拦截：用户要分析合同/附件/文件时，必须调用工具
+                    attachment_keywords = ["合同", "附件", "文件", "发票", "报价", "提单", "文档"]
+                    user_wants_attachment = any(kw in message for kw in attachment_keywords) and "分析" in message
+                    response_says_failed = any(word in content for word in ["失败", "无法读取", "正文为空", "方案"])
+                    
                     should_intercept = has_strong_promise or (user_requests_task and not is_valid_response and len(content) < 50)
+                    
+                    # 强制拦截：用户要分析附件但回复说失败，必须重试并调用 analyze_email_attachment
+                    if turn == 0 and user_wants_attachment and response_says_failed:
+                        logger.warning(f"[Maria ReAct] 拦截：用户要分析附件但回复说失败 | user: '{message[:30]}...'")
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append({"role": "user", "content": "❌ 错误：你必须调用 analyze_email_attachment 工具去邮箱搜索并分析附件。你有专属邮箱，邮件都在那里，不能说'读取失败'。立即调用工具搜索关键词找到邮件。"})
+                        continue
                     
                     if turn == 0 and should_intercept:
                         logger.warning(f"[Maria ReAct] 拦截：口头承诺或任务请求未调工具 | user: '{message[:30]}...' | bot: '{content[:30]}...'")
@@ -249,6 +293,9 @@ class ClauwdbotAgent(BaseAgent):
             else:
                 if not final_text:
                     final_text = "好的，处理好了。"
+            
+            # ===== 3.5 自我验证机制 =====
+            final_text = await self._self_verify_response(message, final_text, messages)
             
             # ===== 4. 构建返回结果 =====
             result = {"success": True, "response": final_text}
@@ -377,17 +424,22 @@ class ClauwdbotAgent(BaseAgent):
         
         self._recent_history = []
         try:
-            self._recent_history = await self._load_recent_history(user_id, limit=10)
+            self._recent_history = await self._load_recent_history(user_id, limit=self.CONVERSATION_HISTORY_LIMIT)
         except Exception as e:
             logger.warning(f"[Maria] 加载对话历史失败: {e}")
         
-        # RAG: 检索相关历史上下文
+        # RAG: 检索相关历史上下文（扩展到5条）
         self._rag_context = ""
         try:
             from app.services.vector_store import vector_store
-            self._rag_context = await vector_store.get_relevant_context(user_id, message, top_k=3)
+            self._rag_context = await vector_store.get_relevant_context(user_id, message, top_k=self.RAG_TOP_K)
         except Exception as e:
             logger.debug(f"[Maria] RAG检索跳过: {e}")
+        
+        # 判断是否为复杂任务（决定是否使用高级模型）
+        self._is_complex_task = any(kw in message for kw in self.COMPLEX_TASK_KEYWORDS)
+        if self._is_complex_task:
+            logger.info(f"[Maria] 检测到复杂任务，将使用高级模型")
     
     def _build_conversation_messages(self, current_message: str) -> List[Dict[str, str]]:
         """构建发送给 LLM 的对话消息列表（含历史上下文）"""
@@ -700,6 +752,98 @@ class ClauwdbotAgent(BaseAgent):
             await db.commit()
         
         return reminders
+    
+    # ==================== 自我验证机制 ====================
+    
+    async def _self_verify_response(self, user_message: str, response: str, conversation: list) -> str:
+        """
+        自我验证机制 - 检查回复质量，必要时优化
+        
+        检查项：
+        1. 是否空洞无物（只说"处理好了"但没有具体内容）
+        2. 是否遗漏了用户提到的事项
+        3. 是否过于冗长或过于简短
+        """
+        # 空洞回复检测
+        empty_responses = [
+            "好的，处理好了", "搞定了", "已处理", "好的", "收到",
+            "没问题", "已经完成", "处理完成", "OK", "ok"
+        ]
+        
+        response_stripped = response.strip()
+        is_empty = any(response_stripped == er for er in empty_responses) or len(response_stripped) < 15
+        
+        # 任务关键词检测（用户是否要求做某事）
+        task_keywords = ["帮我", "看看", "查一下", "分析", "发送", "添加", "创建", "生成", "同步", "检查"]
+        user_requested_task = any(kw in user_message for kw in task_keywords)
+        
+        # 如果用户要求做事但回复太空洞，触发补充
+        if user_requested_task and is_empty:
+            logger.warning(f"[Maria 自检] 检测到空洞回复，尝试补充: '{response_stripped}'")
+            
+            # 检查conversation中是否有工具调用结果
+            tool_results = []
+            for msg in conversation:
+                if msg.get("role") == "tool":
+                    try:
+                        content = msg.get("content", "")
+                        if content:
+                            result = json.loads(content) if isinstance(content, str) else content
+                            tool_results.append(result)
+                    except:
+                        pass
+            
+            # 如果有工具结果，用它来补充回复
+            if tool_results:
+                supplement = self._generate_result_summary(tool_results)
+                if supplement:
+                    response = f"{response_stripped}\n\n{supplement}"
+                    logger.info(f"[Maria 自检] 已补充工具执行结果摘要")
+        
+        # 多任务遗漏检测
+        # 简单检测：如果用户消息中有"和"、"另外"、"还有"等词，检查回复是否覆盖
+        multi_task_indicators = ["和", "另外", "还有", "以及", "同时", "顺便"]
+        if any(ind in user_message for ind in multi_task_indicators):
+            # 这里只是记录日志，更复杂的遗漏检测需要LLM辅助
+            logger.debug(f"[Maria 自检] 检测到多任务请求，请确保全部处理")
+        
+        return response
+    
+    @staticmethod
+    def _generate_result_summary(tool_results: list) -> str:
+        """根据工具执行结果生成摘要"""
+        summaries = []
+        
+        for result in tool_results:
+            if not isinstance(result, dict):
+                continue
+            
+            status = result.get("status", result.get("success", ""))
+            
+            # 邮件相关
+            if "emails" in result or "email" in str(result.get("message", "")):
+                count = result.get("count", result.get("total", 0))
+                if count:
+                    summaries.append(f"邮件：共{count}封")
+            
+            # 日程相关
+            if "schedule" in result or "calendar" in str(result.get("message", "")):
+                if result.get("success") or status == "success":
+                    summaries.append("日程：已添加")
+            
+            # 任务分配相关
+            if "task" in result and "agent" in str(result):
+                agent = result.get("agent_name", "")
+                if agent:
+                    summaries.append(f"任务：已分配给{agent}")
+            
+            # Notion相关
+            if "notion" in str(result).lower() or "page_url" in result:
+                url = result.get("page_url", result.get("url", ""))
+                if url:
+                    summaries.append(f"Notion：{url}")
+        
+        return "执行结果：" + "；".join(summaries) if summaries else ""
 
 
 # 创建单例并注册（保持向后兼容）

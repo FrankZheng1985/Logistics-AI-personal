@@ -142,11 +142,15 @@ async def init_scheduler():
         from app.scheduler.maria_tasks import (
             auto_sync_emails,
             auto_sync_calendar,
-            maria_morning_brief
+            maria_morning_brief,
+            check_maria_inbox_attachments,
+            maria_proactive_task_check,  # 新增：主动任务巡检
+            maria_evening_summary  # 新增：晚间工作总结
         )
     except ImportError as e:
         logger.warning(f"Maria后台任务导入失败: {e}")
-        auto_sync_emails = auto_sync_calendar = maria_morning_brief = None
+        auto_sync_emails = auto_sync_calendar = maria_morning_brief = check_maria_inbox_attachments = None
+        maria_proactive_task_check = maria_evening_summary = None
     
     # TaskWorker 任务调度引擎
     try:
@@ -304,6 +308,17 @@ async def init_scheduler():
     
     _safe_add_job(maria_morning_brief, CronTrigger(hour=9, minute=0),
                   "maria_morning_brief", "[Maria] 早间智能简报 - 09:00")
+    
+    _safe_add_job(check_maria_inbox_attachments, IntervalTrigger(minutes=10),
+                  "maria_inbox_attachments", "[Maria] 邮箱附件检查 - 每10分钟")
+    
+    # Maria 主动巡检任务（新增）
+    _safe_add_job(maria_proactive_task_check, IntervalTrigger(hours=2),
+                  "maria_proactive_check", "[Maria] 主动任务巡检 - 每2小时")
+    
+    # Maria 晚间工作总结（新增）
+    _safe_add_job(maria_evening_summary, CronTrigger(hour=18, minute=30),
+                  "maria_evening_summary", "[Maria] 晚间工作总结 - 18:30")
     
     # ==================== Notion 知识库同步 ====================
     

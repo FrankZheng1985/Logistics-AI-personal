@@ -3,9 +3,12 @@ Maria 后台智能任务
 - 邮件自动同步
 - 日历自动同步
 - 智能监控与主动提醒
+- 邮件上下文记忆
+- 主动任务巡检与进度汇报（新增）
 """
 from loguru import logger
-from datetime import datetime
+from datetime import datetime, timedelta
+from app.services.email_context_service import email_context_service
 
 
 async def auto_sync_emails():
@@ -580,6 +583,32 @@ async def check_maria_inbox_attachments():
                             f"📄 **{filename}** 分析完成（{word_count}字）\n\n{analysis}"
                         )
                         
+                        # 保存邮件上下文（让Maria记住这封邮件，以便用户后续引用）
+                        doc_type_map = {
+                            True: "contract",  # is_contract
+                        }
+                        if is_contract:
+                            saved_doc_type = "contract"
+                        elif is_finance:
+                            saved_doc_type = "invoice"
+                        elif is_logistics:
+                            saved_doc_type = "logistics"
+                        else:
+                            saved_doc_type = "general"
+                        
+                        await email_context_service.save_email_context(
+                            user_id="Frank.Z",  # 默认老板ID
+                            email_id=email_id,
+                            subject=subject,
+                            from_address=from_addr,
+                            from_name=from_name,
+                            attachment_name=filename,
+                            attachment_content=content,
+                            analysis_result=analysis,
+                            doc_type=saved_doc_type
+                        )
+                        logger.info(f"[Maria邮箱] 已保存邮件上下文: {filename} (type={saved_doc_type})")
+                        
                     except asyncio.TimeoutError:
                         await send_text_message(
                             "Frank.Z",
@@ -604,5 +633,273 @@ async def check_maria_inbox_attachments():
         
     except Exception as e:
         logger.error(f"[Maria邮箱] 检查附件失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
+async def maria_proactive_task_check():
+    """
+    Maria 主动任务巡检（每2小时执行一次）
+    
+    功能：
+    1. 检查AI团队任务积压情况
+    2. 检查长时间未完成的任务
+    3. 检查失败率异常的员工
+    4. 主动向老板汇报问题和建议
+    """
+    try:
+        from app.api.wechat_assistant import send_text_message
+        from app.models.database import AsyncSessionLocal
+        from sqlalchemy import text
+        import pytz
+        
+        logger.info("[Maria巡检] 开始主动任务巡检...")
+        
+        CHINA_TZ = pytz.timezone('Asia/Shanghai')
+        now = datetime.now(CHINA_TZ)
+        
+        issues = []  # 发现的问题
+        suggestions = []  # 建议
+        
+        agent_names = {
+            "coordinator": "小调", "video_creator": "小影",
+            "copywriter": "小文", "sales": "小销",
+            "follow": "小跟", "analyst": "小析",
+            "lead_hunter": "小猎", "analyst2": "小析2",
+            "eu_customs_monitor": "小欧间谍",
+        }
+        
+        async with AsyncSessionLocal() as db:
+            # ===== 1. 检查任务积压 =====
+            result = await db.execute(
+                text("""
+                    SELECT agent_type, COUNT(*) as cnt
+                    FROM ai_tasks 
+                    WHERE status = 'pending' 
+                    GROUP BY agent_type
+                    HAVING COUNT(*) > 5
+                """)
+            )
+            backlog = result.fetchall()
+            
+            for row in backlog:
+                agent_type, count = row[0], row[1]
+                agent_name = agent_names.get(agent_type, agent_type)
+                issues.append(f"{agent_name} 有 {count} 个任务积压")
+            
+            # ===== 2. 检查长时间未完成的任务（超过24小时） =====
+            result = await db.execute(
+                text("""
+                    SELECT agent_type, task_description, created_at
+                    FROM ai_tasks 
+                    WHERE status = 'pending'
+                    AND created_at < NOW() - INTERVAL '24 hours'
+                    ORDER BY created_at ASC
+                    LIMIT 5
+                """)
+            )
+            stale_tasks = result.fetchall()
+            
+            if stale_tasks:
+                issues.append(f"有 {len(stale_tasks)} 个任务超过24小时未完成")
+                for task in stale_tasks[:3]:
+                    agent_name = agent_names.get(task[0], task[0])
+                    desc = (task[1] or "")[:30]
+                    issues.append(f"  - {agent_name}: {desc}...")
+            
+            # ===== 3. 检查最近24小时失败率 =====
+            result = await db.execute(
+                text("""
+                    SELECT agent_type,
+                           COUNT(*) FILTER (WHERE status = 'failed') as failed,
+                           COUNT(*) as total
+                    FROM ai_tasks 
+                    WHERE created_at > NOW() - INTERVAL '24 hours'
+                    GROUP BY agent_type
+                    HAVING COUNT(*) > 3 AND COUNT(*) FILTER (WHERE status = 'failed') > 0
+                """)
+            )
+            failure_stats = result.fetchall()
+            
+            for row in failure_stats:
+                agent_type, failed, total = row[0], row[1], row[2]
+                failure_rate = (failed / total) * 100
+                if failure_rate > 30:  # 失败率超过30%
+                    agent_name = agent_names.get(agent_type, agent_type)
+                    issues.append(f"{agent_name} 失败率 {failure_rate:.0f}%（{failed}/{total}个任务）")
+                    suggestions.append(f"建议检查 {agent_name} 的配置或日志")
+            
+            # ===== 4. 检查今日待办完成情况 =====
+            result = await db.execute(
+                text("""
+                    SELECT COUNT(*) as pending
+                    FROM assistant_schedules
+                    WHERE DATE(start_time) = CURRENT_DATE
+                    AND is_completed = FALSE
+                """)
+            )
+            pending_schedules = result.fetchone()[0]
+            
+            if pending_schedules > 0 and now.hour >= 17:  # 下午5点后还有未完成的日程
+                issues.append(f"今日还有 {pending_schedules} 个日程/待办未完成")
+        
+        # ===== 5. 如果有问题，主动汇报 =====
+        if issues:
+            message = f"郑总，Maria 主动巡检发现以下问题：\n\n"
+            
+            for i, issue in enumerate(issues, 1):
+                message += f"{i}. {issue}\n"
+            
+            if suggestions:
+                message += "\n我的建议：\n"
+                for s in suggestions:
+                    message += f"• {s}\n"
+            
+            message += "\n需要我处理哪个问题吗？"
+            
+            await send_text_message("Frank.Z", message)
+            logger.info(f"[Maria巡检] 已主动汇报 {len(issues)} 个问题")
+        else:
+            logger.info("[Maria巡检] 一切正常，无需汇报")
+        
+    except Exception as e:
+        logger.error(f"[Maria巡检] 主动巡检失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
+async def maria_evening_summary():
+    """
+    Maria 晚间工作总结（每天18:30执行）
+    
+    功能：
+    1. 今日任务完成统计
+    2. 今日邮件处理情况
+    3. 明日待办提醒
+    4. AI团队工作成果
+    """
+    try:
+        from app.api.wechat_assistant import send_text_message
+        from app.models.database import AsyncSessionLocal
+        from sqlalchemy import text
+        import pytz
+        
+        logger.info("[Maria晚报] 生成晚间工作总结...")
+        
+        CHINA_TZ = pytz.timezone('Asia/Shanghai')
+        now = datetime.now(CHINA_TZ)
+        
+        summary_parts = [f"郑总，今日（{now.month}月{now.day}日）工作总结：\n"]
+        
+        agent_names = {
+            "coordinator": "小调", "video_creator": "小影",
+            "copywriter": "小文", "sales": "小销",
+            "follow": "小跟", "analyst": "小析",
+            "lead_hunter": "小猎", "analyst2": "小析2",
+            "eu_customs_monitor": "小欧间谍",
+        }
+        
+        async with AsyncSessionLocal() as db:
+            # ===== 1. 今日AI任务统计 =====
+            result = await db.execute(
+                text("""
+                    SELECT 
+                        COUNT(*) FILTER (WHERE status = 'completed') as completed,
+                        COUNT(*) FILTER (WHERE status = 'failed') as failed,
+                        COUNT(*) FILTER (WHERE status = 'pending') as pending
+                    FROM ai_tasks 
+                    WHERE DATE(created_at) = CURRENT_DATE
+                """)
+            )
+            row = result.fetchone()
+            completed, failed, pending = row[0] or 0, row[1] or 0, row[2] or 0
+            
+            summary_parts.append(f"📊 AI团队任务：完成 {completed} | 失败 {failed} | 待处理 {pending}")
+            
+            # ===== 2. 各员工工作量 =====
+            result = await db.execute(
+                text("""
+                    SELECT agent_type, COUNT(*) as cnt
+                    FROM ai_tasks 
+                    WHERE DATE(created_at) = CURRENT_DATE
+                    AND status = 'completed'
+                    GROUP BY agent_type
+                    ORDER BY cnt DESC
+                    LIMIT 5
+                """)
+            )
+            top_workers = result.fetchall()
+            
+            if top_workers:
+                summary_parts.append("\n今日最活跃员工：")
+                for row in top_workers:
+                    name = agent_names.get(row[0], row[0])
+                    summary_parts.append(f"  • {name}: {row[1]}个任务")
+            
+            # ===== 3. 今日日程完成情况 =====
+            result = await db.execute(
+                text("""
+                    SELECT 
+                        COUNT(*) FILTER (WHERE is_completed = TRUE) as done,
+                        COUNT(*) as total
+                    FROM assistant_schedules
+                    WHERE DATE(start_time) = CURRENT_DATE
+                """)
+            )
+            row = result.fetchone()
+            done_schedules, total_schedules = row[0] or 0, row[1] or 0
+            
+            if total_schedules > 0:
+                summary_parts.append(f"\n📅 今日日程：{done_schedules}/{total_schedules} 完成")
+            
+            # ===== 4. 明日安排预览 =====
+            tomorrow = (now + timedelta(days=1)).date()
+            result = await db.execute(
+                text("""
+                    SELECT title, start_time
+                    FROM assistant_schedules
+                    WHERE DATE(start_time) = :tomorrow
+                    AND is_completed = FALSE
+                    ORDER BY start_time ASC
+                    LIMIT 5
+                """),
+                {"tomorrow": tomorrow}
+            )
+            tomorrow_schedules = result.fetchall()
+            
+            if tomorrow_schedules:
+                weekday_names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+                weekday = weekday_names[tomorrow.weekday()]
+                summary_parts.append(f"\n📌 明日安排（{tomorrow.month}月{tomorrow.day}日 {weekday}）：")
+                for s in tomorrow_schedules:
+                    if s[1]:
+                        if s[1].tzinfo is None:
+                            st = pytz.UTC.localize(s[1])
+                        else:
+                            st = s[1]
+                        time_str = st.astimezone(CHINA_TZ).strftime("%H:%M")
+                    else:
+                        time_str = "全天"
+                    summary_parts.append(f"  • {time_str} {s[0]}")
+        
+        # ===== 5. 邮件情况 =====
+        try:
+            from app.services.multi_email_service import multi_email_service
+            email_summary = await multi_email_service.get_unread_summary()
+            unread = email_summary.get("total_unread", 0)
+            if unread > 0:
+                summary_parts.append(f"\n📬 未读邮件：{unread}封")
+        except Exception:
+            pass
+        
+        summary_parts.append("\n辛苦了！有事随时叫我。")
+        
+        # 发送晚报
+        summary = "\n".join(summary_parts)
+        await send_text_message("Frank.Z", summary)
+        logger.info("[Maria晚报] 晚间工作总结已发送")
+        
+    except Exception as e:
+        logger.error(f"[Maria晚报] 晚间总结生成失败: {e}")
         import traceback
         logger.error(traceback.format_exc())
