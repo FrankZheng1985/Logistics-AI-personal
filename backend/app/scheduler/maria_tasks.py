@@ -73,6 +73,51 @@ async def auto_sync_calendar():
         logger.error(f"[Maria后台] 日历自动同步失败: {e}")
 
 
+# 已通知邮件缓存（避免重复提醒）
+# 格式: {邮件唯一标识: 通知时间}
+_notified_emails_cache = {}
+_NOTIFIED_CACHE_MAX_SIZE = 500  # 最多缓存500条
+_NOTIFIED_CACHE_EXPIRE_HOURS = 24  # 24小时后过期可重新提醒
+
+
+def _get_email_id(email: dict, account_name: str) -> str:
+    """生成邮件唯一标识"""
+    subject = email.get("subject", "")[:50]
+    from_addr = email.get("from_address", "")
+    date_str = str(email.get("received_at", ""))[:10]  # 只取日期部分
+    return f"{account_name}:{from_addr}:{subject}:{date_str}"
+
+
+def _is_email_notified(email_id: str) -> bool:
+    """检查邮件是否已通知过（24小时内）"""
+    from datetime import datetime, timedelta
+    
+    if email_id not in _notified_emails_cache:
+        return False
+    
+    notified_time = _notified_emails_cache[email_id]
+    # 超过24小时可以重新提醒
+    if datetime.now() - notified_time > timedelta(hours=_NOTIFIED_CACHE_EXPIRE_HOURS):
+        del _notified_emails_cache[email_id]
+        return False
+    
+    return True
+
+
+def _mark_email_notified(email_id: str):
+    """标记邮件已通知"""
+    from datetime import datetime
+    
+    # 清理过期缓存
+    if len(_notified_emails_cache) > _NOTIFIED_CACHE_MAX_SIZE:
+        # 删除最旧的一半
+        sorted_items = sorted(_notified_emails_cache.items(), key=lambda x: x[1])
+        for key, _ in sorted_items[:len(sorted_items)//2]:
+            del _notified_emails_cache[key]
+    
+    _notified_emails_cache[email_id] = datetime.now()
+
+
 async def check_important_emails_and_notify():
     """
     检查重要邮件并主动通知用户（增强版）
@@ -81,6 +126,8 @@ async def check_important_emails_and_notify():
     - 大额订单相关
     - 回复/转发的邮件
     - 客户域名邮件
+    
+    注意：已通知过的邮件24小时内不会重复提醒
     """
     try:
         from app.services.multi_email_service import multi_email_service
@@ -143,12 +190,18 @@ async def check_important_emails_and_notify():
                     reason = "客户回复"
                 
                 if is_important:
+                    # 检查是否已通知过（避免重复提醒）
+                    email_id = _get_email_id(email, account.get("name", ""))
+                    if _is_email_notified(email_id):
+                        continue  # 跳过已通知的邮件
+                    
                     important_emails.append({
                         "subject": email.get("subject", "(无主题)"),
                         "from": email.get("from_name") or email.get("from_address"),
                         "account": account.get("name"),
                         "reason": reason,
                         "preview": (email.get("body_preview", "") or "")[:60],
+                        "_email_id": email_id,  # 保存ID用于标记
                     })
         
         # 去重（同一主题只保留一封）
@@ -177,6 +230,12 @@ async def check_important_emails_and_notify():
             
             # 发送到企业微信
             await send_text_message("Frank.Z", message)
+            
+            # 标记这些邮件为已通知（避免重复提醒）
+            for email in unique_emails:
+                if "_email_id" in email:
+                    _mark_email_notified(email["_email_id"])
+            
             logger.info(f"[Maria后台] ✅ 已通知用户 {len(unique_emails)} 封重要邮件")
             
     except Exception as e:
