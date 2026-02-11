@@ -22,7 +22,7 @@ from sqlalchemy import text
 class VectorStoreService:
     """向量存储服务"""
     
-    EMBEDDING_DIM = 1536  # text-embedding-3-small
+    EMBEDDING_DIM = 1024  # Dashscope text-embedding-v3 最大支持 1024
     TABLE_NAME = "maria_memory_vectors"
     
     def __init__(self):
@@ -217,21 +217,24 @@ class VectorStoreService:
         try:
             type_filter = "AND content_type = :content_type" if content_type else ""
             
+            # 将向量转换为字符串格式，用于 CAST
+            embedding_str = str(query_embedding)
+            
             async with AsyncSessionLocal() as db:
                 result = await db.execute(
                     text(f"""
                         SELECT content, content_type, metadata, created_at,
-                               1 - (embedding <=> :query_embedding::vector) as similarity
+                               1 - (embedding <=> CAST(:query_embedding AS vector)) as similarity
                         FROM {self.TABLE_NAME}
                         WHERE user_id = :user_id
                         {type_filter}
-                        AND 1 - (embedding <=> :query_embedding::vector) > :min_similarity
-                        ORDER BY embedding <=> :query_embedding::vector
+                        AND 1 - (embedding <=> CAST(:query_embedding AS vector)) > :min_similarity
+                        ORDER BY embedding <=> CAST(:query_embedding AS vector)
                         LIMIT :top_k
                     """),
                     {
                         "user_id": user_id,
-                        "query_embedding": str(query_embedding),
+                        "query_embedding": embedding_str,
                         "top_k": top_k,
                         "min_similarity": min_similarity,
                         **({"content_type": content_type} if content_type else {}),

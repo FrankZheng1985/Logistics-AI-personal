@@ -558,23 +558,57 @@ can_direct_execute判断标准：
     # ==================== 任务状态 ====================
 
     async def _handle_task_status(self, message: str, intent: Dict, user_id: str, args: Dict = None) -> Dict[str, Any]:
-        """查询任务状态"""
+        """查询任务状态
+        
+        支持参数：
+        - agent_name: 查询指定员工的任务
+        - task_id: 查询指定任务ID
+        - status_filter: 只查询某种状态（如 'failed' 只看失败的）
+        """
         await self.log_step("search", "查询任务状态", "获取最近任务记录")
+        
+        args = args or {}
+        agent_name = args.get("agent_name")
+        task_id = args.get("task_id")
+        status_filter = args.get("status_filter")  # 可以是 'failed', 'pending', 'completed'
+        
+        # 检测用户是否在问失败任务
+        msg_lower = message.lower()
+        if any(kw in msg_lower for kw in ["失败", "出错", "报错", "failed", "error", "问题"]):
+            status_filter = "failed"
 
         try:
             async with AsyncSessionLocal() as db:
+                # 构建查询条件
+                where_clauses = []
+                if agent_name:
+                    # 将员工名转为 agent_type
+                    name_to_type = {v["name"]: v["type"].value for v in AGENT_INFO.values()}
+                    agent_type = name_to_type.get(agent_name)
+                    if agent_type:
+                        where_clauses.append(f"agent_type = '{agent_type}'")
+                if task_id:
+                    where_clauses.append(f"id = '{task_id}'")
+                if status_filter:
+                    where_clauses.append(f"status = '{status_filter}'")
+                
+                where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+                
                 result = await db.execute(
-                    text("""
+                    text(f"""
                         SELECT id, task_type, agent_type, status, 
-                               input_data, created_at, completed_at
+                               input_data, created_at, completed_at, error_message
                         FROM ai_tasks
+                        {where_sql}
                         ORDER BY created_at DESC
-                        LIMIT 5
+                        LIMIT 10
                     """)
                 )
                 tasks = result.fetchall()
 
             if not tasks:
+                if status_filter == "failed":
+                    return self._ok("太好了，最近没有失败的任务！")
                 context = f"用户问：{message}\n查询结果：目前没有任何任务记录。"
                 smart_response = await self.chat(
                     context,
@@ -586,15 +620,18 @@ can_direct_execute判断标准：
 
             status_map = {
                 "pending": "等待中", "processing": "进行中",
-                "completed": "已完成", "failed": "失败"
+                "completed": "已完成", "failed": "❌失败"
             }
 
             task_lines = []
             for task in tasks:
+                task_id_val = task[0]
                 agent_type = task[2]
                 status = task[3]
                 input_data = task[4] if isinstance(task[4], dict) else json.loads(task[4] or '{}')
                 created_at = task[5]
+                completed_at = task[6]
+                error_message = task[7]
 
                 name = agent_names.get(agent_type, agent_type)
                 status_text = status_map.get(status, status)
@@ -608,15 +645,26 @@ can_direct_execute判断标准：
                 else:
                     time_str = ""
 
-                task_lines.append(f"{name}的任务「{desc}」- {status_text}，时间{time_str}")
+                line = f"{name}的任务「{desc}」- {status_text}，时间{time_str}"
+                
+                # 如果是失败的任务，显示错误原因
+                if status == "failed" and error_message:
+                    error_short = (error_message or "未知错误")[:80]
+                    line += f"\n  └─ 原因：{error_short}"
+                
+                task_lines.append(line)
+
+            # 如果是查询失败任务，直接返回详细信息
+            if status_filter == "failed":
+                return self._ok(f"最近失败的任务（共{len(tasks)}条）：\n\n" + "\n\n".join(task_lines))
 
             context = f"""用户问：{message}
-最近5条任务记录：
+最近任务记录（共{len(tasks)}条）：
 {chr(10).join(task_lines)}"""
 
             smart_response = await self.chat(
                 context,
-                "你是郑总的私人助理，在微信上聊天。用口语简要说任务情况，不要用markdown、标签、分隔线。"
+                "你是郑总的私人助理，在微信上聊天。用口语简要说任务情况，不要用markdown、标签、分隔线。如果有失败的任务，要特别说明失败原因。"
             )
             return self._ok(smart_response)
 

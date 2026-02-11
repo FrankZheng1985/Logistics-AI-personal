@@ -142,17 +142,22 @@ MARIA_TOOLS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "check_task_status",
-            "description": "查询任务执行状态，可以查最近的任务或指定员工的任务",
+            "description": "查询任务执行状态。可以查最近的任务、指定员工的任务、或只查失败的任务。当老板问'有什么任务失败了吗'时，用status_filter='failed'",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "agent_name": {
                         "type": "string",
-                        "description": "可选，查某个员工的任务"
+                        "description": "可选，查某个员工的任务（如：小文、小影）"
                     },
                     "task_id": {
                         "type": "string",
                         "description": "可选，查指定任务ID"
+                    },
+                    "status_filter": {
+                        "type": "string",
+                        "enum": ["failed", "pending", "completed", "processing"],
+                        "description": "可选，只查某种状态的任务。常用：'failed'只看失败的"
                     }
                 },
                 "required": []

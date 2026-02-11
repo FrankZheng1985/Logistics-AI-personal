@@ -876,6 +876,37 @@ async def maria_proactive_task_check():
                     issues.append(f"{agent_name} 失败率 {failure_rate:.0f}%（{failed}/{total}个任务）")
                     suggestions.append(f"建议检查 {agent_name} 的配置或日志")
             
+            # ===== 3.5. 显示最近失败任务的详细信息（新增） =====
+            result = await db.execute(
+                text("""
+                    SELECT 
+                        agent_type,
+                        task_description,
+                        error_message,
+                        completed_at,
+                        id
+                    FROM ai_tasks 
+                    WHERE status = 'failed'
+                    AND completed_at > NOW() - INTERVAL '6 hours'
+                    ORDER BY completed_at DESC
+                    LIMIT 5
+                """)
+            )
+            recent_failures = result.fetchall()
+            
+            if recent_failures:
+                issues.append(f"\n⚠️ 最近6小时失败的任务详情：")
+                for task in recent_failures:
+                    agent_type, desc, error, completed_at, task_id = task
+                    agent_name = agent_names.get(agent_type, agent_type)
+                    desc_short = (desc or "未知任务")[:40]
+                    error_short = (error or "未知错误")[:60]
+                    time_str = completed_at.strftime("%H:%M") if completed_at else "?"
+                    issues.append(f"  [{time_str}] {agent_name}: {desc_short}")
+                    issues.append(f"      ❌ 原因: {error_short}")
+                
+                suggestions.append("可以让我重试失败的任务，或者检查系统日志")
+            
             # ===== 4. 检查今日待办完成情况 =====
             result = await db.execute(
                 text("""

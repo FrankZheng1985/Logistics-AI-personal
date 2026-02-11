@@ -41,6 +41,9 @@ class CacheService:
     
     async def get(self, key: str) -> Optional[Any]:
         """获取缓存"""
+        if not self._connected:
+            await self.connect()  # 自动连接
+        
         if not self._connected or not self.redis_client:
             return None
         
@@ -60,18 +63,26 @@ class CacheService:
         Args:
             key: 缓存键
             value: 缓存值（会被JSON序列化）
-            ttl: 过期时间（秒），默认5分钟
+            ttl: 过期时间（秒），默认5分钟。设为 None 表示永久存储
         """
+        if not self._connected:
+            await self.connect()  # 自动连接
+        
         if not self._connected or not self.redis_client:
             return False
         
         try:
-            await self.redis_client.setex(
-                f"maria:cache:{key}",
-                ttl,
-                json.dumps(value, ensure_ascii=False, default=str)
-            )
-            logger.debug(f"[缓存写入] {key} (TTL: {ttl}s)")
+            cache_key = f"maria:cache:{key}"
+            json_value = json.dumps(value, ensure_ascii=False, default=str)
+            
+            if ttl is None:
+                # 永久存储（无过期时间）
+                await self.redis_client.set(cache_key, json_value)
+                logger.debug(f"[缓存写入] {key} (永久)")
+            else:
+                # 带过期时间
+                await self.redis_client.setex(cache_key, ttl, json_value)
+                logger.debug(f"[缓存写入] {key} (TTL: {ttl}s)")
             return True
         except Exception as e:
             logger.warning(f"[缓存写入失败] {key}: {e}")
