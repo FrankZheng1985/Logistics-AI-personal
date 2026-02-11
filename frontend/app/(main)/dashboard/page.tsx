@@ -357,18 +357,18 @@ function AgentCommandCard({
         )}
       </div>
       
-      {/* 波形动画（仅在执行中显示） */}
+      {/* 波形动画（仅在执行中显示） - 使用固定值避免 hydration 错误 */}
       {status === 'busy' && (
         <div className="absolute bottom-0 left-1 right-0 h-0.5 flex items-end justify-around opacity-60">
-          {[...Array(20)].map((_, i) => (
+          {[3, 5, 4, 7, 3, 6, 4, 5, 8, 4, 6, 3, 5, 7, 4, 6, 3, 5, 4, 6].map((h, i) => (
             <motion.div
               key={i}
               className="w-0.5 bg-energy-orange rounded-full"
               animate={{ 
-                height: [2, Math.random() * 6 + 2, 2],
+                height: [2, h, 2],
               }}
               transition={{
-                duration: 0.5 + Math.random() * 0.5,
+                duration: 0.5 + (i % 5) * 0.1,
                 repeat: Infinity,
                 delay: i * 0.05
               }}
@@ -593,9 +593,10 @@ export default function Dashboard() {
     }
   }
   
-  // 获取当前时间
-  const [currentTime, setCurrentTime] = useState(new Date())
+  // 获取当前时间（客户端挂载后才显示，避免 hydration 错误）
+  const [currentTime, setCurrentTime] = useState<Date | null>(null)
   useEffect(() => {
+    setCurrentTime(new Date()) // 初始化
     const timer = setInterval(() => setCurrentTime(new Date()), 1000)
     return () => clearInterval(timer)
   }, [])
@@ -634,12 +635,12 @@ export default function Dashboard() {
           {/* 右侧状态区 */}
           <div className="flex items-center gap-3 sm:gap-4">
             {/* 系统时间 */}
-            <div className="hidden md:block text-right">
+            <div className="hidden md:block text-right" suppressHydrationWarning>
               <p className="text-cyber-blue font-mono text-lg font-bold">
-                {currentTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                {currentTime ? currentTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--'}
               </p>
               <p className="text-gray-600 text-xs">
-                {currentTime.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', weekday: 'short' })}
+                {currentTime ? currentTime.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric', weekday: 'short' }) : '--'}
               </p>
             </div>
             
