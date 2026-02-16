@@ -235,6 +235,27 @@ class BaseLLM(ABC):
             logger.warning(f"记录LLM用量失败: {e}")
 
 
+class MockLLM(BaseLLM):
+    """Mock LLM - 用于在禁用 AI 时返回标准响应"""
+    provider = "mock"
+    
+    async def chat(
+        self, 
+        messages: List[Dict[str, str]], 
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+        system_prompt: Optional[str] = None
+    ) -> str:
+        return "【系统通知】AI 服务已由管理员暂停使用（解绑模式）。如需恢复，请在配置中重新启用。"
+    
+    async def chat_with_tools(self, *args, **kwargs) -> Dict[str, Any]:
+        return {
+            "content": "【系统通知】AI 工具调用服务已暂停。",
+            "tool_calls": None,
+            "role": "assistant"
+        }
+
+
 class ClaudeLLM(BaseLLM):
     """Claude API 封装"""
     
@@ -660,6 +681,10 @@ class LLMFactory:
     @classmethod
     def get_primary(cls) -> BaseLLM:
         """获取主力LLM（Qwen-Max 优先）"""
+        # 如果全局禁用 AI，返回 MockLLM
+        if not settings.ENABLE_AI:
+            return MockLLM()
+            
         # 优先使用通义千问 Max
         if settings.DASHSCOPE_API_KEY:
             if cls._qwen_instance is None:
@@ -895,6 +920,16 @@ async def chat_completion(
     # 设置调用上下文
     if agent_name or task_type or agent_id:
         set_llm_context(agent_name=agent_name, task_type=task_type, agent_id=agent_id)
+    
+    # 如果全局禁用 AI，直接返回 Mock 响应
+    if not settings.ENABLE_AI:
+        if tools:
+            return {
+                "content": "【系统通知】AI 服务已暂停，无法执行工具调用。",
+                "tool_calls": None,
+                "role": "assistant"
+            }
+        return "【系统通知】AI 服务当前处于解绑暂停状态，已停止所有大模型调用以节省成本。"
     
     kwargs = {
         "messages": messages,

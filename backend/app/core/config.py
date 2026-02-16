@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     JWT_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7天
     
     # AI模型配置
+    ENABLE_AI: bool = False  # 全局AI开关，设置为False时将停止所有大模型调用以节省成本
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
     

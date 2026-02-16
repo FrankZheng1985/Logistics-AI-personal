@@ -32,8 +32,11 @@ def check_critical_config():
             errors.append("❌ 生产环境必须配置安全的数据库密码")
     
     # 检查 AI API 密钥
-    if not any([settings.DASHSCOPE_API_KEY, settings.OPENAI_API_KEY, settings.ANTHROPIC_API_KEY]):
-        warnings.append("⚠️ 未配置任何 AI API 密钥，AI 功能将不可用")
+    if settings.ENABLE_AI:
+        if not any([settings.DASHSCOPE_API_KEY, settings.OPENAI_API_KEY, settings.ANTHROPIC_API_KEY]):
+            warnings.append("⚠️ 未配置任何 AI API 密钥，AI 功能将不可用")
+    else:
+        logger.info("ℹ️ 系统处于 AI 禁用模式 (ENABLE_AI=False)")
     
     # 检查加密密钥
     import os
@@ -152,6 +155,7 @@ async def root():
         "name": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "status": "running",
+        "ai_enabled": settings.ENABLE_AI,
         "ai_team": [
             {"name": "小调", "role": "调度主管", "status": "online"},
             {"name": "小视", "role": "视频创作", "status": "online"},

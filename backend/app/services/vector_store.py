@@ -78,6 +78,12 @@ class VectorStoreService:
     
     async def _get_embedding(self, text_content: str) -> Optional[List[float]]:
         """获取文本的向量表示"""
+        from app.core.config import settings
+        
+        # 如果全局禁用 AI，直接返回 None
+        if not settings.ENABLE_AI:
+            return None
+            
         if not text_content or len(text_content.strip()) < 5:
             return None
         
