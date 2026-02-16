@@ -85,12 +85,7 @@ class VectorStoreService:
             from app.core.config import settings
             import httpx
             
-            # 优先用 DeepSeek Embedding，退回 Dashscope
-            api_key = getattr(settings, 'DEEPSEEK_API_KEY', None)
-            base_url = getattr(settings, 'DEEPSEEK_API_BASE', 'https://api.deepseek.com/v1')
-            model = "deepseek-chat"  # DeepSeek 不提供独立embedding API，我们用dashscope
-            
-            # 用通义千问的 text-embedding-v3
+            # 优先用通义千问的 text-embedding-v3
             dashscope_key = getattr(settings, 'DASHSCOPE_API_KEY', None)
             if dashscope_key:
                 async with httpx.AsyncClient(timeout=15.0) as client:

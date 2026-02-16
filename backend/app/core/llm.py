@@ -678,15 +678,7 @@ class LLMFactory:
     
     @classmethod
     def get_deepseek(cls) -> BaseLLM:
-        """获取 DeepSeek（代码和逻辑分析专家）"""
-        if settings.DEEPSEEK_API_KEY:
-            if cls._deepseek_instance is None:
-                cls._deepseek_instance = OpenAILLM(
-                    api_key=settings.DEEPSEEK_API_KEY,
-                    base_url=settings.DEEPSEEK_API_BASE,
-                    model="deepseek-chat"
-                )
-            return cls._deepseek_instance
+        """获取 DeepSeek（已暂停，回退到主力模型）"""
         return cls.get_primary()
     
     @classmethod
@@ -974,7 +966,6 @@ async def chat_completion(
                 logger.warning(f"LLM调用失败 ({llm.provider if hasattr(llm, 'provider') else 'unknown'})，尝试备用模型: {e}")
                 # 尝试备用模型列表
                 fallback_order = [
-                    LLMFactory.get_deepseek,
                     LLMFactory.get_primary,
                     LLMFactory.get_hunyuan,
                     LLMFactory.get_claude_via_openrouter,

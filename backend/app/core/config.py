@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     OPENROUTER_GPT4_MODEL: str = "openai/gpt-4-turbo"  # GPT-4 Turbo
     
     AI_PRIMARY_MODEL: str = "qwen-max"
-    AI_FALLBACK_MODEL: str = "deepseek-chat"
+    AI_FALLBACK_MODEL: str = "qwen-max"
     AI_TEMPERATURE: float = 0.7
     AI_MAX_TOKENS: int = 4000  # 增加 token 限制
     
